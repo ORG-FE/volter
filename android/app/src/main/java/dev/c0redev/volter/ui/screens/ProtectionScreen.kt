@@ -1,5 +1,6 @@
 package dev.c0redev.volter.ui.screens
 
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -21,8 +23,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
 import dev.c0redev.volter.domain.model.ProtectionOptions
@@ -31,6 +35,7 @@ import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
 import dev.c0redev.volter.ui.components.StyledTextField
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
     val current = vm.globalProtection.collectAsState().value
@@ -84,8 +89,32 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         preambleRotate = p.preambleRotate
     }
 
+    val saveCurrent = {
+        vm.saveGlobalProtection(
+            ProtectionOptions(
+                obfuscation = obf.takeIf { it.isNotBlank() },
+                junkCount = junkCount.toIntOrNull() ?: 0,
+                junkMin = junkMin.toIntOrNull() ?: 0,
+                junkMax = junkMax.toIntOrNull() ?: 0,
+                padS1 = padS1.toIntOrNull() ?: 0,
+                padS2 = padS2.toIntOrNull() ?: 0,
+                padS3 = padS3.toIntOrNull() ?: 0,
+                padS4 = padS4.toIntOrNull() ?: 0,
+                preCheck = preCheck,
+                magicSplit = magicSplit.takeIf { it.isNotBlank() },
+                junkStyle = junkStyle.takeIf { it.isNotBlank() },
+                flushPolicy = flushPolicy.takeIf { it.isNotBlank() },
+                preambleProfile = preambleProfile.takeIf { it.isNotBlank() },
+                preambleRotate = preambleRotate,
+            ),
+        )
+    }
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(horizontal = 18.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
@@ -99,45 +128,12 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Аналитика",
+                        text = "Быстрые пресеты",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                    )
-                    if (metrics.isEmpty()) {
-                        Text(
-                            text = "Нет данных",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        metrics.asReversed().forEach { r ->
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    text = "${r.configName}  •  ${r.server}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                )
-                                Text(
-                                    text = "hs=${r.handshakeOk}  •  err=${r.errorType ?: '-'}  •  dns=${r.dnsOkBefore}/${r.dnsOkAfter ?: '-'}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            SectionCard {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Авто-стратегия",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "Пресеты заполняют поля. «По метрикам» — по последним сессиям.",
+                        text = "1 тап, потом Сохранить. Или сразу Применить и сохранить.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -147,14 +143,14 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Text("Баланс", style = MaterialTheme.typography.labelLarge)
+                            Text("Баланс")
                         }
                         FilledTonalButton(
                             onClick = { applyPreset(ProtectionPresets.strict()) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                         ) {
-                            Text("Усиленная", style = MaterialTheme.typography.labelLarge)
+                            Text("Усиленная")
                         }
                     }
                     FilledTonalButton(
@@ -162,74 +158,100 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                     ) {
-                        Text("Авто по метрикам сессий")
+                        Text("Авто по метрикам")
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                applyPreset(ProtectionPresets.balanced())
+                                saveCurrent()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                        ) { Text("Баланс + сохранить") }
+                        FilledTonalButton(
+                            onClick = {
+                                applyPreset(ProtectionPresets.strict())
+                                saveCurrent()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                        ) { Text("Усиленная + сохранить") }
                     }
                 }
             }
         }
+
+        item {
+            SectionCard {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Преамбула",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Выбери профиль маскировки. rotate для авто-смены паттерна.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf("" to "Нет", "rotate" to "Rotate", "tls_record" to "TLS rec", "tls_ch_shape" to "TLS CH", "smb1_shape" to "SMB", "mc_frame" to "MC").forEach { (v, title) ->
+                            FilledTonalButton(
+                                onClick = { preambleProfile = v },
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                val selected = if (preambleProfile == v) "✓ " else ""
+                                Text(selected + title)
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "Rotate с enhanced",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Switch(checked = preambleRotate, onCheckedChange = { preambleRotate = it })
+                    }
+                }
+            }
+        }
+
         item {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Глобальные настройки",
+                        text = "Тонкая настройка",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        fontWeight = FontWeight.SemiBold,
                     )
                     StyledTextField(
                         value = obf,
                         onValueChange = { obf = it },
-                        label = "obfuscation",
+                        label = "obfuscation (default/enhanced)",
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StyledTextField(
-                            value = junkCount,
-                            onValueChange = { junkCount = it },
-                            label = "junkCount",
-                            modifier = Modifier.weight(1f),
-                        )
-                        StyledTextField(
-                            value = junkMin,
-                            onValueChange = { junkMin = it },
-                            label = "junkMin",
-                            modifier = Modifier.weight(1f),
-                        )
-                        StyledTextField(
-                            value = junkMax,
-                            onValueChange = { junkMax = it },
-                            label = "junkMax",
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = "preCheck",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                        )
-                        Switch(
-                            checked = preCheck,
-                            onCheckedChange = { preCheck = it },
-                            colors = androidx.compose.material3.SwitchDefaults.colors(
-                                checkedThumbColor = MaterialTheme.colorScheme.primary,
-                                checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                            ),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StyledTextField(
                             value = padS1,
-                            onValueChange = { padS1 = it },
+                            onValueChange = { padS1 = digitsOnly(it) },
                             label = "padS1",
                             modifier = Modifier.weight(1f),
                         )
                         StyledTextField(
                             value = padS2,
-                            onValueChange = { padS2 = it },
+                            onValueChange = { padS2 = digitsOnly(it) },
                             label = "padS2",
                             modifier = Modifier.weight(1f),
                         )
@@ -237,14 +259,34 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StyledTextField(
                             value = padS3,
-                            onValueChange = { padS3 = it },
+                            onValueChange = { padS3 = digitsOnly(it) },
                             label = "padS3",
                             modifier = Modifier.weight(1f),
                         )
                         StyledTextField(
                             value = padS4,
-                            onValueChange = { padS4 = it },
+                            onValueChange = { padS4 = digitsOnly(it) },
                             label = "padS4",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StyledTextField(
+                            value = junkCount,
+                            onValueChange = { junkCount = digitsOnly(it) },
+                            label = "junkCount",
+                            modifier = Modifier.weight(1f),
+                        )
+                        StyledTextField(
+                            value = junkMin,
+                            onValueChange = { junkMin = digitsOnly(it) },
+                            label = "junkMin",
+                            modifier = Modifier.weight(1f),
+                        )
+                        StyledTextField(
+                            value = junkMax,
+                            onValueChange = { junkMax = digitsOnly(it) },
+                            label = "junkMax",
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -261,65 +303,35 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         modifier = Modifier.fillMaxWidth(),
                     )
                     StyledTextField(
-                        value = preambleProfile,
-                        onValueChange = { preambleProfile = it },
-                        label = "preambleProfile (tls_record|tls_ch_shape|smb1_shape|mc_frame|rotate)",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = "preambleRotate (с enhanced)",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                        )
-                        Switch(
-                            checked = preambleRotate,
-                            onCheckedChange = { preambleRotate = it },
-                            colors = androidx.compose.material3.SwitchDefaults.colors(
-                                checkedThumbColor = MaterialTheme.colorScheme.primary,
-                                checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
-                            ),
-                        )
-                    }
-                    StyledTextField(
                         value = flushPolicy,
                         onValueChange = { flushPolicy = it },
                         label = "flushPolicy",
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "preCheck",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Switch(checked = preCheck, onCheckedChange = { preCheck = it })
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
-                            onClick = {
-                                vm.saveGlobalProtection(ProtectionOptions(
-                                    obfuscation = obf.takeIf { it.isNotBlank() },
-                                    junkCount = junkCount.toIntOrNull() ?: 0,
-                                    junkMin = junkMin.toIntOrNull() ?: 0,
-                                    junkMax = junkMax.toIntOrNull() ?: 0,
-                                    padS1 = padS1.toIntOrNull() ?: 0,
-                                    padS2 = padS2.toIntOrNull() ?: 0,
-                                    padS3 = padS3.toIntOrNull() ?: 0,
-                                    padS4 = padS4.toIntOrNull() ?: 0,
-                                    preCheck = preCheck,
-                                    magicSplit = magicSplit.takeIf { it.isNotBlank() },
-                                    junkStyle = junkStyle.takeIf { it.isNotBlank() },
-                                    flushPolicy = flushPolicy.takeIf { it.isNotBlank() },
-                                    preambleProfile = preambleProfile.takeIf { it.isNotBlank() },
-                                    preambleRotate = preambleRotate,
-                                ))
-                            },
+                            onClick = saveCurrent,
                             modifier = Modifier.weight(1f),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(12.dp),
                         ) {
                             Text("Сохранить")
                         }
-                        androidx.compose.material3.FilledTonalButton(
+                        FilledTonalButton(
                             onClick = { vm.saveGlobalProtection(null) },
                             modifier = Modifier.weight(1f),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(12.dp),
                         ) {
                             Text("Очистить")
                         }
@@ -327,5 +339,40 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                 }
             }
         }
+
+        item {
+            SectionCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Последние сессии",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    val tail = metrics.takeLast(8).asReversed()
+                    if (tail.isEmpty()) {
+                        Text("Нет данных", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        tail.forEach { r ->
+                            Text(
+                                text = "${r.configName}: hs=${r.handshakeOk}, err=${r.errorType ?: "-"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
+}
+
+private fun digitsOnly(v: String): String {
+    if (v.isEmpty()) return v
+    val out = StringBuilder(v.length)
+    for (ch in v) {
+        if (ch in '0'..'9') {
+            out.append(ch)
+        }
+    }
+    return out.toString()
 }

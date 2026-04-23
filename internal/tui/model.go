@@ -451,7 +451,7 @@ func newProtectionInputs(opts config.ProtectionOptions) []textinput.Model {
 		ti("2,3 or 0", magicSplit),
 		ti("random|tls", junkStyle),
 		ti("once|perChunk", flushPolicy),
-		ti("preambleProfile empty|rotate|tls_record|...", pp),
+		ti("none|rotate|tls_record|tls_ch_shape|smb1_shape|mc_frame", pp),
 		ti("preambleRotate true|false", strconv.FormatBool(opts.PreambleRotate)),
 	}
 }
@@ -525,6 +525,14 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 	}
 	if len(inputs) >= 14 {
 		preambleProfile = strings.TrimSpace(strings.ToLower(inputs[12].Value()))
+		switch preambleProfile {
+		case "", "none", "rotate", "tls_record", "tls_ch_shape", "smb1_shape", "mc_frame":
+			if preambleProfile == "none" {
+				preambleProfile = ""
+			}
+		default:
+			preambleProfile = ""
+		}
 		preambleRotate = strings.ToLower(strings.TrimSpace(inputs[13].Value())) == "true"
 	}
 	if flushPolicy == "perchunk" {
@@ -548,6 +556,84 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 		PreambleProfile: preambleProfile,
 		PreambleRotate:  preambleRotate,
 	}
+}
+
+func applyProtectionPresetToInputs(inputs []textinput.Model, preset config.ProtectionOptions) []textinput.Model {
+	if len(inputs) < 14 {
+		return inputs
+	}
+	set := func(i int, v string) {
+		inputs[i].SetValue(v)
+	}
+	set(0, orEmpty(preset.Obfuscation, "default"))
+	set(1, strconv.Itoa(preset.JunkCount))
+	set(2, strconv.Itoa(preset.JunkMin))
+	set(3, strconv.Itoa(preset.JunkMax))
+	set(4, strconv.Itoa(preset.PadS1))
+	set(5, strconv.Itoa(preset.PadS2))
+	set(6, strconv.Itoa(preset.PadS3))
+	set(7, strconv.Itoa(preset.PadS4))
+	set(8, strconv.FormatBool(preset.PreCheck))
+	set(9, orEmpty(preset.MagicSplit, "0"))
+	set(10, orEmpty(preset.JunkStyle, "random"))
+	set(11, orEmpty(preset.FlushPolicy, "once"))
+	set(12, preset.PreambleProfile)
+	set(13, strconv.FormatBool(preset.PreambleRotate))
+	return inputs
+}
+
+func protectionPresetBalanced() config.ProtectionOptions {
+	return config.ProtectionOptions{
+		Obfuscation: "default",
+		JunkCount:   4,
+		JunkMin:     64,
+		JunkMax:     512,
+		PadS1:       4,
+		PadS2:       4,
+		PadS3:       4,
+		PadS4:       24,
+		JunkStyle:   "random",
+		FlushPolicy: "once",
+	}
+}
+
+func protectionPresetStrict() config.ProtectionOptions {
+	return config.ProtectionOptions{
+		Obfuscation:     "enhanced",
+		JunkCount:       8,
+		JunkMin:         128,
+		JunkMax:         896,
+		PadS1:           12,
+		PadS2:           12,
+		PadS3:           12,
+		PadS4:           48,
+		JunkStyle:       "tls",
+		FlushPolicy:     "once",
+		PreambleProfile: "rotate",
+		PreambleRotate:  true,
+	}
+}
+
+func protectionPresetAutoByMetrics() config.ProtectionOptions {
+	store, err := metrics.Load()
+	if err != nil || store == nil || len(store.Records) < 2 {
+		return protectionPresetBalanced()
+	}
+	tail := store.Records
+	if len(tail) > 10 {
+		tail = tail[len(tail)-10:]
+	}
+	bad := 0
+	for _, r := range tail {
+		switch strings.ToLower(strings.TrimSpace(r.ErrorType)) {
+		case "timeout", "reset", "unknown":
+			bad++
+		}
+	}
+	if bad >= 3 {
+		return protectionPresetStrict()
+	}
+	return protectionPresetBalanced()
 }
 
 func fillConnectionFromAnyField(inputs []textinput.Model) []textinput.Model {
@@ -946,6 +1032,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "b", "B":
 			if m.tab == tabSettings && len(m.cfgs) > 0 {
 				return m, runPingAll(m.cfgs, m.names)
+			}
+		case "1", "2", "3":
+			if m.tab == tabProtection {
+				var preset config.ProtectionOptions
+				switch msg.String() {
+				case "1":
+					preset = protectionPresetBalanced()
+				case "2":
+					preset = protectionPresetStrict()
+				case "3":
+					preset = protectionPresetAutoByMetrics()
+				}
+				if m.protectionEditing && len(m.protectionInputs) == 14 {
+					m.protectionInputs = applyProtectionPresetToInputs(m.protectionInputs, preset)
+					return m, nil
+				}
+				if m.protectionTarget == "" {
+					_ = config.SaveProtection(preset)
+				} else {
+					cfg, err := config.LoadByName(m.protectionTarget)
+					if err == nil {
+						cfg.Protection = &preset
+						_ = config.Save(m.protectionTarget, cfg)
+					}
+				}
+				return m, nil
 			}
 		case "e", "E":
 			if m.tab == tabSettings && !m.settingsEditing {
@@ -1534,7 +1646,8 @@ func (m *Model) protectionView() string {
 		b.WriteString(hintKey.Render("Tab") + " ")
 		b.WriteString(hintText.Render("след.  ") + hintKey.Render("Enter") + " ")
 		b.WriteString(hintText.Render("сохранить  ") + hintKey.Render("Esc") + " ")
-		b.WriteString(hintText.Render("отмена") + "\n")
+		b.WriteString(hintText.Render("отмена  ") + hintKey.Render("1/2/3") + " ")
+		b.WriteString(hintText.Render("пресеты") + "\n")
 	} else {
 		var opts config.ProtectionOptions
 		if m.protectionTarget == "" {
@@ -1577,7 +1690,8 @@ func (m *Model) protectionView() string {
 		b.WriteString(kvValue.Render(fmt.Sprintf("%v", opts.PreambleRotate)) + "\n")
 		b.WriteString("  ")
 		b.WriteString(hintKey.Render("E") + " ")
-		b.WriteString(hintText.Render("редактировать") + "\n")
+		b.WriteString(hintText.Render("редактировать  ") + hintKey.Render("1/2/3") + " ")
+		b.WriteString(hintText.Render("баланс/усил/авто") + "\n")
 	}
 
 	b.WriteString("\n")
@@ -1924,7 +2038,7 @@ func (m *Model) View() string {
 		footer += "  ↑/↓ - выбор  P - ping  T - volter  E - ред. (IPv6)  R - обновить"
 	}
 	if m.tab == tabProtection {
-		footer += "  E - редактировать  Ctrl+←/→ - цель  ↑/↓ PgUp/PgDn - прокрутка"
+		footer += "  E - редактировать  1/2/3 - баланс/усил/авто  Ctrl+←/→ - цель  ↑/↓ PgUp/PgDn - прокрутка"
 	}
 	if m.tab == tabSettings {
 		footer += "  E - режим (TUN/Proxy)  B - тест всех конфигов"

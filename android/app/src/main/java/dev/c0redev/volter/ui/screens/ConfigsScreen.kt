@@ -423,6 +423,8 @@ private fun ConfigEditorDialog(
     var pMagicSplit by remember { mutableStateOf("") }
     var pJunkStyle by remember { mutableStateOf("") }
     var pFlush by remember { mutableStateOf("") }
+    var pPreambleProfile by remember { mutableStateOf("") }
+    var pPreambleRotate by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initialConfig, oldName) {
@@ -455,6 +457,8 @@ private fun ConfigEditorDialog(
                 pMagicSplit = pr.magicSplit ?: ""
                 pJunkStyle = pr.junkStyle ?: ""
                 pFlush = pr.flushPolicy ?: ""
+                pPreambleProfile = pr.preambleProfile ?: ""
+                pPreambleRotate = pr.preambleRotate
             } else {
                 pObf = ""
                 pJunkCount = "0"
@@ -468,6 +472,8 @@ private fun ConfigEditorDialog(
                 pMagicSplit = ""
                 pJunkStyle = ""
                 pFlush = ""
+                pPreambleProfile = ""
+                pPreambleRotate = false
             }
         } else {
             connection = ""
@@ -494,6 +500,8 @@ private fun ConfigEditorDialog(
             pMagicSplit = ""
             pJunkStyle = ""
             pFlush = ""
+            pPreambleProfile = ""
+            pPreambleRotate = false
         }
     }
 
@@ -561,6 +569,8 @@ private fun ConfigEditorDialog(
                             magicSplit = pMagicSplit.trim().takeIf { it.isNotEmpty() },
                             junkStyle = pJunkStyle.trim().takeIf { it.isNotEmpty() },
                             flushPolicy = pFlush.trim().takeIf { it.isNotEmpty() },
+                            preambleProfile = pPreambleProfile.trim().takeIf { it.isNotEmpty() },
+                            preambleRotate = pPreambleRotate,
                         )
                     }
                     val cfg = Config(
@@ -630,6 +640,11 @@ private fun ConfigEditorDialog(
                     StyledTextField(value = pMagicSplit, onValueChange = { pMagicSplit = it }, label = "prot magicSplit", modifier = Modifier.fillMaxWidth())
                     StyledTextField(value = pJunkStyle, onValueChange = { pJunkStyle = it }, label = "prot junkStyle", modifier = Modifier.fillMaxWidth())
                     StyledTextField(value = pFlush, onValueChange = { pFlush = it }, label = "prot flushPolicy", modifier = Modifier.fillMaxWidth())
+                    StyledTextField(value = pPreambleProfile, onValueChange = { pPreambleProfile = it }, label = "prot preambleProfile", modifier = Modifier.fillMaxWidth())
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = pPreambleRotate, onCheckedChange = { pPreambleRotate = it })
+                        Text("prot preambleRotate", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
 
                 if (err != null) {

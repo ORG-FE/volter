@@ -2,8 +2,10 @@ package tunnel
 
 import (
 	"bufio"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/json"
+	"math/big"
 	"net"
 	"strings"
 
@@ -11,6 +13,17 @@ import (
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/protocol"
 )
+
+func randInt(min, max int) int {
+	if max <= min {
+		return min
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	if err != nil {
+		return min
+	}
+	return min + int(n.Int64())
+}
 
 func resolvePreambleKind(prot *config.ProtectionOptions, slot int64, token, junkStyle string) string {
 	var preambleProfile string
@@ -31,10 +44,11 @@ func streamObf(prot *config.ProtectionOptions, slot int64, udpMaxPad bool) (maxP
 		if prot != nil && prot.PadS4 > 0 && prot.PadS4 <= 64 {
 			maxPad = prot.PadS4
 		}
-		maxPad += int(slot % 16)
-		if maxPad > 64 {
-			maxPad = 64
+		maxPadHi := maxPad + 16
+		if maxPadHi > 64 {
+			maxPadHi = 64
 		}
+		maxPad = randInt(maxPad, maxPadHi)
 	}
 	prefixLen = 0
 	junkCount, junkMin, junkMax = 0, 64, 1024
@@ -67,7 +81,30 @@ func streamObf(prot *config.ProtectionOptions, slot int64, udpMaxPad bool) (maxP
 	if junkCount == 0 {
 		junkCount, junkMin, junkMax = 2, 64, 512
 	}
-	junkCount, junkMin, junkMax = protocol.ApplyTimeVariation(junkCount, junkMin, junkMax, slot)
+	cMin, cMax := junkCount-1, junkCount+2
+	if cMin < 1 {
+		cMin = 1
+	}
+	if cMax > 16 {
+		cMax = 16
+	}
+	junkCount = randInt(cMin, cMax)
+	jMinLo, jMinHi := junkMin, junkMin+128
+	if jMinHi > 1024 {
+		jMinHi = 1024
+	}
+	junkMin = randInt(jMinLo, jMinHi)
+	jMaxLo, jMaxHi := junkMax, junkMax+384
+	if jMaxLo < junkMin {
+		jMaxLo = junkMin
+	}
+	if jMaxHi > 2048 {
+		jMaxHi = 2048
+	}
+	if jMaxHi < jMaxLo {
+		jMaxHi = jMaxLo
+	}
+	junkMax = randInt(jMaxLo, jMaxHi)
 	return
 }
 

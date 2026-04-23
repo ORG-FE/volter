@@ -3,10 +3,12 @@ package probe
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"context"
 	"errors"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"strings"
 	"syscall"
@@ -15,6 +17,17 @@ import (
 	"dev.c0redev.volter/internal/obfuscate"
 	"dev.c0redev.volter/internal/protocol"
 )
+
+func randInt(min, max int) int {
+	if max <= min {
+		return min
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	if err != nil {
+		return min
+	}
+	return min + int(n.Int64())
+}
 
 var defaultDNSAddrs = []string{"8.8.8.8:53", "1.1.1.1:53"}
 var defaultInternetAddrs = []string{"8.8.8.8:443", "1.1.1.1:443"}
@@ -58,9 +71,9 @@ func ProbeVolterWithCaps(addr string, wireToken string, timeout time.Duration) (
 	wrapped := obfuscate.WrapConn(c, wireToken)
 	w := bufio.NewWriter(wrapped)
 
-	slot := protocol.TimeSlot()
-	junkCount, junkMin, junkMax := 2, 64, 512
-	junkCount, junkMin, junkMax = protocol.ApplyTimeVariation(junkCount, junkMin, junkMax, slot)
+	junkCount := randInt(2, 6)
+	junkMin := randInt(64, 256)
+	junkMax := randInt(512, 1024)
 	_ = protocol.WriteJunkOrTLSLike(w, junkCount, junkMin, junkMax, "", "", func() { _ = w.Flush() })
 	if err := protocol.WriteHandshake(w, protocol.RoleUDP(), 0, badToken); err != nil {
 		log.Printf("probe: handshake write: %v", err)
