@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/hex"
+	"net"
+	"strconv"
 	"strings"
 
 	"dev.c0redev.volter/internal/protocol"
@@ -29,9 +31,27 @@ func ApplyTcpOnlyIfServerHasNoQUIC(cfg *Config, caps *protocol.ServerHelloCaps) 
 	if cfg == nil || caps == nil {
 		return
 	}
-	if caps.TransportMask&protocol.TransportQUIC != 0 {
+	hasTCP := (caps.TransportMask & protocol.TransportTCP) != 0
+	hasQUIC := (caps.TransportMask & protocol.TransportQUIC) != 0
+	if hasTCP && hasQUIC {
 		return
 	}
-	cfg.Transport = "tcp"
-	cfg.QuicServer = ""
+	if hasTCP && !hasQUIC {
+		cfg.Transport = "tcp"
+		cfg.QuicServer = ""
+		return
+	}
+	if hasQUIC && !hasTCP {
+		cfg.Transport = "quic"
+		if strings.TrimSpace(cfg.QuicServer) == "" {
+			host, _, err := net.SplitHostPort(strings.TrimSpace(cfg.Server))
+			if err == nil && host != "" {
+				port := int(caps.QuicPort)
+				if port <= 0 || port > 65535 {
+					port = 4433
+				}
+				cfg.QuicServer = net.JoinHostPort(host, strconv.Itoa(port))
+			}
+		}
+	}
 }

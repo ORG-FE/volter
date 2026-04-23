@@ -970,7 +970,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, runPing(m.cfgs[idx].Server, m.names[idx])
 				}
 			}
-			if m.tab == tabCloud && !m.cloudLoading && len(m.cloudCfgs) > 0 {
+			if m.tab == tabCloud && !m.cloudLoading && !m.editing && len(m.cloudCfgs) > 0 {
 				idx := m.cloudList.Index()
 				if idx >= 0 && idx < len(m.cloudCfgs) {
 					return m, runPing(m.cloudCfgs[idx].Server, m.cloudNames[idx])
@@ -986,7 +986,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, runProbeVolter(m.cfgs[idx].Server, m.cfgs[idx].Token, m.names[idx])
 				}
 			}
-			if m.tab == tabCloud && !m.cloudLoading && len(m.cloudCfgs) > 0 {
+			if m.tab == tabCloud && !m.cloudLoading && !m.editing && len(m.cloudCfgs) > 0 {
 				idx := m.cloudList.Index()
 				if idx >= 0 && idx < len(m.cloudCfgs) {
 					return m, runProbeVolter(m.cloudCfgs[idx].Server, m.cloudCfgs[idx].Token, m.cloudNames[idx])
@@ -999,7 +999,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "r", "R":
-			if m.tab == tabCloud && !m.cloudLoading {
+			if m.tab == tabCloud && !m.cloudLoading && !m.editing {
 				return m, m.reloadCloud(true)
 			}
 		case "d", "D", "delete":
@@ -1030,7 +1030,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, autoProbeCmds(m.cfgs, m.names)
 			}
 		case "b", "B":
-			if m.tab == tabSettings && len(m.cfgs) > 0 {
+			if m.tab == tabSettings && !m.settingsEditing && len(m.cfgs) > 0 {
 				return m, runPingAll(m.cfgs, m.names)
 			}
 		case "1", "2", "3":

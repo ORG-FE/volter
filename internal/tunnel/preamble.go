@@ -133,6 +133,29 @@ func WriteUDPChannelPreamble(w *bufio.Writer, channelID byte, token string, prot
 
 func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOptions, slot int64) error {
 	_, prefixLen, jc, jmin, jmax, jstyle, flush := streamObf(prot, slot, false)
+	// tcp path gets denser preamble than udp mux
+	prefixLen += randInt(8, 24)
+	if prefixLen > 64 {
+		prefixLen = 64
+	}
+	jc += randInt(2, 5)
+	if jc > 16 {
+		jc = 16
+	}
+	if jmin < 128 {
+		jmin = 128
+	}
+	jmin += randInt(0, 128)
+	if jmin > 1024 {
+		jmin = 1024
+	}
+	if jmax < jmin+256 {
+		jmax = jmin + 256
+	}
+	jmax += randInt(64, 512)
+	if jmax > 2048 {
+		jmax = 2048
+	}
 	kind := resolvePreambleKind(prot, slot, token, jstyle)
 	if err := protocol.WritePreamble(w, kind, jc, jmin, jmax, flush, func() { _ = w.Flush() }); err != nil {
 		return err
