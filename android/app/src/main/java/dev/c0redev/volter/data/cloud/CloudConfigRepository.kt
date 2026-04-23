@@ -20,9 +20,8 @@ class CloudConfigRepository(private val context: Context) {
     private val baseDir = File(context.filesDir, "volter")
     private val cloudFile = File(baseDir, "cloud-config.txt")
     private val cloudConfigUrls = listOf(
-        "https://raw.githubusercontent.com/unitdevgcc/pterovpn/refs/heads/mew/cloud-config.txt",
-        "https://raw.githubusercontent.com/unitdevgcc/pterovpn/refs/heads/main/cloud-config.txt",
-        "https://raw.githubusercontent.com/unitdevgcc/pterovpn/refs/heads/master/cloud-config.txt",
+        "https://raw.githubusercontent.com/ORG-FE/volter/refs/heads/main/cloud-config.txt",
+        "https://raw.githubusercontent.com/ORG-FE/volter/refs/heads/master/cloud-config.txt",
     )
 
     private fun loadRaw(fetch: Boolean): String {

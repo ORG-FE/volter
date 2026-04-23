@@ -12,9 +12,8 @@ import (
 )
 
 var cloudConfigURLs = []string{
-	"https://raw.githubusercontent.com/unitdevgcc/pterovpn/refs/heads/mew/cloud-config.txt",
-	"https://raw.githubusercontent.com/unitdevgcc/pterovpn/refs/heads/main/cloud-config.txt",
-	"https://raw.githubusercontent.com/unitdevgcc/pterovpn/refs/heads/master/cloud-config.txt",
+	"https://raw.githubusercontent.com/ORG-FE/volter/refs/heads/main/cloud-config.txt",
+	"https://raw.githubusercontent.com/ORG-FE/volter/refs/heads/master/cloud-config.txt",
 }
 const cloudConfigFile = "cloud-config.txt"
 

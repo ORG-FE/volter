@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Update
+import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -320,7 +320,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Update,
+                        imageVector = Icons.Default.SystemUpdateAlt,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )

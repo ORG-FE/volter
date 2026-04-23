@@ -20,6 +20,6 @@ serverMode=tcp-only
 # quicIngressRingSlots=4096
 
 update.enabled=true
-update.repo=unitdevgcc/pterovpn
+update.repo=ORG-FE/volter
 update.checkIntervalMinutes=1
 update.restartExitCode=1

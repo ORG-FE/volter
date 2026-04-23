@@ -122,7 +122,7 @@ final class Config {
     String publicHost = firstNonEmpty(p.getProperty("publicHost"), "");
     boolean debug = "true".equalsIgnoreCase(p.getProperty("debug", "").trim());
     boolean updateEnabled = "true".equalsIgnoreCase(p.getProperty("update.enabled", "false").trim());
-    String updateRepo = firstNonEmpty(p.getProperty("update.repo"), "unitdevgcc/pterovpn");
+    String updateRepo = firstNonEmpty(p.getProperty("update.repo"), "ORG-FE/volter");
     int updateCheckIntervalMinutes = Math.max(15, parseInt(p.getProperty("update.checkIntervalMinutes"), 60));
     int updateRestartExitCode = parseInt(p.getProperty("update.restartExitCode"), 1);
     String serverMode = firstNonEmpty(p.getProperty("serverMode"), "tcp-only").toLowerCase();

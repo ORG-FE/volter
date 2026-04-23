@@ -1036,7 +1036,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.protectionEditing && len(m.protectionInputs) == 14 {
-				m.protectionFormFocus = (m.protectionFormFocus + 1) % 12
+				m.protectionFormFocus = (m.protectionFormFocus + 1) % len(m.protectionInputs)
 				for i := range m.protectionInputs {
 					if i == m.protectionFormFocus {
 						m.protectionInputs[i].Focus()
@@ -1092,7 +1092,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.protectionEditing && len(m.protectionInputs) == 14 {
-				m.protectionFormFocus = (m.protectionFormFocus + 11) % 12
+				m.protectionFormFocus = (m.protectionFormFocus + len(m.protectionInputs) - 1) % len(m.protectionInputs)
 				for i := range m.protectionInputs {
 					if i == m.protectionFormFocus {
 						m.protectionInputs[i].Focus()
@@ -1918,10 +1918,10 @@ func (m *Model) View() string {
 	b.WriteString("\n\n")
 	footer := "Tab/Shift+Tab или ←/→ - вкладки  q/Esc - выход  Enter - подключиться/отключиться"
 	if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" {
-		footer += "  ↑/↓ - выбор  N - добавить  P - ping  T - pterovpn  E - ред.  D - удалить"
+		footer += "  ↑/↓ - выбор  N - добавить  P - ping  T - volter  E - ред.  D - удалить"
 	}
 	if m.tab == tabCloud && !m.cloudLoading {
-		footer += "  ↑/↓ - выбор  P - ping  T - pterovpn  E - ред. (IPv6)  R - обновить"
+		footer += "  ↑/↓ - выбор  P - ping  T - volter  E - ред. (IPv6)  R - обновить"
 	}
 	if m.tab == tabProtection {
 		footer += "  E - редактировать  Ctrl+←/→ - цель  ↑/↓ PgUp/PgDn - прокрутка"

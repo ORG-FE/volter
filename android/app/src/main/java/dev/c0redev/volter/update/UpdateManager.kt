@@ -14,7 +14,7 @@ import java.util.Locale
 
 class UpdateManager {
     companion object {
-        private const val API_LATEST = "https://api.github.com/repos/unitdevgcc/pterovpn/releases/latest"
+        private const val API_LATEST = "https://api.github.com/repos/ORG-FE/volter/releases/latest"
         private const val APK_MIME = "application/vnd.android.package-archive"
         private const val MIN_APK_BYTES = 64 * 1024L
     }

@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	apiLatest = "https://api.github.com/repos/unitdevgcc/pterovpn/releases/latest"
-	apiTags   = "https://api.github.com/repos/unitdevgcc/pterovpn/releases/tags/"
+	apiLatest = "https://api.github.com/repos/ORG-FE/volter/releases/latest"
+	apiTags   = "https://api.github.com/repos/ORG-FE/volter/releases/tags/"
 )
 
 type ghReleaseFull struct {
