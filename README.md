@@ -1,4 +1,4 @@
-# Volter  vpn (Ранее ptero-vpn) 
+# Volter  vpn (Ранее ptero-vpn - https://github.com/unitdevgcc/pterovpn) 
 
 
 
