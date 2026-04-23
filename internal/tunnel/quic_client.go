@@ -1,0 +1,385 @@
+package tunnel
+
+import (
+	"bufio"
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	quic "github.com/quic-go/quic-go"
+	"dev.c0redev.volter/internal/clientlog"
+	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/protocol"
+	"dev.c0redev.volter/internal/sockprotect"
+)
+
+type QUICConn = quic.Conn
+
+type quicStreamConn struct {
+	conn       *quic.Conn
+	stream     *quic.Stream
+	udpCleanup func()
+}
+
+func newQUICStreamConn(conn *quic.Conn, stream *quic.Stream, udpCleanup func()) net.Conn {
+	if udpCleanup == nil {
+		udpCleanup = func() {}
+	}
+	return &quicStreamConn{conn: conn, stream: stream, udpCleanup: udpCleanup}
+}
+
+func (c *quicStreamConn) Read(p []byte) (int, error)         { return c.stream.Read(p) }
+func (c *quicStreamConn) Write(p []byte) (int, error)        { return c.stream.Write(p) }
+func (c *quicStreamConn) LocalAddr() net.Addr                { return c.conn.LocalAddr() }
+func (c *quicStreamConn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr() }
+func (c *quicStreamConn) SetDeadline(t time.Time) error      { return c.stream.SetDeadline(t) }
+func (c *quicStreamConn) SetReadDeadline(t time.Time) error  { return c.stream.SetReadDeadline(t) }
+func (c *quicStreamConn) SetWriteDeadline(t time.Time) error { return c.stream.SetWriteDeadline(t) }
+func (c *quicStreamConn) Close() error {
+	_ = c.stream.Close()
+	err := c.conn.CloseWithError(0, "close")
+	c.udpCleanup()
+	return err
+}
+
+type quicStreamOnlyConn struct {
+	conn   *quic.Conn
+	stream *quic.Stream
+}
+
+func (c *quicStreamOnlyConn) Read(p []byte) (int, error)         { return c.stream.Read(p) }
+func (c *quicStreamOnlyConn) Write(p []byte) (int, error)        { return c.stream.Write(p) }
+func (c *quicStreamOnlyConn) LocalAddr() net.Addr                { return c.conn.LocalAddr() }
+func (c *quicStreamOnlyConn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr() }
+func (c *quicStreamOnlyConn) SetDeadline(t time.Time) error      { return c.stream.SetDeadline(t) }
+func (c *quicStreamOnlyConn) SetReadDeadline(t time.Time) error  { return c.stream.SetReadDeadline(t) }
+func (c *quicStreamOnlyConn) SetWriteDeadline(t time.Time) error { return c.stream.SetWriteDeadline(t) }
+func (c *quicStreamOnlyConn) Close() error                       { return c.stream.Close() }
+
+type quicNoopTokenStore struct{}
+
+func (quicNoopTokenStore) Pop(string) *quic.ClientToken  { return nil }
+func (quicNoopTokenStore) Put(string, *quic.ClientToken) {}
+
+func listenUDPForQUIC(network string, laddr *net.UDPAddr) (*net.UDPConn, error) {
+	var lc net.ListenConfig
+	if p := sockprotect.Protect; p != nil {
+		lc.Control = func(network, address string, c syscall.RawConn) error {
+			var err error
+			e := c.Control(func(fd uintptr) {
+				err = p(fd)
+			})
+			if e != nil {
+				return e
+			}
+			return err
+		}
+	}
+	pc, err := lc.ListenPacket(context.Background(), network, laddr.String())
+	if err != nil {
+		return nil, err
+	}
+	uc, ok := pc.(*net.UDPConn)
+	if !ok {
+		_ = pc.Close()
+		return nil, fmt.Errorf("quic: ListenPacket expected *UDPConn, got %T", pc)
+	}
+	return uc, nil
+}
+
+func dialQUICConn(addr, serverName string, skipVerify bool, certPinSHA256 string, rootCAs *x509.CertPool) (*quic.Conn, func(), error) {
+	sniHost := serverName
+	if sniHost == "" {
+		h, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			sniHost = addr
+		} else {
+			sniHost = h
+		}
+	}
+	pin := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(certPinSHA256), ":", ""))
+	hasPin := pin != ""
+
+	tlsCfg := &tls.Config{
+		MinVersion:         tls.VersionTLS13,
+		ServerName:         sniHost,
+		NextProtos:         []string{"volter"},
+		ClientSessionCache: nil,
+	}
+	if hasPin {
+
+		tlsCfg.InsecureSkipVerify = true
+		tlsCfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			if len(rawCerts) == 0 {
+				return errors.New("empty peer cert")
+			}
+			sum := sha256.Sum256(rawCerts[0])
+			got := strings.ToLower(hex.EncodeToString(sum[:]))
+			if got != pin {
+				return errors.New("quic cert pin mismatch")
+			}
+			return nil
+		}
+	} else if skipVerify {
+		tlsCfg.InsecureSkipVerify = true
+	} else {
+		tlsCfg.InsecureSkipVerify = false
+		if rootCAs != nil {
+			tlsCfg.RootCAs = rootCAs
+		}
+	}
+
+	dialHost, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("quic: dial addr %q: %w", addr, err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return nil, nil, fmt.Errorf("quic: bad udp port %q", portStr)
+	}
+
+	resolveCtx, cancelRes := context.WithTimeout(context.Background(), 12*time.Second)
+	ips, err := LookupHostIPsPreferV4(resolveCtx, dialHost)
+	cancelRes()
+	if err != nil {
+		return nil, nil, fmt.Errorf("quic: resolve %q: %w", dialHost, err)
+	}
+	if quicTraceOn() {
+		ipStrs := make([]string, 0, len(ips))
+		for _, ip := range ips {
+			ipStrs = append(ipStrs, ip.String())
+		}
+		clientlog.Trace("quic dial addr=%q sni=%q ips=%v", addr, sniHost, ipStrs)
+	}
+
+	qconf := &quic.Config{
+		EnableDatagrams:                false,
+		MaxIdleTimeout:                 15 * time.Minute,
+		HandshakeIdleTimeout:           60 * time.Second,
+		KeepAlivePeriod:                8 * time.Second,
+		TokenStore:                     quicNoopTokenStore{},
+		InitialStreamReceiveWindow:     3 * 1024 * 1024,
+		MaxStreamReceiveWindow:         32 * 1024 * 1024,
+		InitialConnectionReceiveWindow: 4 * 1024 * 1024,
+		MaxConnectionReceiveWindow:     96 * 1024 * 1024,
+		MaxIncomingStreams:             256,
+		MaxIncomingUniStreams:          256,
+		InitialPacketSize:              1200,
+	}
+
+	var lastErr error
+	for _, ip := range ips {
+		dialCtx, cancelDial := context.WithTimeout(context.Background(), 50*time.Second)
+		if v4 := ip.To4(); v4 != nil {
+			remote := &net.UDPAddr{IP: v4, Port: port}
+			if quicTraceOn() {
+				clientlog.Trace("quic dial try Dial udp4 -> %s", remote.String())
+			}
+			pc, lerr := listenUDPForQUIC("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+			if lerr != nil {
+				cancelDial()
+				if quicTraceOn() {
+					clientlog.Trace("quic ListenUDP udp4: %v", lerr)
+				}
+				lastErr = lerr
+				continue
+			}
+			conn, derr := quic.Dial(dialCtx, pc, remote, tlsCfg, qconf)
+			cancelDial()
+			if derr == nil {
+				if quicTraceOn() {
+					clientlog.Trace("quic dial ok local=%s remote=%s", conn.LocalAddr(), conn.RemoteAddr())
+				}
+				closePC := func() { _ = pc.Close() }
+				return conn, closePC, nil
+			}
+			_ = pc.Close()
+			if quicTraceOn() {
+				clientlog.Trace("quic dial fail Dial %s: %v", remote.String(), derr)
+			}
+			lastErr = derr
+			continue
+		}
+		pc, lerr := listenUDPForQUIC("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
+		if lerr != nil {
+			cancelDial()
+			if quicTraceOn() {
+				clientlog.Trace("quic dial ListenUDP udp6: %v", lerr)
+			}
+			lastErr = lerr
+			continue
+		}
+		udpAddr := &net.UDPAddr{IP: ip, Port: port}
+		if quicTraceOn() {
+			clientlog.Trace("quic dial try Dial udp6 local=%s -> %s", pc.LocalAddr(), udpAddr)
+		}
+		conn, derr := quic.Dial(dialCtx, pc, udpAddr, tlsCfg, qconf)
+		cancelDial()
+		if derr == nil {
+			if quicTraceOn() {
+				clientlog.Trace("quic dial ok local=%s remote=%s", conn.LocalAddr(), conn.RemoteAddr())
+			}
+			closePC := func() { _ = pc.Close() }
+			return conn, closePC, nil
+		}
+		_ = pc.Close()
+		if quicTraceOn() {
+			clientlog.Trace("quic dial fail Dial %s: %v", udpAddr, derr)
+		}
+		lastErr = derr
+	}
+	return nil, nil, wrapQUICDialTLS(lastErr, addr, skipVerify, hasPin, rootCAs != nil)
+}
+
+func wrapQUICDialTLS(err error, dialAddr string, skipVerify, hasPin, hasCustomRoots bool) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "pin mismatch") {
+		return fmt.Errorf("%w - quicCertPinSHA256 не совпадает с логом сервера QUIC leaf SHA256", err)
+	}
+	if strings.Contains(msg, "bad certificate") || strings.Contains(msg, "0x12a") {
+		if hasPin {
+			return fmt.Errorf("%w - проверь quicCertPinSHA256 по QUIC leaf SHA256 на сервере", err)
+		}
+		if !skipVerify {
+			if !hasCustomRoots {
+				return fmt.Errorf("%w - quicCaCert путь к PEM (leaf или CA) или quicCertPinSHA256 из лога сервера", err)
+			}
+			return fmt.Errorf("%w - проверь quicCaCert PEM и quicServerName под SAN сертификата", err)
+		}
+	}
+	if strings.Contains(msg, "x509") || strings.Contains(msg, "certificate") || strings.Contains(msg, "unknown authority") || strings.Contains(msg, "verify") {
+		if !skipVerify && !hasPin {
+			if !hasCustomRoots {
+				return fmt.Errorf("%w - публичный CA: без quicCaCert; свой/self-signed: quicCaCert (PEM) или pin", err)
+			}
+			return fmt.Errorf("%w - неверный quicCaCert или имя не совпало с сертификатом (quicServerName)", err)
+		}
+	}
+	if strings.Contains(msg, "no recent network activity") {
+
+		return fmt.Errorf("%w (dial %s) - UDP не доходит до quicListenPort или ответ не приходит (файрвол, NAT, маршрут к VPN-серверу, serverMode без QUIC); после первого сеанса проверь что bypass к серверу жив и сокет QUIC реально закрыт", err, dialAddr)
+	}
+	return err
+}
+
+type UDPMuxQUICStream struct {
+	Conn   net.Conn
+	R      *bufio.Reader
+	W      *bufio.Writer
+	MaxPad int
+}
+
+func openUDPChannelOnQUICStream(conn *quic.Conn, stream *quic.Stream, channelID byte, token string, prot *config.ProtectionOptions, streamClosesConn bool, udpCleanup func()) (net.Conn, *bufio.Reader, *bufio.Writer, int, error) {
+	var sconn net.Conn
+	if streamClosesConn {
+		sconn = newQUICStreamConn(conn, stream, udpCleanup)
+	} else {
+		sconn = &quicStreamOnlyConn{conn: conn, stream: stream}
+	}
+	slot := protocol.TimeSlot()
+	bufSize := protocol.BufSizeForConn(slot)
+	r := bufio.NewReaderSize(sconn, bufSize)
+	w := bufio.NewWriterSize(sconn, bufSize)
+	maxPad, err := WriteUDPChannelPreambleSlot(w, channelID, token, prot, slot)
+	if err != nil {
+		_ = sconn.Close()
+		return nil, nil, nil, 0, err
+	}
+	return sconn, r, w, maxPad, nil
+}
+
+func DialUDPMuxQUIC(serverAddrs []string, quicServer, serverName string, skipVerify bool, certPinSHA256 string, rootCAs *x509.CertPool, n int, token string, prot *config.ProtectionOptions) (closeAll func(), sharedConn *quic.Conn, streams []UDPMuxQUICStream, err error) {
+	if n < 1 || n > 4 {
+		return nil, nil, nil, fmt.Errorf("quic udp mux: bad n=%d", n)
+	}
+	addr, _, err := ResolveQUICDialAddr(serverAddrs, quicServer)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	conn, closePC, err := dialQUICConn(addr, serverName, skipVerify, certPinSHA256, rootCAs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	shutdown := func() {
+		_ = conn.CloseWithError(0, "udp mux shutdown")
+		closePC()
+	}
+	var opened []*quic.Stream
+	defer func() {
+		if err != nil {
+			for _, st := range opened {
+				_ = st.Close()
+			}
+			shutdown()
+		}
+	}()
+	streams = make([]UDPMuxQUICStream, 0, n)
+	for i := 0; i < n; i++ {
+		if quicTraceOn() {
+			clientlog.Trace("quic mux OpenStreamSync channel=%d", i)
+		}
+		muxOpenCtx, muxOpenCancel := context.WithTimeout(context.Background(), 45*time.Second)
+		st, e := conn.OpenStreamSync(muxOpenCtx)
+		muxOpenCancel()
+		if e != nil {
+			if quicTraceOn() {
+				clientlog.Trace("quic mux OpenStreamSync channel=%d err=%v", i, e)
+			}
+			err = e
+			return nil, nil, nil, err
+		}
+		opened = append(opened, st)
+		sconn, r, w, maxPad, e := openUDPChannelOnQUICStream(conn, st, byte(i), token, prot, false, nil)
+		if e != nil {
+			if quicTraceOn() {
+				clientlog.Trace("quic mux openUDPChannel stream=%d err=%v", i, e)
+			}
+			err = e
+			return nil, nil, nil, err
+		}
+		if quicTraceOn() {
+			clientlog.Trace("quic mux channel=%d volter handshake prefix sent", i)
+		}
+		streams = append(streams, UDPMuxQUICStream{Conn: sconn, R: r, W: w, MaxPad: maxPad})
+	}
+	if quicTraceOn() {
+		clientlog.Trace("quic mux ready n=%d streams", n)
+	}
+	return shutdown, conn, streams, nil
+}
+
+func DialUDPChannelQUIC(serverAddrs []string, quicServer, serverName string, skipVerify bool, certPinSHA256 string, rootCAs *x509.CertPool, channelID byte, token string, prot *config.ProtectionOptions) (net.Conn, *bufio.Reader, *bufio.Writer, int, error) {
+	addr, _, err := ResolveQUICDialAddr(serverAddrs, quicServer)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+	conn, closePC, err := dialQUICConn(addr, serverName, skipVerify, certPinSHA256, rootCAs)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+	oneCtx, oneCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	stream, err := conn.OpenStreamSync(oneCtx)
+	oneCancel()
+	if err != nil {
+		_ = conn.CloseWithError(0, "open stream failed")
+		closePC()
+		return nil, nil, nil, 0, err
+	}
+	sconn, r, w, maxPad, err := openUDPChannelOnQUICStream(conn, stream, channelID, token, prot, true, closePC)
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+	return sconn, r, w, maxPad, nil
+}

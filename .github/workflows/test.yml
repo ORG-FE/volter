@@ -1,0 +1,35 @@
+name: test
+
+on:
+  push:
+    branches: [main, master, mew]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test
+        run: go test ./...
+
+      - name: java test
+        run: mvn -q -f server/pom.xml test
+
+  android:
+    uses: ./.github/workflows/android-reusable.yml

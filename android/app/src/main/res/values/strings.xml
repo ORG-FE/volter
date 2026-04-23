@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Volter</string>
+
+    <string name="nav_home">Home</string>
+    <string name="nav_configs">Profiles</string>
+    <string name="nav_logs">Logs</string>
+    <string name="nav_protection">Protect</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="home_title">Volter</string>
+    <string name="home_subtitle">VPN by c0redev (maxkrya)</string>
+    <string name="home_primary_profiles">Profiles — pick a server and connect</string>
+    <string name="home_last_profile_fmt">Last profile: %1$s</string>
+    <string name="home_version_fmt">v%1$s</string>
+    <string name="home_guide_title">Where to tap</string>
+    <string name="home_guide_summary">Expand a row for steps. Open section switches the tab below.</string>
+    <string name="home_guide_open">Open section</string>
+    <string name="home_guide_footer">Client and core, c0redev (maxkrya). If it fails, check Logs and the error in status above.</string>
+    <string name="home_status_title">Connection status</string>
+    <string name="home_mode">Mode</string>
+    <string name="home_connected">Connected</string>
+    <string name="home_ready">Ready</string>
+    <string name="home_yes">Yes</string>
+    <string name="home_no">No</string>
+    <string name="home_error_fmt">Error: %1$s</string>
+    <string name="home_refresh">Refresh</string>
+    <string name="home_disconnect">Disconnect</string>
+    <string name="home_summary">Summary</string>
+    <string name="home_local_configs">Local configs</string>
+    <string name="home_cloud_configs">Cloud configs</string>
+    <string name="home_logs_buffer">Log lines in buffer</string>
+    <string name="home_recent_logs">Recent logs</string>
+    <string name="home_disconnect_cd">Disconnect VPN</string>
+    <string name="home_refresh_cd">Refresh configs</string>
+
+    <string name="configs_title">Configurations</string>
+    <string name="configs_local_subtitle">Local JSON</string>
+    <string name="configs_tab_local">Local</string>
+    <string name="configs_tab_cloud">Cloud</string>
+    <string name="configs_add">Add</string>
+    <string name="configs_connect">Connect</string>
+    <string name="config_profile_active">Active</string>
+    <string name="configs_empty_local">No local configs. Tap Add.</string>
+    <string name="configs_local_wait">Checking servers and probes, hang on</string>
+    <string name="configs_empty_cloud">Cloud list is empty. Pull to refresh or check cloud-config.</string>
+    <string name="configs_cloud_refresh">Refresh cloud</string>
+    <string name="configs_cloud_loading">Loading cloud…</string>
+    <string name="configs_ping_fmt">ping=%1$sms • probe=%2$s • ipv6=%3$s • mode=%4$s</string>
+    <string name="configs_cloud_ping">Ping %1$s ms</string>
+    <string name="configs_cloud_transport">Transport %1$s</string>
+    <string name="configs_cloud_probe_fmt">Probe %1$s • IPv6 %2$s • Mode %3$s</string>
+    <string name="configs_cloud_connect">Connect</string>
+    <string name="configs_connect_cd">Connect %1$s</string>
+    <string name="configs_screen_hint">Local files and cloud list.</string>
+    <string name="config_card_ping_ms">%1$d ms</string>
+    <string name="config_card_ping_na">no ping</string>
+    <string name="config_chip_probe_ok">probe OK</string>
+    <string name="config_chip_probe_fail">probe fail</string>
+    <string name="config_chip_probe_unknown">probe ?</string>
+    <string name="config_chip_ipv6_y">IPv6</string>
+    <string name="config_chip_ipv6_n">IPv4 only</string>
+    <string name="config_chip_ipv6_unknown">IPv6 ?</string>
+    <string name="config_connecting">Connecting…</string>
+    <string name="home_connecting_profile">Connecting %1$s…</string>
+    <string name="home_status_connected_cd">Connected</string>
+    <string name="home_status_disconnected_cd">Disconnected</string>
+    <string name="config_cd_edit">Edit</string>
+    <string name="config_delete">Delete</string>
+    <string name="configs_local_refresh">Refresh probes</string>
+    <string name="configs_local_refreshing">Updating ping and probe…</string>
+    <string name="configs_delete_title">Delete profile?</string>
+    <string name="configs_delete_message">Remove \"%1$s\" from this device.</string>
+    <string name="configs_delete_confirm">Delete</string>
+    <string name="configs_import_local">Import to local</string>
+    <string name="configs_import_title">Import cloud profile</string>
+    <string name="configs_import_name_label">Local name</string>
+    <string name="configs_import_confirm">Import</string>
+    <string name="configs_import_cancel">Cancel</string>
+    <string name="cloud_import_saved">Saved as \"%1$s\" in local</string>
+    <string name="quick_connect_unknown_profile">No local profile \"%1$s\"</string>
+    <string name="quick_connect_fgs_blocked">Open the app first, then connect (system blocked background start)</string>
+    <string name="quick_tile_empty">Not set</string>
+    <string name="quick_tiles_section">Quick settings tiles</string>
+    <string name="quick_tiles_hint">Add tiles from the notification shade editor. Local profiles only.</string>
+    <string name="quick_slot_1">Tile 1</string>
+    <string name="quick_slot_2">Tile 2</string>
+    <string name="quick_slot_3">Tile 3</string>
+    <string name="quick_slot_pick">Choose</string>
+    <string name="quick_slot_none">None</string>
+
+    <string name="logs_title">Logs</string>
+    <string name="logs_empty">No logs yet. Connect from Configs first.</string>
+    <string name="logs_search_hint">Search</string>
+    <string name="logs_filter_all">All</string>
+    <string name="logs_copy_all">Copy all</string>
+    <string name="logs_pin_bottom">Stick to bottom</string>
+    <string name="logs_copied">Copied to clipboard</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="protection_title">Protection</string>
+
+    <string name="common_cd_nav">Navigation: %1$s</string>
+    <string name="disabled_not_connected">Nothing to disconnect</string>
+    <string name="cloud_fetch_error">Cloud fetch failed: %1$s</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_downloading">Downloading APK…</string>
+    <string name="update_install_started">Install started</string>
+    <string name="update_none">No new updates</string>
+    <string name="update_error_fmt">Error: %1$s</string>
+
+    <string-array name="guide_configs_steps">
+        <item>Open the Configs tab.</item>
+        <item>Local: Add, enter host:port:key, save.</item>
+        <item>Switch to the Cloud tab, Refresh cloud, then Connect on a card.</item>
+        <item>Edit or Delete on the card.</item>
+    </string-array>
+    <string-array name="guide_protection_steps">
+        <item>Open Protect tab.</item>
+        <item>Pick Balance, Strong, or Auto from session metrics.</item>
+        <item>Set obfuscation, junk, pad if needed.</item>
+        <item>Save or Clear at the bottom.</item>
+    </string-array>
+    <string-array name="guide_logs_steps">
+        <item>Open Logs tab.</item>
+        <item>Empty until you Connect from Configs.</item>
+        <item>Scroll, filter by tag, search text.</item>
+    </string-array>
+    <string-array name="guide_settings_steps">
+        <item>Open Settings tab.</item>
+        <item>TUN or Proxy; for proxy set listen.</item>
+        <item>In TUN: IPv6, transport, dual tun-tcp.</item>
+        <item>Save. Updates: Check for updates.</item>
+    </string-array>
+    <string name="home_guide_configs_hint">Local JSON and cloud list in one place.</string>
+    <string name="home_guide_protection_hint">Global protection presets.</string>
+    <string name="home_guide_logs_hint">Core log lines with tags.</string>
+    <string name="home_guide_settings_hint">Mode and updates.</string>
+</resources>

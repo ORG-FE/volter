@@ -1,0 +1,167 @@
+//go:build linux
+
+package netcfg
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+func GetDefaultRoute() (DefaultRoute, error) {
+	out, err := exec.Command("ip", "-j", "route", "show", "default").Output()
+	if err != nil {
+		return DefaultRoute{}, err
+	}
+	var routes []map[string]any
+	if err := json.Unmarshal(out, &routes); err != nil {
+		return DefaultRoute{}, err
+	}
+	if len(routes) == 0 {
+		return DefaultRoute{}, errors.New("no default route")
+	}
+	dev, _ := routes[0]["dev"].(string)
+	gw, _ := routes[0]["gateway"].(string)
+	if dev == "" {
+		return DefaultRoute{}, errors.New("default route without dev")
+	}
+	return DefaultRoute{Dev: dev, Gateway: gw}, nil
+}
+
+func AddBypass(serverIP net.IP, dr DefaultRoute) error {
+	ip := serverIP.String()
+	if serverIP.To4() != nil {
+		ip += "/32"
+	} else {
+		ip += "/128"
+	}
+	if dr.Gateway != "" {
+		return run("ip", "route", "replace", ip, "via", dr.Gateway, "dev", dr.Dev)
+	}
+	return run("ip", "route", "replace", ip, "dev", dr.Dev)
+}
+
+func DelBypass(serverIP net.IP) {
+	ip := serverIP.String()
+	if serverIP.To4() != nil {
+		ip += "/32"
+	} else {
+		ip += "/128"
+	}
+	_ = execIgnore("ip", "route", "del", ip)
+}
+
+func AddDefaultViaTun(tun string, metric int) error {
+	cmd := exec.Command("ip", "route", "add", "default", "dev", tun, "metric", fmt.Sprintf("%d", metric))
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	if bytes.Contains(out, []byte("File exists")) {
+		return nil
+	}
+	return fmt.Errorf("ip route add default: %w: %s", err, strings.TrimSpace(string(out)))
+}
+
+func DelDefaultViaTun(tun string) {
+	_ = execIgnore("ip", "route", "del", "default", "dev", tun)
+}
+
+func AddDefaultViaTun6(tun string, gateway string, metric int) error {
+	cmd := exec.Command("ip", "-6", "route", "add", "default", "via", gateway, "dev", tun, "metric", fmt.Sprintf("%d", metric))
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	if bytes.Contains(out, []byte("File exists")) {
+		return nil
+	}
+	return fmt.Errorf("ip -6 route add default: %w: %s", err, strings.TrimSpace(string(out)))
+}
+
+func DelDefaultViaTun6(tun string) {
+	_ = execIgnore("ip", "-6", "route", "del", "default", "dev", tun)
+}
+
+func AddExcludeRoutes(dr DefaultRoute, cidrs []*net.IPNet) error {
+	for _, n := range cidrs {
+		if n.IP.To4() == nil {
+			continue
+		}
+		args := []string{"ip", "route", "replace", n.String()}
+		if dr.Gateway != "" {
+			args = append(args, "via", dr.Gateway, "dev", dr.Dev)
+		} else {
+			args = append(args, "dev", dr.Dev)
+		}
+		if err := run(args...); err != nil {
+			return fmt.Errorf("exclude %s: %w", n.String(), err)
+		}
+	}
+	return nil
+}
+
+func DelExcludeRoutes(cidrs []*net.IPNet) {
+	for _, n := range cidrs {
+		if n.IP.To4() == nil {
+			continue
+		}
+		_ = execIgnore("ip", "route", "del", n.String())
+	}
+}
+
+func AddRoutesViaTun(tun string, cidrs []*net.IPNet, metric int) error {
+	metricStr := fmt.Sprintf("%d", metric)
+	if len(cidrs) == 0 {
+		return AddDefaultViaTun(tun, metric)
+	}
+	for _, n := range cidrs {
+		if n.IP.To4() != nil {
+			cmd := exec.Command("ip", "route", "add", n.String(), "dev", tun, "metric", metricStr)
+			out, err := cmd.CombinedOutput()
+			if err != nil && !bytes.Contains(out, []byte("File exists")) {
+				return fmt.Errorf("route %s: %w: %s", n.String(), err, strings.TrimSpace(string(out)))
+			}
+		} else {
+			cmd := exec.Command("ip", "-6", "route", "add", n.String(), "dev", tun, "metric", metricStr)
+			out, err := cmd.CombinedOutput()
+			if err != nil && !bytes.Contains(out, []byte("File exists")) {
+				return fmt.Errorf("route %s: %w: %s", n.String(), err, strings.TrimSpace(string(out)))
+			}
+		}
+	}
+	return nil
+}
+
+func DelRoutesViaTun(tun string, cidrs []*net.IPNet) {
+	if len(cidrs) == 0 {
+		DelDefaultViaTun(tun)
+		return
+	}
+	for _, n := range cidrs {
+		if n.IP.To4() != nil {
+			_ = execIgnore("ip", "route", "del", n.String(), "dev", tun)
+		} else {
+			_ = execIgnore("ip", "-6", "route", "del", n.String(), "dev", tun)
+		}
+	}
+}
+
+func run(args ...string) error {
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func execIgnore(args ...string) error {
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run()
+}

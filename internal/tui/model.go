@@ -1,0 +1,1934 @@
+package tui
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"dev.c0redev.volter/internal/clientlog"
+	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/geo"
+	"dev.c0redev.volter/internal/metrics"
+	"dev.c0redev.volter/internal/probe"
+	"dev.c0redev.volter/internal/update"
+)
+
+const (
+	success      = "10"
+	errCol       = "9"
+	dim          = "8"
+	pingGreen    = "2"
+	pingYellow   = "11"
+	pingRed      = "1"
+	probeTimeout = 5 * time.Second
+)
+
+type tab int
+
+const (
+	tabHome tab = iota
+	tabConfig
+	tabCloud
+	tabLogs
+	tabProtection
+	tabSettings
+)
+
+var tabNames = []string{"Главная", "Конфигурации", "Cloud", "Логи", "Защита", "Настройки"}
+
+type status int
+
+const (
+	statusDisconnected status = iota
+	statusConnecting
+	statusConnected
+)
+
+type ConnectFn func(cfg config.Config, configName string, reconnectCount int, settings config.ClientSettings) (stop func(), err error)
+
+type Opts struct {
+	ConnectFn ConnectFn
+	Version   string
+}
+
+type item struct {
+	cfg         config.Config
+	name        string
+	pingMs      int64
+	pterovpn    int
+	ipv6Support bool
+	serverMode  string
+}
+
+func (i item) Title() string {
+	if i.ipv6Support {
+		return i.name + "  · IPv6"
+	}
+	return i.name
+}
+func (i item) Description() string {
+	var ping, ptr string
+	switch {
+	case i.pingMs >= 0:
+		s := fmt.Sprintf("%dms", i.pingMs)
+		switch {
+		case i.pingMs < 100:
+			ping = lipgloss.NewStyle().Foreground(lipgloss.Color(pingGreen)).Render("✓ " + s)
+		case i.pingMs < 300:
+			ping = lipgloss.NewStyle().Foreground(lipgloss.Color(pingYellow)).Render("✓ " + s)
+		default:
+			ping = lipgloss.NewStyle().Foreground(lipgloss.Color(pingRed)).Render("✓ " + s)
+		}
+	case i.pingMs == -2:
+		ping = lipgloss.NewStyle().Foreground(lipgloss.Color(errCol)).Render("✗")
+	default:
+		ping = lipgloss.NewStyle().Foreground(lipgloss.Color(dim)).Render("○")
+	}
+	switch i.pterovpn {
+	case 1:
+		ptr = lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("✓")
+	case 0:
+		ptr = lipgloss.NewStyle().Foreground(lipgloss.Color(dim)).Render("✗")
+	case 2:
+		ptr = lipgloss.NewStyle().Foreground(lipgloss.Color(errCol)).Render("⚠")
+	default:
+		ptr = lipgloss.NewStyle().Foreground(lipgloss.Color(dim)).Render("○")
+	}
+	ipv6 := ""
+	if i.ipv6Support {
+		ipv6 = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render("IPv6")
+	}
+	mode := ""
+	if i.serverMode != "" {
+		mode = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Render(i.serverMode)
+	}
+	return fmt.Sprintf("[%s] [%s]%s%s %s", ping, ptr, ipv6, mode, i.cfg.Server)
+}
+func (i item) FilterValue() string { return i.name + " " + i.cfg.Server }
+
+type Model struct {
+	opts          Opts
+	tab           tab
+	status        status
+	activeCfg     string
+	err           string
+	stop          func()
+	cfgList       list.Model
+	cfgs          []config.Config
+	names         []string
+	pingResults   map[string]time.Duration
+	pingFailed    map[string]bool
+	pterovpnRes   map[string]int
+	cfgIPv6       map[string]bool
+	cfgMode       map[string]string
+	logBuf        *bytes.Buffer
+	logs          []string
+	logsMu        sync.Mutex
+	logViewport   viewport.Model
+	logAutoScroll bool
+	adding        bool
+	addInputs     []textinput.Model
+	addFocus      int
+	editing       bool
+	editingName   string
+	editInputs    []textinput.Model
+	editFocus     int
+	deletingCfg   string
+
+	cloudList     list.Model
+	cloudCfgs     []config.Config
+	cloudNames    []string
+	cloudGeo      map[string]geo.Info
+	cloudIPv6     map[string]bool
+	cloudMode     map[string]string
+	cloudLoading  bool
+	cloudFetchErr string
+
+	protectionViewport  viewport.Model
+	protectionEditing   bool
+	protectionFormFocus int
+	protectionInputs    []textinput.Model
+	protectionTarget    string
+	protectionClientIdx int
+
+	clientSettings    config.ClientSettings
+	settingsEditing   bool
+	settingsFormFocus int
+	settingsInputs    []textinput.Model
+
+	updateAvailable string
+
+	updateAwaitingConfirm bool
+	updateBusy            string
+	updateErr             string
+
+	connectCount int
+}
+
+var (
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("15"))
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(success))
+	errStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(errCol))
+	tabStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(dim)).
+			Padding(0, 2)
+	activeTabStyle = lipgloss.NewStyle().
+			Padding(0, 2).
+			Bold(true).
+			Foreground(lipgloss.Color("15"))
+	contentBox = lipgloss.NewStyle().
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(dim))
+	logLineStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(dim))
+	logErrStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(errCol))
+	logOKStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	logTrafficStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	logDropStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	logDPIStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Bold(true)
+	logWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	footerStyle     = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(dim))
+	sectionTitle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("12")).
+			Padding(0, 0, 0, 1).
+			BorderLeft(true).
+			BorderForeground(lipgloss.Color("12"))
+	emptyState = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(dim)).
+			Italic(true)
+	hintKey = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("14"))
+	hintText = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(dim))
+	kvLabel = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("7"))
+	kvValue = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("15"))
+	cloudDetailStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(dim)).
+				MarginTop(1)
+)
+
+func NewModel(opts Opts) *Model {
+	m := &Model{
+		opts:               opts,
+		tab:                tabHome,
+		status:             statusDisconnected,
+		logBuf:             bytes.NewBuffer(nil),
+		logs:               []string{},
+		pingResults:        make(map[string]time.Duration),
+		pingFailed:         make(map[string]bool),
+		pterovpnRes:        make(map[string]int),
+		cfgIPv6:            make(map[string]bool),
+		cfgMode:            make(map[string]string),
+		logViewport:        viewport.New(60, 14),
+		logAutoScroll:      true,
+		protectionViewport: viewport.New(60, 14),
+	}
+	m.clientSettings, _ = config.LoadClientSettings()
+	m.reloadCfgs()
+	m.reloadCloud(false)
+	m.cloudLoading = true
+	m.cloudFetchErr = ""
+	m.cloudIPv6 = make(map[string]bool)
+	m.cloudMode = make(map[string]string)
+	return m
+}
+
+func (m *Model) configSnapshotForActive() (config.Config, bool) {
+	name := m.activeCfg
+	if name == "" {
+		return config.Config{}, false
+	}
+	if saved, err := config.LoadByName(name); err == nil {
+		return saved, true
+	}
+	for i, n := range m.names {
+		if n == name {
+			return m.cfgs[i], true
+		}
+	}
+	for i, n := range m.cloudNames {
+		if n != name {
+			continue
+		}
+		cfg := m.cloudCfgs[i]
+		if saved, err := config.LoadByName(n); err == nil && saved.Server == cfg.Server && saved.Token == cfg.Token {
+			cfg = saved
+		}
+		mode := ""
+		if m.cloudMode != nil {
+			mode = m.cloudMode[n]
+		}
+		probeV6 := m.cloudIPv6 != nil && m.cloudIPv6[n]
+		config.ApplyCloudConnectDefaults(&cfg, mode, probeV6)
+		return cfg, true
+	}
+	return config.Config{}, false
+}
+
+func (m *Model) buildItems() []list.Item {
+	items := make([]list.Item, len(m.cfgs))
+	for i := range m.cfgs {
+		pingMs := int64(-1)
+		if m.pingFailed[m.names[i]] {
+			pingMs = -2
+		} else if d, ok := m.pingResults[m.names[i]]; ok {
+			pingMs = d.Milliseconds()
+		}
+		pterovpn := -1
+		if v, exists := m.pterovpnRes[m.names[i]]; exists {
+			pterovpn = v
+		}
+		ipv6 := m.cfgIPv6 != nil && m.cfgIPv6[m.names[i]]
+		mode := ""
+		if m.cfgMode != nil {
+			mode = m.cfgMode[m.names[i]]
+		}
+		items[i] = item{cfg: m.cfgs[i], name: m.names[i], pingMs: pingMs, pterovpn: pterovpn, ipv6Support: ipv6, serverMode: mode}
+	}
+	return items
+}
+
+func (m *Model) reloadCfgs() {
+	cfgs, names, _ := config.List()
+	m.cfgs = cfgs
+	m.names = names
+	items := m.buildItems()
+	l := list.New(items, list.NewDefaultDelegate(), 40, 14)
+	l.Title = "Конфигурации"
+	l.SetShowStatusBar(false)
+	m.cfgList = l
+}
+
+func (m *Model) refreshCfgItems() {
+	idx := m.cfgList.Index()
+	if idx < 0 {
+		idx = 0
+	}
+	m.cfgList.SetItems(m.buildItems())
+	m.cfgList.Select(idx)
+}
+
+func cloudHost(server string) string {
+	host, _, err := net.SplitHostPort(server)
+	if err != nil {
+		return server
+	}
+	return host
+}
+
+func formatGeoName(g geo.Info, fallback string) string {
+	if g.Org != "" {
+		if g.CountryCode != "" {
+			return g.Org + " (" + g.CountryCode + ")"
+		}
+		return g.Org
+	}
+	if g.CountryCode != "" || g.ASN != "" {
+		return strings.TrimSpace(g.CountryCode + " " + g.ASN)
+	}
+	return fallback
+}
+
+func (m *Model) buildCloudItems() []list.Item {
+	items := make([]list.Item, len(m.cloudCfgs))
+	for i := range m.cloudCfgs {
+		pingMs := int64(-1)
+		if m.pingFailed[m.cloudNames[i]] {
+			pingMs = -2
+		} else if d, ok := m.pingResults[m.cloudNames[i]]; ok {
+			pingMs = d.Milliseconds()
+		}
+		pterovpn := -1
+		if v, exists := m.pterovpnRes[m.cloudNames[i]]; exists {
+			pterovpn = v
+		}
+		name := m.cloudNames[i]
+		if m.cloudGeo != nil {
+			if g, ok := m.cloudGeo[cloudHost(m.cloudCfgs[i].Server)]; ok {
+				name = formatGeoName(g, m.cloudNames[i])
+			}
+		}
+		ipv6Support := m.cloudIPv6 != nil && m.cloudIPv6[m.cloudNames[i]]
+		mode := ""
+		if m.cloudMode != nil {
+			mode = m.cloudMode[m.cloudNames[i]]
+		}
+		items[i] = item{cfg: m.cloudCfgs[i], name: name, pingMs: pingMs, pterovpn: pterovpn, ipv6Support: ipv6Support, serverMode: mode}
+	}
+	return items
+}
+
+func (m *Model) reloadCloud(fetch bool) tea.Cmd {
+	if fetch {
+		m.cloudLoading = true
+		m.cloudFetchErr = ""
+		return runFetchCloud()
+	}
+	cfgs, names, _ := config.CloudList(false)
+	m.cloudCfgs = cfgs
+	m.cloudNames = names
+	if m.cloudGeo == nil {
+		m.cloudGeo = make(map[string]geo.Info)
+	}
+	items := m.buildCloudItems()
+	l := list.New(items, list.NewDefaultDelegate(), 40, 14)
+	l.Title = "Cloud конфиги"
+	l.SetShowStatusBar(false)
+	m.cloudList = l
+	return runGeoFetches(m.cloudCfgs)
+}
+
+func (m *Model) refreshCloudItems() {
+	if len(m.cloudCfgs) == 0 {
+		return
+	}
+	idx := m.cloudList.Index()
+	if idx < 0 {
+		idx = 0
+	}
+	m.cloudList.SetItems(m.buildCloudItems())
+	m.cloudList.Select(idx)
+}
+
+func newAddInputs() []textinput.Model {
+	return newInputsWithValues("", "", "", "", "", "", "", "", "", "", "")
+}
+
+func newProtectionInputs(opts config.ProtectionOptions) []textinput.Model {
+	ti := func(pl, val string) textinput.Model {
+		t := textinput.New()
+		t.Placeholder = pl
+		t.SetValue(val)
+		return t
+	}
+	obf := opts.Obfuscation
+	if obf == "" {
+		obf = "default"
+	}
+	magicSplit := opts.MagicSplit
+	if magicSplit == "" {
+		magicSplit = "0"
+	}
+	junkStyle := opts.JunkStyle
+	if junkStyle == "" {
+		junkStyle = "random"
+	}
+	flushPolicy := opts.FlushPolicy
+	if flushPolicy == "" {
+		flushPolicy = "once"
+	}
+	pp := opts.PreambleProfile
+	return []textinput.Model{
+		ti("default|enhanced", obf),
+		ti("0-12", strconv.Itoa(opts.JunkCount)),
+		ti("64-1024", strconv.Itoa(opts.JunkMin)),
+		ti("64-1024", strconv.Itoa(opts.JunkMax)),
+		ti("0-64", strconv.Itoa(opts.PadS1)),
+		ti("0-64", strconv.Itoa(opts.PadS2)),
+		ti("0-64", strconv.Itoa(opts.PadS3)),
+		ti("0-64", strconv.Itoa(opts.PadS4)),
+		ti("true|false", strconv.FormatBool(opts.PreCheck)),
+		ti("2,3 or 0", magicSplit),
+		ti("random|tls", junkStyle),
+		ti("once|perChunk", flushPolicy),
+		ti("preambleProfile empty|rotate|tls_record|...", pp),
+		ti("preambleRotate true|false", strconv.FormatBool(opts.PreambleRotate)),
+	}
+}
+
+func newSettingsInputs(s config.ClientSettings) []textinput.Model {
+	ti := func(pl, val string) textinput.Model {
+		t := textinput.New()
+		t.Placeholder = pl
+		t.SetValue(val)
+		return t
+	}
+	mode := s.Mode
+	if mode == "" {
+		mode = "tun"
+	}
+	sysProxy := "false"
+	if s.SystemProxy {
+		sysProxy = "true"
+	}
+	return []textinput.Model{
+		ti("tun|proxy", mode),
+		ti("127.0.0.1:1080", s.ProxyListen),
+		ti("true|false", sysProxy),
+	}
+}
+
+func settingsFromInputs(inputs []textinput.Model) config.ClientSettings {
+	mode := strings.ToLower(strings.TrimSpace(inputs[0].Value()))
+	if mode != "proxy" {
+		mode = "tun"
+	}
+	listen := strings.TrimSpace(inputs[1].Value())
+	if listen == "" {
+		listen = "127.0.0.1:1080"
+	}
+	sysProxy := strings.ToLower(strings.TrimSpace(inputs[2].Value())) == "true"
+	return config.ClientSettings{Mode: mode, ProxyListen: listen, SystemProxy: sysProxy}
+}
+
+func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions {
+	clamp := func(v, lo, hi int) int {
+		if v < lo {
+			return lo
+		}
+		if v > hi {
+			return hi
+		}
+		return v
+	}
+	atoi := func(s string) int {
+		v, _ := strconv.Atoi(strings.TrimSpace(s))
+		return v
+	}
+	obf := strings.TrimSpace(inputs[0].Value())
+	if obf != "enhanced" && obf != "default" {
+		obf = "default"
+	}
+	magicSplit, junkStyle, flushPolicy := "", "random", "once"
+	preambleProfile := ""
+	preambleRotate := false
+	if len(inputs) >= 12 {
+		magicSplit = strings.TrimSpace(inputs[9].Value())
+		if magicSplit == "0" {
+			magicSplit = ""
+		}
+		junkStyle = strings.ToLower(strings.TrimSpace(inputs[10].Value()))
+		if junkStyle != "tls" {
+			junkStyle = "random"
+		}
+		flushPolicy = strings.ToLower(strings.TrimSpace(inputs[11].Value()))
+	}
+	if len(inputs) >= 14 {
+		preambleProfile = strings.TrimSpace(strings.ToLower(inputs[12].Value()))
+		preambleRotate = strings.ToLower(strings.TrimSpace(inputs[13].Value())) == "true"
+	}
+	if flushPolicy == "perchunk" {
+		flushPolicy = "perChunk"
+	} else {
+		flushPolicy = "once"
+	}
+	return config.ProtectionOptions{
+		Obfuscation:     obf,
+		JunkCount:       clamp(atoi(inputs[1].Value()), 0, 12),
+		JunkMin:         clamp(atoi(inputs[2].Value()), 64, 1024),
+		JunkMax:         clamp(atoi(inputs[3].Value()), 64, 1024),
+		PadS1:           clamp(atoi(inputs[4].Value()), 0, 64),
+		PadS2:           clamp(atoi(inputs[5].Value()), 0, 64),
+		PadS3:           clamp(atoi(inputs[6].Value()), 0, 64),
+		PadS4:           clamp(atoi(inputs[7].Value()), 0, 64),
+		PreCheck:        strings.ToLower(strings.TrimSpace(inputs[8].Value())) == "true",
+		MagicSplit:      magicSplit,
+		JunkStyle:       junkStyle,
+		FlushPolicy:     flushPolicy,
+		PreambleProfile: preambleProfile,
+		PreambleRotate:  preambleRotate,
+	}
+}
+
+func fillConnectionFromAnyField(inputs []textinput.Model) []textinput.Model {
+	if len(inputs) < 2 {
+		return inputs
+	}
+	connIdx := 1
+	for i, in := range inputs {
+		v := strings.TrimSpace(in.Value())
+		if _, _, ok := config.ParseConnection(v); !ok || v == "" {
+			continue
+		}
+		if i == connIdx {
+			return inputs
+		}
+		inputs[connIdx].SetValue(v)
+		inputs[i].SetValue("")
+		break
+	}
+	return inputs
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+func newInputsWithValues(name, connection, routes, exclude, tunCIDR6, transport, quicServer, quicServerName, quicSkipVerify, quicCertPin, quicCaCert string) []textinput.Model {
+	ti := func(pl, val string) textinput.Model {
+		t := textinput.New()
+		t.Placeholder = pl
+		t.SetValue(val)
+		return t
+	}
+	tr := strings.TrimSpace(transport)
+	if tr == "" {
+		tr = "auto"
+	}
+	skip := strings.TrimSpace(quicSkipVerify)
+	return []textinput.Model{
+		ti("имя", name),
+		ti("host:port:key", connection),
+		ti("routes (пусто=all)", routes),
+		ti("exclude", exclude),
+		ti("tun-cidr6 (fd00:.../64)", tunCIDR6),
+		ti("transport tcp|quic|auto пусто=QUIC если quicServer", tr),
+		ti("quic host:port (пусто = только TCP)", quicServer),
+		ti("quic SNI (пусто = из адреса)", quicServerName),
+		ti("skipVerify пусто|true=self-signed ok, false=CA only", skip),
+		ti("quic pin sha256 hex (пусто = без pin)", quicCertPin),
+		ti("quicCaCert PEM файл путь от ~/.config/volter (пусто)", quicCaCert),
+	}
+}
+
+var cfgFormLabels = []string{
+	"Имя:",
+	"Connection (host:port:key):",
+	"Routes:",
+	"Exclude:",
+	"TUN IPv6 CIDR:",
+	"Transport (tcp|quic|auto|пусто+quic):",
+	"QUIC server (host:port):",
+	"QUIC SNI:",
+	"QUIC skipVerify:",
+	"QUIC cert pin:",
+	"QUIC CA PEM path:",
+}
+
+func configFromConnFormInputs(inputs []textinput.Model) (config.Config, string) {
+	if len(inputs) < 11 {
+		return config.Config{}, "форма конфига сломана"
+	}
+	server, token, ok := config.ParseConnection(strings.TrimSpace(inputs[1].Value()))
+	if !ok {
+		return config.Config{}, "connection: host:port:key"
+	}
+	tr := strings.ToLower(strings.TrimSpace(inputs[5].Value()))
+	if tr == "auto" {
+		tr = ""
+	} else if tr != "" && tr != "tcp" && tr != "quic" {
+		return config.Config{}, "transport: tcp, quic, auto или пусто"
+	}
+	pin := strings.TrimSpace(strings.ReplaceAll(inputs[9].Value(), ":", ""))
+	var skipPtr *bool
+	switch strings.ToLower(strings.TrimSpace(inputs[8].Value())) {
+	case "":
+		skipPtr = nil
+	case "true":
+		v := true
+		skipPtr = &v
+	case "false":
+		v := false
+		skipPtr = &v
+	default:
+		return config.Config{}, "quic skipVerify: пусто, true или false"
+	}
+	out := config.Config{
+		Server:            server,
+		Token:             token,
+		Routes:            strings.TrimSpace(inputs[2].Value()),
+		Exclude:           strings.TrimSpace(inputs[3].Value()),
+		TunCIDR6:          strings.TrimSpace(inputs[4].Value()),
+		Transport:         tr,
+		QuicServer:        strings.TrimSpace(inputs[6].Value()),
+		QuicServerName:    strings.TrimSpace(inputs[7].Value()),
+		QuicCertPinSHA256: pin,
+		QuicCaCert:        strings.TrimSpace(inputs[10].Value()),
+	}
+	out.QuicSkipVerify = skipPtr
+	return out, ""
+}
+
+type connectedMsg struct{ stop func() }
+type disconnectedMsg struct{}
+type errMsg string
+type logMsg string
+
+type WatchdogReconnectMsg struct{}
+
+type pingResultMsg struct {
+	name   string
+	d      time.Duration
+	failed bool
+}
+type pterovpnResultMsg struct {
+	name string
+	ok   bool
+	err  bool
+	ipv6 bool
+	mode string
+}
+
+type cloudFetchedMsg struct {
+	cfgs  []config.Config
+	names []string
+	err   string
+}
+
+type geoFetchedMsg struct {
+	host string
+	info geo.Info
+}
+
+type updateCheckMsg struct {
+	latest string
+}
+
+type updateApplyMsg struct {
+	err error
+}
+
+func LogMessage(s string) tea.Msg { return logMsg(s) }
+
+func runApplyUpdate(tag string) tea.Cmd {
+	return func() tea.Msg {
+		url, err := update.AssetDownloadURLForTag(tag)
+		if err != nil {
+			return updateApplyMsg{err: err}
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return updateApplyMsg{err: err}
+		}
+		if err := update.Apply(exe, url); err != nil {
+			return updateApplyMsg{err: err}
+		}
+		return updateApplyMsg{err: nil}
+	}
+}
+
+func runCheckUpdate(currentVersion string) tea.Cmd {
+	return func() tea.Msg {
+		latest, err := update.CheckLatest(currentVersion)
+		if err != nil || latest == "" {
+			return nil
+		}
+		return updateCheckMsg{latest: latest}
+	}
+}
+
+func runFetchCloud() tea.Cmd {
+	return func() tea.Msg {
+		cfgs, names, err := config.CloudList(true)
+		if err != nil {
+			return cloudFetchedMsg{err: err.Error()}
+		}
+		return cloudFetchedMsg{cfgs: cfgs, names: names}
+	}
+}
+
+func runGeoFetch(host string) tea.Cmd {
+	return func() tea.Msg {
+		info, err := geo.Fetch(host)
+		if err != nil {
+			return nil
+		}
+		return geoFetchedMsg{host: host, info: info}
+	}
+}
+
+func runGeoFetches(cfgs []config.Config) tea.Cmd {
+	seen := make(map[string]bool)
+	var cmds []tea.Cmd
+	for _, c := range cfgs {
+		host := cloudHost(c.Server)
+		if host != "" && !seen[host] {
+			seen[host] = true
+			cmds = append(cmds, runGeoFetch(host))
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+func runPing(addr, name string) tea.Cmd {
+	return func() tea.Msg {
+		d, err := probe.Ping(addr, probeTimeout)
+		if err != nil {
+			return pingResultMsg{name: name, failed: true}
+		}
+		return pingResultMsg{name: name, d: d}
+	}
+}
+
+func runProbeVolter(addr, wireToken, name string) tea.Cmd {
+	return func() tea.Msg {
+		ok, ipv6, caps, err := probe.ProbeVolterWithCaps(addr, wireToken, probeTimeout)
+		if err != nil {
+			return pterovpnResultMsg{name: name, ok: false, err: true, ipv6: false, mode: ""}
+		}
+		return pterovpnResultMsg{name: name, ok: ok, err: false, ipv6: ipv6, mode: probe.ServerModeFromCaps(caps)}
+	}
+}
+
+func runPingAll(cfgs []config.Config, names []string) tea.Cmd {
+	if len(cfgs) == 0 {
+		return nil
+	}
+	cmds := make([]tea.Cmd, len(cfgs))
+	for i := range cfgs {
+		cmds[i] = runPing(cfgs[i].Server, names[i])
+	}
+	return tea.Batch(cmds...)
+}
+
+func runProbeAll(cfgs []config.Config, names []string) tea.Cmd {
+	if len(cfgs) == 0 {
+		return nil
+	}
+	cmds := make([]tea.Cmd, len(cfgs))
+	for i := range cfgs {
+		cmds[i] = runProbeVolter(cfgs[i].Server, cfgs[i].Token, names[i])
+	}
+	return tea.Batch(cmds...)
+}
+
+func autoProbeCmds(cfgs []config.Config, names []string) tea.Cmd {
+	return tea.Batch(runPingAll(cfgs, names), runProbeAll(cfgs, names))
+}
+
+func (m *Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{autoProbeCmds(m.cfgs, m.names), runCheckUpdate(m.opts.Version), runFetchCloud()}
+	if len(m.cloudCfgs) > 0 {
+		cmds = append(cmds, runGeoFetches(m.cloudCfgs))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "esc":
+			if m.updateAwaitingConfirm {
+				m.updateAwaitingConfirm = false
+				return m, nil
+			}
+			if m.settingsEditing {
+				m.settingsEditing = false
+				m.settingsFormFocus = 0
+				return m, nil
+			}
+			if m.deletingCfg != "" {
+				m.deletingCfg = ""
+				return m, nil
+			}
+			if m.protectionEditing {
+				m.protectionEditing = false
+				m.protectionFormFocus = 0
+				return m, nil
+			}
+			if m.editing {
+				m.editing = false
+				m.editingName = ""
+				m.err = ""
+				return m, nil
+			}
+			if m.adding {
+				m.adding = false
+				m.err = ""
+				return m, nil
+			}
+			if m.stop != nil {
+				m.stop()
+				m.stop = nil
+			}
+			return m, tea.Quit
+		case "n", "N":
+			if m.updateAwaitingConfirm {
+				m.updateAwaitingConfirm = false
+				return m, nil
+			}
+			if m.deletingCfg != "" {
+				m.deletingCfg = ""
+				return m, nil
+			}
+			if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" {
+				m.adding = true
+				m.addInputs = newAddInputs()
+				m.addFocus = 0
+				m.addInputs[0].Focus()
+				return m, nil
+			}
+		case "p", "P":
+			if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" && len(m.cfgs) > 0 {
+				idx := m.cfgList.Index()
+				if idx < 0 {
+					idx = 0
+				}
+				if idx < len(m.cfgs) {
+					return m, runPing(m.cfgs[idx].Server, m.names[idx])
+				}
+			}
+			if m.tab == tabCloud && !m.cloudLoading && len(m.cloudCfgs) > 0 {
+				idx := m.cloudList.Index()
+				if idx >= 0 && idx < len(m.cloudCfgs) {
+					return m, runPing(m.cloudCfgs[idx].Server, m.cloudNames[idx])
+				}
+			}
+		case "t", "T":
+			if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" && len(m.cfgs) > 0 {
+				idx := m.cfgList.Index()
+				if idx < 0 {
+					idx = 0
+				}
+				if idx < len(m.cfgs) {
+					return m, runProbeVolter(m.cfgs[idx].Server, m.cfgs[idx].Token, m.names[idx])
+				}
+			}
+			if m.tab == tabCloud && !m.cloudLoading && len(m.cloudCfgs) > 0 {
+				idx := m.cloudList.Index()
+				if idx >= 0 && idx < len(m.cloudCfgs) {
+					return m, runProbeVolter(m.cloudCfgs[idx].Server, m.cloudCfgs[idx].Token, m.cloudNames[idx])
+				}
+			}
+		case "u", "U":
+			if m.tab == tabHome && m.updateAvailable != "" && m.updateBusy == "" && m.status != statusConnecting {
+				m.updateAwaitingConfirm = true
+				m.updateErr = ""
+				return m, nil
+			}
+		case "r", "R":
+			if m.tab == tabCloud && !m.cloudLoading {
+				return m, m.reloadCloud(true)
+			}
+		case "d", "D", "delete":
+			if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" && len(m.cfgs) > 0 {
+				idx := m.cfgList.Index()
+				if idx >= 0 && idx < len(m.names) {
+					m.deletingCfg = m.names[idx]
+				}
+				return m, nil
+			}
+		case "y", "Y":
+			if m.updateAwaitingConfirm && m.updateAvailable != "" && m.updateBusy == "" {
+				m.updateAwaitingConfirm = false
+				m.updateBusy = "скачивание и установка…"
+				m.updateErr = ""
+				if m.stop != nil {
+					m.stop()
+					m.stop = nil
+				}
+				m.status = statusDisconnected
+				m.activeCfg = ""
+				return m, runApplyUpdate(m.updateAvailable)
+			}
+			if m.deletingCfg != "" {
+				_ = config.Delete(m.deletingCfg)
+				m.deletingCfg = ""
+				m.reloadCfgs()
+				return m, autoProbeCmds(m.cfgs, m.names)
+			}
+		case "b", "B":
+			if m.tab == tabSettings && len(m.cfgs) > 0 {
+				return m, runPingAll(m.cfgs, m.names)
+			}
+		case "e", "E":
+			if m.tab == tabSettings && !m.settingsEditing {
+				m.settingsEditing = true
+				m.settingsFormFocus = 0
+				m.settingsInputs = newSettingsInputs(m.clientSettings)
+				m.settingsInputs[0].Focus()
+				return m, nil
+			}
+			if m.tab == tabCloud && !m.cloudLoading && !m.editing && len(m.cloudCfgs) > 0 {
+				idx := m.cloudList.Index()
+				if idx >= 0 && idx < len(m.cloudCfgs) {
+					m.editing = true
+					m.editingName = m.cloudNames[idx]
+					cfg := m.cloudCfgs[idx]
+					m.editInputs = newInputsWithValues(m.cloudNames[idx], cfg.Server+":"+cfg.Token, cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
+						cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyFormField(), cfg.QuicCertPinSHA256, cfg.QuicCaCert)
+					m.editFocus = 0
+					m.editInputs[0].Focus()
+					m.err = ""
+				}
+				return m, nil
+			}
+			if m.tab == tabProtection && !m.protectionEditing {
+				var opts config.ProtectionOptions
+				if m.protectionTarget == "" {
+					opts, _ = config.LoadProtection()
+				} else {
+					cfg, _ := config.LoadByName(m.protectionTarget)
+					if cfg.Protection != nil {
+						opts = *cfg.Protection
+					}
+				}
+				m.protectionInputs = newProtectionInputs(opts)
+				m.protectionEditing = true
+				m.protectionFormFocus = 0
+				m.protectionInputs[0].Focus()
+				return m, nil
+			}
+			if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" && len(m.cfgs) > 0 {
+				idx := m.cfgList.Index()
+				if idx >= 0 && idx < len(m.cfgs) {
+					m.editing = true
+					m.editingName = m.names[idx]
+					cfg := m.cfgs[idx]
+					m.editInputs = newInputsWithValues(m.names[idx], cfg.Server+":"+cfg.Token, cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
+						cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyFormField(), cfg.QuicCertPinSHA256, cfg.QuicCaCert)
+					m.editFocus = 0
+					m.editInputs[0].Focus()
+					m.err = ""
+				}
+				return m, nil
+			}
+		case "ctrl+left", "ctrl+h":
+			if m.tab == tabProtection && !m.protectionEditing && len(m.names) > 0 {
+				m.protectionClientIdx--
+				if m.protectionClientIdx < 0 {
+					m.protectionClientIdx = len(m.names)
+				}
+				m.protectionTarget = ""
+				if m.protectionClientIdx > 0 {
+					m.protectionTarget = m.names[m.protectionClientIdx-1]
+				}
+				return m, nil
+			}
+		case "ctrl+right", "ctrl+l":
+			if m.tab == tabProtection && !m.protectionEditing && len(m.names) > 0 {
+				m.protectionClientIdx = (m.protectionClientIdx + 1) % (len(m.names) + 1)
+				m.protectionTarget = ""
+				if m.protectionClientIdx > 0 {
+					m.protectionTarget = m.names[m.protectionClientIdx-1]
+				}
+				return m, nil
+			}
+		case "tab", "right":
+			if m.deletingCfg != "" {
+				m.deletingCfg = ""
+			}
+			if m.settingsEditing && len(m.settingsInputs) == 3 {
+				m.settingsFormFocus = (m.settingsFormFocus + 1) % 3
+				for i := range m.settingsInputs {
+					if i == m.settingsFormFocus {
+						m.settingsInputs[i].Focus()
+					} else {
+						m.settingsInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			if m.protectionEditing && len(m.protectionInputs) == 14 {
+				m.protectionFormFocus = (m.protectionFormFocus + 1) % 12
+				for i := range m.protectionInputs {
+					if i == m.protectionFormFocus {
+						m.protectionInputs[i].Focus()
+					} else {
+						m.protectionInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			if m.editing {
+				m.editFocus = (m.editFocus + 1) % len(m.editInputs)
+				for i := range m.editInputs {
+					if i == m.editFocus {
+						m.editInputs[i].Focus()
+					} else {
+						m.editInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			if m.adding {
+				m.addFocus = (m.addFocus + 1) % len(m.addInputs)
+				for i := range m.addInputs {
+					if i == m.addFocus {
+						m.addInputs[i].Focus()
+					} else {
+						m.addInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			m.tab = tab((int(m.tab) + 1) % 6)
+			if m.tab == tabConfig && len(m.cfgs) > 0 {
+				return m, autoProbeCmds(m.cfgs, m.names)
+			}
+			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
+				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
+			}
+			return m, nil
+		case "shift+tab", "left":
+			if m.deletingCfg != "" {
+				m.deletingCfg = ""
+			}
+			if m.settingsEditing && len(m.settingsInputs) == 3 {
+				m.settingsFormFocus = (m.settingsFormFocus + 2) % 3
+				for i := range m.settingsInputs {
+					if i == m.settingsFormFocus {
+						m.settingsInputs[i].Focus()
+					} else {
+						m.settingsInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			if m.protectionEditing && len(m.protectionInputs) == 14 {
+				m.protectionFormFocus = (m.protectionFormFocus + 11) % 12
+				for i := range m.protectionInputs {
+					if i == m.protectionFormFocus {
+						m.protectionInputs[i].Focus()
+					} else {
+						m.protectionInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			if m.editing {
+				m.editFocus = (m.editFocus + len(m.editInputs) - 1) % len(m.editInputs)
+				for i := range m.editInputs {
+					if i == m.editFocus {
+						m.editInputs[i].Focus()
+					} else {
+						m.editInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			if m.adding {
+				m.addFocus = (m.addFocus + len(m.addInputs) - 1) % len(m.addInputs)
+				for i := range m.addInputs {
+					if i == m.addFocus {
+						m.addInputs[i].Focus()
+					} else {
+						m.addInputs[i].Blur()
+					}
+				}
+				return m, nil
+			}
+			m.tab = tab((int(m.tab) + 3) % 6)
+			if m.tab == tabConfig && len(m.cfgs) > 0 {
+				return m, autoProbeCmds(m.cfgs, m.names)
+			}
+			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
+				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
+			}
+			return m, nil
+		case "enter":
+			if m.settingsEditing && len(m.settingsInputs) == 3 {
+				m.clientSettings = settingsFromInputs(m.settingsInputs)
+				_ = config.SaveClientSettings(m.clientSettings)
+				m.settingsEditing = false
+				m.settingsFormFocus = 0
+				return m, nil
+			}
+			if m.protectionEditing && len(m.protectionInputs) == 14 {
+				opts := protectionOptsFromInputs(m.protectionInputs)
+				if m.protectionTarget == "" {
+					_ = config.SaveProtection(opts)
+				} else {
+					cfg, err := config.LoadByName(m.protectionTarget)
+					if err == nil {
+						cfg.Protection = &opts
+						_ = config.Save(m.protectionTarget, cfg)
+					}
+				}
+				m.protectionEditing = false
+				m.protectionFormFocus = 0
+				return m, nil
+			}
+			if m.editing {
+				if m.editFocus < len(m.editInputs)-1 {
+					m.editFocus++
+					for i := range m.editInputs {
+						if i == m.editFocus {
+							m.editInputs[i].Focus()
+						} else {
+							m.editInputs[i].Blur()
+						}
+					}
+				} else {
+					oldName := m.editingName
+					newName := config.SanitizeName(strings.TrimSpace(m.editInputs[0].Value()))
+					if newName == "" {
+						newName = "default"
+					}
+					cfg, formErr := configFromConnFormInputs(m.editInputs)
+					if formErr != "" {
+						m.err = formErr
+					} else {
+						if newName != oldName {
+							_ = config.Delete(oldName)
+						}
+						if err := config.Save(newName, cfg); err != nil {
+							m.err = err.Error()
+						} else {
+							m.reloadCfgs()
+							m.editing = false
+							m.editingName = ""
+							m.err = ""
+							return m, autoProbeCmds(m.cfgs, m.names)
+						}
+					}
+				}
+				return m, nil
+			}
+			if m.adding {
+				if m.addFocus < len(m.addInputs)-1 {
+					m.addFocus++
+					for i := range m.addInputs {
+						if i == m.addFocus {
+							m.addInputs[i].Focus()
+						} else {
+							m.addInputs[i].Blur()
+						}
+					}
+				} else {
+					name := config.SanitizeName(strings.TrimSpace(m.addInputs[0].Value()))
+					if name == "" {
+						name = "default"
+					}
+					cfg, formErr := configFromConnFormInputs(m.addInputs)
+					if formErr != "" {
+						m.err = formErr
+					} else if err := config.Save(name, cfg); err != nil {
+						m.err = err.Error()
+					} else {
+						m.reloadCfgs()
+						m.adding = false
+						m.err = ""
+						return m, autoProbeCmds(m.cfgs, m.names)
+					}
+				}
+				return m, nil
+			}
+			if m.tab == tabConfig && m.deletingCfg == "" && m.opts.ConnectFn != nil && len(m.cfgs) > 0 {
+				idx := m.cfgList.Index()
+				if idx < 0 {
+					idx = 0
+				}
+				if idx < len(m.cfgs) && m.status != statusConnecting {
+					if m.status == statusConnected {
+						if m.stop != nil {
+							m.stop()
+							m.stop = nil
+						}
+						m.status = statusDisconnected
+						m.activeCfg = ""
+					} else {
+						m.status = statusConnecting
+						m.err = ""
+						m.activeCfg = m.names[idx]
+						m.connectCount++
+						cfg := m.cfgs[idx]
+						return m, waitConnect(cfg, m.activeCfg, m.connectCount-1, m.clientSettings, m.opts.ConnectFn)
+					}
+				}
+			}
+			if m.tab == tabCloud && !m.cloudLoading && m.opts.ConnectFn != nil && len(m.cloudCfgs) > 0 {
+				idx := m.cloudList.Index()
+				if idx < 0 {
+					idx = 0
+				}
+				if idx < len(m.cloudCfgs) && m.status != statusConnecting {
+					if m.status == statusConnected {
+						if m.stop != nil {
+							m.stop()
+							m.stop = nil
+						}
+						m.status = statusDisconnected
+						m.activeCfg = ""
+					} else {
+						m.status = statusConnecting
+						m.err = ""
+						m.activeCfg = m.cloudNames[idx]
+						m.connectCount++
+						cfg := m.cloudCfgs[idx]
+						if saved, err := config.LoadByName(m.cloudNames[idx]); err == nil &&
+							saved.Server == cfg.Server && saved.Token == cfg.Token {
+							cfg = saved
+						}
+						mode := ""
+						if m.cloudMode != nil {
+							mode = m.cloudMode[m.cloudNames[idx]]
+						}
+						probeV6 := m.cloudIPv6 != nil && m.cloudIPv6[m.cloudNames[idx]]
+						config.ApplyCloudConnectDefaults(&cfg, mode, probeV6)
+						return m, waitConnect(cfg, m.activeCfg, m.connectCount-1, m.clientSettings, m.opts.ConnectFn)
+					}
+				}
+			}
+		}
+	case WatchdogReconnectMsg:
+		if m.opts.ConnectFn == nil || m.status != statusConnected || m.activeCfg == "" {
+			return m, nil
+		}
+		cfg, ok := m.configSnapshotForActive()
+		if !ok {
+			return m, nil
+		}
+		if m.stop != nil {
+			m.stop()
+			m.stop = nil
+		}
+		m.status = statusConnecting
+		m.err = ""
+		m.connectCount++
+		return m, waitConnect(cfg, m.activeCfg, m.connectCount-1, m.clientSettings, m.opts.ConnectFn)
+	case connectedMsg:
+		m.status = statusConnected
+		m.stop = msg.stop
+		return m, nil
+	case disconnectedMsg:
+		m.status = statusDisconnected
+		m.stop = nil
+		m.activeCfg = ""
+		return m, nil
+	case errMsg:
+		m.status = statusDisconnected
+		m.stop = nil
+		m.err = string(msg)
+		m.activeCfg = ""
+		return m, nil
+	case logMsg:
+		m.logsMu.Lock()
+		if m.tab == tabLogs {
+			m.logAutoScroll = m.logViewport.AtBottom()
+		} else {
+			m.logAutoScroll = true
+		}
+		m.logs = append(m.logs, string(msg))
+		if len(m.logs) > 500 {
+			m.logs = m.logs[len(m.logs)-500:]
+		}
+		m.logsMu.Unlock()
+		return m, nil
+	case pingResultMsg:
+		if msg.failed {
+			m.pingFailed[msg.name] = true
+			delete(m.pingResults, msg.name)
+		} else {
+			m.pingResults[msg.name] = msg.d
+			delete(m.pingFailed, msg.name)
+		}
+		m.refreshCfgItems()
+		m.refreshCloudItems()
+		return m, nil
+	case tea.WindowSizeMsg:
+		m.logViewport.Width = msg.Width - 4
+		m.logViewport.Height = msg.Height - 10
+		if m.logViewport.Height < 5 {
+			m.logViewport.Height = 5
+		}
+		if m.logViewport.Width < 20 {
+			m.logViewport.Width = 20
+		}
+		m.protectionViewport.Width = msg.Width - 4
+		m.protectionViewport.Height = msg.Height - 10
+		if m.protectionViewport.Height < 5 {
+			m.protectionViewport.Height = 5
+		}
+		if m.protectionViewport.Width < 20 {
+			m.protectionViewport.Width = 20
+		}
+		return m, nil
+	case pterovpnResultMsg:
+		if msg.err {
+			m.pterovpnRes[msg.name] = 2
+		} else if msg.ok {
+			m.pterovpnRes[msg.name] = 1
+		} else {
+			m.pterovpnRes[msg.name] = 0
+		}
+		if m.cfgIPv6 == nil {
+			m.cfgIPv6 = make(map[string]bool)
+		}
+		prevIPv6 := m.cfgIPv6[msg.name]
+		nextIPv6 := msg.ipv6
+		modeForIPv6 := strings.TrimSpace(msg.mode)
+		if modeForIPv6 == "unknown" && prevIPv6 && !nextIPv6 {
+			nextIPv6 = true
+		}
+		m.cfgIPv6[msg.name] = nextIPv6
+		if m.cloudIPv6 == nil {
+			m.cloudIPv6 = make(map[string]bool)
+		}
+		prevCloudIPv6 := m.cloudIPv6[msg.name]
+		nextCloudIPv6 := msg.ipv6
+		if modeForIPv6 == "unknown" && prevCloudIPv6 && !nextCloudIPv6 {
+			nextCloudIPv6 = true
+		}
+		m.cloudIPv6[msg.name] = nextCloudIPv6
+		if m.cfgMode == nil {
+			m.cfgMode = make(map[string]string)
+		}
+		prevMode := strings.TrimSpace(m.cfgMode[msg.name])
+		nextMode := strings.TrimSpace(msg.mode)
+		if nextMode == "unknown" && prevMode != "" && prevMode != "unknown" {
+			nextMode = prevMode
+		}
+		m.cfgMode[msg.name] = nextMode
+		if m.cloudMode == nil {
+			m.cloudMode = make(map[string]string)
+		}
+		prevCloudMode := strings.TrimSpace(m.cloudMode[msg.name])
+		nextCloudMode := strings.TrimSpace(msg.mode)
+		if nextCloudMode == "unknown" && prevCloudMode != "" && prevCloudMode != "unknown" {
+			nextCloudMode = prevCloudMode
+		}
+		m.cloudMode[msg.name] = nextCloudMode
+		m.refreshCfgItems()
+		m.refreshCloudItems()
+		return m, nil
+	case updateCheckMsg:
+		m.updateAvailable = msg.latest
+		return m, nil
+	case updateApplyMsg:
+		m.updateBusy = ""
+		if msg.err != nil {
+			m.updateErr = msg.err.Error()
+			return m, nil
+		}
+		return m, tea.Quit
+	case cloudFetchedMsg:
+		m.cloudLoading = false
+		if msg.err != "" {
+			m.cloudFetchErr = msg.err
+			return m, nil
+		}
+		m.cloudFetchErr = ""
+		m.cloudCfgs = msg.cfgs
+		m.cloudNames = msg.names
+		if m.cloudGeo == nil {
+			m.cloudGeo = make(map[string]geo.Info)
+		}
+		m.cloudIPv6 = make(map[string]bool)
+		items := m.buildCloudItems()
+		l := list.New(items, list.NewDefaultDelegate(), 40, 14)
+		l.Title = "Cloud конфиги"
+		l.SetShowStatusBar(false)
+		m.cloudList = l
+		return m, tea.Batch(autoProbeCmds(m.cloudCfgs, m.cloudNames), runGeoFetches(m.cloudCfgs))
+	case geoFetchedMsg:
+		if m.cloudGeo == nil {
+			m.cloudGeo = make(map[string]geo.Info)
+		}
+		m.cloudGeo[msg.host] = msg.info
+		if m.tab == tabCloud {
+			m.refreshCloudItems()
+		}
+		return m, nil
+	}
+
+	if m.settingsEditing && m.settingsFormFocus < len(m.settingsInputs) {
+		m.settingsInputs[m.settingsFormFocus], cmd = m.settingsInputs[m.settingsFormFocus].Update(msg)
+		return m, cmd
+	}
+	if m.protectionEditing && m.protectionFormFocus < len(m.protectionInputs) {
+		m.protectionInputs[m.protectionFormFocus], cmd = m.protectionInputs[m.protectionFormFocus].Update(msg)
+		return m, cmd
+	}
+	if m.editing && m.editFocus < len(m.editInputs) {
+		m.editInputs[m.editFocus], cmd = m.editInputs[m.editFocus].Update(msg)
+		m.editInputs = fillConnectionFromAnyField(m.editInputs)
+		return m, cmd
+	}
+	if m.adding && m.addFocus < len(m.addInputs) {
+		m.addInputs[m.addFocus], cmd = m.addInputs[m.addFocus].Update(msg)
+		m.addInputs = fillConnectionFromAnyField(m.addInputs)
+		return m, cmd
+	}
+	if m.tab == tabProtection {
+		m.protectionViewport, cmd = m.protectionViewport.Update(msg)
+		return m, cmd
+	}
+	if m.tab == tabConfig {
+		m.cfgList, cmd = m.cfgList.Update(msg)
+	}
+	if m.tab == tabCloud {
+		m.cloudList, cmd = m.cloudList.Update(msg)
+	}
+	return m, cmd
+}
+
+func waitConnect(cfg config.Config, configName string, reconnectCount int, settings config.ClientSettings, fn ConnectFn) tea.Cmd {
+	return func() tea.Msg {
+		stop, err := fn(cfg, configName, reconnectCount, settings)
+		if err != nil {
+			return errMsg(err.Error())
+		}
+		return connectedMsg{stop: stop}
+	}
+}
+
+const protectionAnalyticsLimit = 20
+
+func (m *Model) protectionView() string {
+	var b strings.Builder
+
+	b.WriteString(sectionTitle.Render("Аналитика") + "\n")
+	store, err := metrics.Load()
+	if err == nil && len(store.Records) > 0 {
+		start := len(store.Records) - protectionAnalyticsLimit
+		if start < 0 {
+			start = 0
+		}
+		for i := len(store.Records) - 1; i >= start; i-- {
+			r := store.Records[i]
+			hs := "-"
+			if r.HandshakeOK {
+				hs = lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("ok")
+			} else {
+				hs = lipgloss.NewStyle().Foreground(lipgloss.Color(errCol)).Render("fail")
+			}
+			errType := r.ErrorType
+			if errType == "" {
+				errType = "-"
+			}
+			dur := r.Duration.Round(time.Second).String()
+			if r.Duration == 0 && !r.End.IsZero() {
+				dur = "-"
+			}
+			b.WriteString("  ")
+			b.WriteString(kvLabel.Render(r.Start.Format("02.01 15:04")) + " ")
+			b.WriteString(kvValue.Render(fmt.Sprintf("%s  %s  HS:%s  R:%d  RTT:%s/%s  DNS:%v/%v",
+				dur, errType, hs, r.ReconnectCount,
+				formatRTT(r.RTTBefore), formatRTT(r.RTTDuring), r.DNSOKBefore, r.DNSOKAfter)))
+			b.WriteString("\n")
+		}
+	} else {
+		b.WriteString("  ")
+		b.WriteString(emptyState.Render("нет данных"))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(sectionTitle.Render("Настройки защиты") + "\n")
+	if m.protectionEditing && len(m.protectionInputs) == 14 {
+		labels := []string{"obfuscation", "junkCount", "junkMin", "junkMax", "padS1", "padS2", "padS3", "padS4", "preCheck", "magicSplit", "junkStyle", "flushPolicy", "preambleProfile", "preambleRotate"}
+		for i := range m.protectionInputs {
+			b.WriteString("  ")
+			b.WriteString(kvLabel.Render(labels[i]+":") + " ")
+			b.WriteString(m.protectionInputs[i].View())
+			b.WriteString("\n")
+		}
+		b.WriteString("\n  ")
+		b.WriteString(hintKey.Render("Tab") + " ")
+		b.WriteString(hintText.Render("след.  ") + hintKey.Render("Enter") + " ")
+		b.WriteString(hintText.Render("сохранить  ") + hintKey.Render("Esc") + " ")
+		b.WriteString(hintText.Render("отмена") + "\n")
+	} else {
+		var opts config.ProtectionOptions
+		if m.protectionTarget == "" {
+			opts, _ = config.LoadProtection()
+		} else {
+			cfg, _ := config.LoadByName(m.protectionTarget)
+			if cfg.Protection != nil {
+				opts = *cfg.Protection
+			}
+		}
+		obf := opts.Obfuscation
+		if obf == "" {
+			obf = "default"
+		}
+		b.WriteString("  ")
+		b.WriteString(kvLabel.Render("obfuscation:") + " ")
+		b.WriteString(kvValue.Render(obf) + "   ")
+		b.WriteString(kvLabel.Render("junkCount:") + " ")
+		b.WriteString(kvValue.Render(strconv.Itoa(opts.JunkCount)) + "   ")
+		b.WriteString(kvLabel.Render("junkMin:") + " ")
+		b.WriteString(kvValue.Render(strconv.Itoa(opts.JunkMin)) + "   ")
+		b.WriteString(kvLabel.Render("junkMax:") + " ")
+		b.WriteString(kvValue.Render(strconv.Itoa(opts.JunkMax)) + "\n")
+		b.WriteString("  ")
+		b.WriteString(kvLabel.Render("padS1-4:") + " ")
+		b.WriteString(kvValue.Render(fmt.Sprintf("%d/%d/%d/%d", opts.PadS1, opts.PadS2, opts.PadS3, opts.PadS4)) + "   ")
+		b.WriteString(kvLabel.Render("preCheck:") + " ")
+		b.WriteString(kvValue.Render(fmt.Sprintf("%v", opts.PreCheck)) + "\n")
+		b.WriteString("  ")
+		b.WriteString(kvLabel.Render("magicSplit:") + " ")
+		b.WriteString(kvValue.Render(orEmpty(opts.MagicSplit, "0")) + "   ")
+		b.WriteString(kvLabel.Render("junkStyle:") + " ")
+		b.WriteString(kvValue.Render(orEmpty(opts.JunkStyle, "random")) + "   ")
+		b.WriteString(kvLabel.Render("flushPolicy:") + " ")
+		b.WriteString(kvValue.Render(orEmpty(opts.FlushPolicy, "once")) + "\n")
+		b.WriteString("  ")
+		b.WriteString(kvLabel.Render("preambleProfile:") + " ")
+		b.WriteString(kvValue.Render(orEmpty(opts.PreambleProfile, "-")) + "   ")
+		b.WriteString(kvLabel.Render("preambleRotate:") + " ")
+		b.WriteString(kvValue.Render(fmt.Sprintf("%v", opts.PreambleRotate)) + "\n")
+		b.WriteString("  ")
+		b.WriteString(hintKey.Render("E") + " ")
+		b.WriteString(hintText.Render("редактировать") + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(sectionTitle.Render("Клиентские опции") + "\n")
+	target := "Глобально"
+	if m.protectionTarget != "" {
+		target = m.protectionTarget
+	}
+	b.WriteString("  ")
+	b.WriteString(kvLabel.Render("Цель:") + " ")
+	b.WriteString(kvValue.Render(target))
+	if len(m.names) > 0 {
+		b.WriteString("   ")
+		b.WriteString(hintKey.Render("Ctrl+←/→") + hintText.Render(" переключить"))
+	}
+	b.WriteString("\n")
+
+	full := b.String()
+	m.protectionViewport.SetContent(full)
+	return m.protectionViewport.View()
+}
+
+func orEmpty(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+func formatRTT(d time.Duration) string {
+	if d == 0 {
+		return "-"
+	}
+	return d.Round(time.Millisecond).String()
+}
+
+func (m *Model) View() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("volter  dev - c0redev(unitdevgcc)"))
+	if m.updateAvailable != "" {
+		b.WriteString("  ")
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render("↑ " + m.updateAvailable))
+	}
+	b.WriteString("  ")
+	switch m.status {
+	case statusConnected:
+		b.WriteString(statusStyle.Render("Ядро: Подключено"))
+	case statusConnecting:
+		b.WriteString("Ядро: Подключение...")
+	default:
+		b.WriteString("Ядро: Отключено")
+	}
+	mode := m.clientSettings.Mode
+	if mode == "" || mode == "tun" {
+		b.WriteString("  TUN  ")
+	} else {
+		b.WriteString("  Proxy  ")
+	}
+	if m.activeCfg != "" {
+		b.WriteString("Конфигурация: " + m.activeCfg)
+	}
+	b.WriteString("\n\n")
+
+	for i, name := range tabNames {
+		if i == int(m.tab) {
+			b.WriteString(activeTabStyle.Render("[ " + name + " ]"))
+		} else {
+			b.WriteString(tabStyle.Render(name))
+		}
+	}
+	b.WriteString("\n\n")
+
+	var content strings.Builder
+	switch m.tab {
+	case tabHome:
+		if m.updateAvailable != "" {
+			content.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Render("Доступно обновление: " + m.updateAvailable))
+			if m.updateBusy != "" {
+				content.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Render(" — " + m.updateBusy))
+			}
+			content.WriteString("\n")
+			if m.updateErr != "" {
+				content.WriteString(errStyle.Render(m.updateErr) + "\n")
+			}
+			if m.updateAwaitingConfirm {
+				content.WriteString(hintKey.Render("y") + hintText.Render(" скачать и перезапустить  ") + hintKey.Render("n") + hintText.Render(" / Esc отмена\n"))
+			} else if m.updateBusy == "" {
+				content.WriteString(hintKey.Render("u") + hintText.Render(" обновить   ") + lipgloss.NewStyle().Foreground(lipgloss.Color(dim)).Render("https://dev.c0redev.volter/releases\n"))
+			}
+			content.WriteString("\n")
+		}
+		content.WriteString("Статус\n")
+		switch m.status {
+		case statusConnected:
+			content.WriteString(statusStyle.Render("Ядро: Подключено"))
+		case statusConnecting:
+			content.WriteString("Ядро: Подключение...")
+		default:
+			content.WriteString("Ядро: Отключено")
+		}
+		content.WriteString("\n")
+		if m.activeCfg != "" {
+			idx := -1
+			for i, n := range m.names {
+				if n == m.activeCfg {
+					idx = i
+					break
+				}
+			}
+			if idx >= 0 && idx < len(m.cfgs) {
+				content.WriteString("Конфигурация: " + m.cfgs[idx].Server + "\n")
+			} else {
+				for i, n := range m.cloudNames {
+					if n == m.activeCfg && i < len(m.cloudCfgs) {
+						content.WriteString("Конфигурация: " + m.cloudCfgs[i].Server + "\n")
+						break
+					}
+				}
+			}
+		}
+		if m.clientSettings.Mode == "proxy" {
+			content.WriteString("Режим: Proxy (" + m.clientSettings.ProxyListen + ")\n")
+		} else {
+			content.WriteString("Режим: TUN\n")
+		}
+		if m.err != "" {
+			content.WriteString(errStyle.Render("Ошибка: " + m.err))
+		}
+	case tabConfig:
+		if m.deletingCfg != "" {
+			content.WriteString("Удалить конфигурацию \"" + m.deletingCfg + "\"? y/n")
+		} else if m.editing {
+			content.WriteString("Редактирование: " + m.editingName + "\n\n")
+			for i := range m.editInputs {
+				lbl := ""
+				if i < len(cfgFormLabels) {
+					lbl = cfgFormLabels[i]
+				}
+				content.WriteString(lbl + " ")
+				content.WriteString(m.editInputs[i].View())
+				content.WriteString("\n")
+			}
+			content.WriteString("\nTab/Enter - следующее  Esc - отмена")
+			if m.err != "" {
+				content.WriteString("\n")
+				content.WriteString(errStyle.Render(m.err))
+			}
+		} else if m.adding {
+			content.WriteString("Новая конфигурация\n\n")
+			for i := range m.addInputs {
+				lbl := ""
+				if i < len(cfgFormLabels) {
+					lbl = cfgFormLabels[i]
+				}
+				content.WriteString(lbl + " ")
+				content.WriteString(m.addInputs[i].View())
+				content.WriteString("\n")
+			}
+			content.WriteString("\nTab/Enter - следующее  Esc - отмена")
+			if m.err != "" {
+				content.WriteString("\n")
+				content.WriteString(errStyle.Render(m.err))
+			}
+		} else {
+			content.WriteString(m.cfgList.View())
+			idx := m.cfgList.Index()
+			if idx >= 0 && idx < len(m.cfgs) {
+				name := m.names[idx]
+				ipv6Ok := m.cfgIPv6 != nil && m.cfgIPv6[name]
+				_, probed := m.pterovpnRes[name]
+				var ipv6Str string
+				if probed {
+					if ipv6Ok {
+						ipv6Str = "IPv6: ✓"
+					} else {
+						ipv6Str = "IPv6: ✗"
+					}
+				} else {
+					ipv6Str = "IPv6: —"
+				}
+				content.WriteString(cloudDetailStyle.Render(ipv6Str))
+			}
+		}
+	case tabCloud:
+		if m.editing {
+			content.WriteString("Редактирование (cloud): " + m.editingName + "\n\n")
+			for i := range m.editInputs {
+				lbl := ""
+				if i < len(cfgFormLabels) {
+					lbl = cfgFormLabels[i]
+				}
+				content.WriteString(lbl + " ")
+				content.WriteString(m.editInputs[i].View())
+				content.WriteString("\n")
+			}
+			content.WriteString("\nTab/Enter - следующее  Esc - отмена")
+			if m.err != "" {
+				content.WriteString("\n")
+				content.WriteString(errStyle.Render(m.err))
+			}
+		} else if m.cloudLoading {
+			content.WriteString("Загрузка cloud конфигов...")
+		} else if m.cloudFetchErr != "" {
+			content.WriteString(errStyle.Render("Ошибка: " + m.cloudFetchErr))
+			content.WriteString("\n\nR - обновить")
+		} else if len(m.cloudCfgs) == 0 {
+			content.WriteString(emptyState.Render("Нет конфигов. R - загрузить с реп"))
+		} else {
+			content.WriteString(m.cloudList.View())
+			idx := m.cloudList.Index()
+			if idx >= 0 && idx < len(m.cloudCfgs) {
+				parts := []string{}
+				if m.cloudGeo != nil {
+					if g, ok := m.cloudGeo[cloudHost(m.cloudCfgs[idx].Server)]; ok {
+						if g.CountryCode != "" {
+							parts = append(parts, g.CountryCode)
+						}
+						if g.ASN != "" {
+							parts = append(parts, g.ASN)
+						}
+						if g.Org != "" {
+							parts = append(parts, g.Org)
+						}
+					}
+				}
+				ipv6Ok, hasProbe := false, false
+				if m.cloudIPv6 != nil {
+					ipv6Ok = m.cloudIPv6[m.cloudNames[idx]]
+					hasProbe = true
+				}
+				if _, probed := m.pterovpnRes[m.cloudNames[idx]]; probed {
+					hasProbe = true
+				}
+				if hasProbe {
+					if ipv6Ok {
+						parts = append(parts, "IPv6: ✓")
+					} else {
+						parts = append(parts, "IPv6: ✗")
+					}
+				} else {
+					parts = append(parts, "IPv6: —")
+				}
+				if len(parts) > 0 {
+					content.WriteString(cloudDetailStyle.Render(strings.Join(parts, " · ")))
+				}
+			}
+		}
+	case tabLogs:
+		m.logsMu.Lock()
+		var logLines strings.Builder
+		for _, line := range m.logs {
+			line = strings.TrimRight(line, "\r\n")
+			payload := clientlog.LinePayload(line)
+			tag := clientlog.InferTag(line)
+			var styled string
+			switch tag {
+			case "OK":
+				styled = logOKStyle.Render(payload)
+			case "TRAFFIC":
+				styled = logTrafficStyle.Render(payload)
+			case "DROP":
+				styled = logDropStyle.Render("▼ " + payload)
+			case "DPI":
+				styled = logDPIStyle.Render("◆ " + payload)
+			case "ERR":
+				styled = logErrStyle.Render("✗ " + payload)
+			case "WARN":
+				styled = logWarnStyle.Render("⚠ " + payload)
+			default:
+				styled = logLineStyle.Render(payload)
+			}
+			logLines.WriteString(styled)
+			logLines.WriteString("\n")
+		}
+		logStr := logLines.String()
+		m.logsMu.Unlock()
+		m.logViewport.SetContent(logStr)
+		if m.logAutoScroll {
+			m.logViewport.GotoBottom()
+		}
+		content.WriteString(m.logViewport.View())
+	case tabProtection:
+		content.WriteString(m.protectionView())
+	case tabSettings:
+		if m.settingsEditing && len(m.settingsInputs) == 3 {
+			content.WriteString("Режим подключения\n\n")
+			labels := []string{"Режим (tun|proxy):", "Прокси (addr:port):", "System proxy (Windows):"}
+			for i := range m.settingsInputs {
+				content.WriteString(labels[i] + " ")
+				content.WriteString(m.settingsInputs[i].View())
+				content.WriteString("\n")
+			}
+			content.WriteString("\nTab/Enter - сохранить  Esc - отмена")
+		} else {
+			content.WriteString("Утилиты\n\n")
+			if m.activeCfg != "" {
+				idx := -1
+				for i, n := range m.names {
+					if n == m.activeCfg {
+						idx = i
+						break
+					}
+				}
+				if idx >= 0 && idx < len(m.cfgs) {
+					content.WriteString("Активный конфиг: " + m.activeCfg + "\n\n")
+					raw, _ := json.MarshalIndent(m.cfgs[idx], "", "  ")
+					content.WriteString(string(raw))
+					content.WriteString("\n\n")
+				} else {
+					for i, n := range m.cloudNames {
+						if n == m.activeCfg && i < len(m.cloudCfgs) {
+							content.WriteString("Активный конфиг: " + m.activeCfg + "\n\n")
+							raw, _ := json.MarshalIndent(m.cloudCfgs[i], "", "  ")
+							content.WriteString(string(raw))
+							content.WriteString("\n\n")
+							break
+						}
+					}
+				}
+			}
+			content.WriteString("Режим: ")
+			if m.clientSettings.Mode == "proxy" {
+				content.WriteString(statusStyle.Render("Proxy") + " (" + m.clientSettings.ProxyListen + ")")
+				if m.clientSettings.SystemProxy {
+					content.WriteString("  System proxy: вкл")
+				}
+			} else {
+				content.WriteString(statusStyle.Render("TUN"))
+			}
+			content.WriteString("\n")
+			content.WriteString("E - редактировать режим\n\n")
+			content.WriteString("B - тест всех конфигов (ping)\n")
+			content.WriteString("q/Esc - выход\n")
+		}
+	}
+
+	b.WriteString(contentBox.Render(content.String()))
+	b.WriteString("\n\n")
+	footer := "Tab/Shift+Tab или ←/→ - вкладки  q/Esc - выход  Enter - подключиться/отключиться"
+	if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" {
+		footer += "  ↑/↓ - выбор  N - добавить  P - ping  T - pterovpn  E - ред.  D - удалить"
+	}
+	if m.tab == tabCloud && !m.cloudLoading {
+		footer += "  ↑/↓ - выбор  P - ping  T - pterovpn  E - ред. (IPv6)  R - обновить"
+	}
+	if m.tab == tabProtection {
+		footer += "  E - редактировать  Ctrl+←/→ - цель  ↑/↓ PgUp/PgDn - прокрутка"
+	}
+	if m.tab == tabSettings {
+		footer += "  E - режим (TUN/Proxy)  B - тест всех конфигов"
+	}
+	b.WriteString(footerStyle.Render(footer))
+	return b.String()
+}

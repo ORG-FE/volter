@@ -1,0 +1,761 @@
+package dev.c0redev.volter.ui
+
+import android.app.Application
+import android.app.ForegroundServiceStartNotAllowedException
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.VpnService
+import android.os.Build
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import dev.c0redev.volter.ACTION_CORE_SESSION
+import dev.c0redev.volter.BuildConfig
+import dev.c0redev.volter.EXTRA_CORE_ERROR
+import dev.c0redev.volter.EXTRA_CORE_HANDLE
+import dev.c0redev.volter.EXTRA_CORE_MODE
+import dev.c0redev.volter.VolterLog
+import dev.c0redev.volter.VolterVpnService
+import dev.c0redev.volter.core.CoreBridge
+import dev.c0redev.volter.data.cloud.CloudConfigRepository
+import dev.c0redev.volter.data.repo.LocalConfigRepository
+import dev.c0redev.volter.data.servergeo.IpWhoLookup
+import dev.c0redev.volter.data.servergeo.ServerGeo
+import dev.c0redev.volter.domain.model.ClientSettings
+import dev.c0redev.volter.domain.model.Config
+import dev.c0redev.volter.domain.model.SessionRecord
+import dev.c0redev.volter.R
+import dev.c0redev.volter.update.UpdateManager
+import dev.c0redev.volter.update.UpdatePrefs
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.io.File
+import java.net.InetAddress
+import java.time.Duration
+import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+
+sealed class UpdateUiState {
+    object Idle : UpdateUiState()
+    object Checking : UpdateUiState()
+    data class Downloading(val progress: Float?) : UpdateUiState()
+}
+
+private const val PROBE_TIMEOUT_MS = 12_000L
+private const val PING_TIMEOUT_MS = 10_000L
+private const val PROBE_RETRY_DELAY_MS = 450L
+
+data class ConfigItemState(
+    val name: String,
+    val config: Config,
+    val pingMs: Long? = null,
+    val pingFailed: Boolean = false,
+    val probeOk: Boolean = false,
+    val probeUncertain: Boolean = false,
+    val ipv6Support: Boolean = false,
+    val ipv6Uncertain: Boolean = false,
+    val serverMode: String = "",
+    val geo: ServerGeo? = null,
+)
+
+data class ConnectionState(
+    val connected: Boolean = false,
+    val ready: Boolean = false,
+    val mode: String? = null,
+    val error: String? = null,
+)
+
+class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
+    private val appCtx = app.applicationContext
+    private val localRepo = LocalConfigRepository(appCtx)
+    private val cloudRepo = CloudConfigRepository(appCtx)
+    private val configDir = File(appCtx.filesDir, "volter").absolutePath
+
+    private var coreHandle = -1L
+    private var pollJob: Job? = null
+    private var cloudRefreshJob: Job? = null
+    private val cloudRefreshSeq = AtomicInteger(0)
+    private var pollGeneration = 0L
+    private var pendingConnectCfg: Config? = null
+    private var pendingConnectName: String? = null
+    private var pendingConnectSettings: ClientSettings? = null
+    private var activeConfig: Config? = null
+    private var activeConfigName: String? = null
+    private var activeStartedAt: Instant? = null
+    private var autoFallbackDone = false
+    private var pendingMetric: MetricDraft? = null
+    private var activeMetric: MetricDraft? = null
+    private val metricFinalized = AtomicBoolean(false)
+
+    private val _localConfigs = MutableStateFlow<List<ConfigItemState>>(emptyList())
+    val localConfigs = _localConfigs
+    private val _cloudConfigs = MutableStateFlow<List<ConfigItemState>>(emptyList())
+    val cloudConfigs = _cloudConfigs
+    private val _logs = MutableStateFlow<List<String>>(emptyList())
+    val logs = _logs
+    private val _connection = MutableStateFlow(ConnectionState())
+    val connection = _connection
+    private val _vpnPermissionIntent = MutableStateFlow<Intent?>(null)
+    val vpnPermissionIntent = _vpnPermissionIntent
+    private val _clientSettings = MutableStateFlow(localRepo.loadClientSettings())
+    val clientSettings = _clientSettings
+    private val _globalProtection = MutableStateFlow(localRepo.loadProtection())
+    val globalProtection = _globalProtection
+    private val _metrics = MutableStateFlow(localRepo.loadMetrics())
+    val metrics = _metrics
+    private val updateManager = UpdateManager()
+    private val _updateStatus = MutableStateFlow<String?>(null)
+    val updateStatus = _updateStatus
+    private val _updateUi = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateUi = _updateUi.asStateFlow()
+    private val _remoteReleaseTag = MutableStateFlow<String?>(UpdatePrefs.getRemoteReleaseTag(appCtx))
+    val remoteReleaseTag = _remoteReleaseTag
+
+    private val _cloudLoading = MutableStateFlow(false)
+    val cloudLoading = _cloudLoading.asStateFlow()
+
+    private val _localRefreshing = MutableStateFlow(false)
+    val localRefreshing = _localRefreshing.asStateFlow()
+
+    private val _localConfigsInitialLoad = MutableStateFlow(true)
+    val localConfigsInitialLoad = _localConfigsInitialLoad.asStateFlow()
+
+    private val _cloudRefreshProgress = MutableStateFlow(0f)
+    val cloudRefreshProgress = _cloudRefreshProgress.asStateFlow()
+
+    private val _connectingProfileName = MutableStateFlow<String?>(null)
+    val connectingProfileName = _connectingProfileName.asStateFlow()
+
+    private val _uiMessages = MutableSharedFlow<String>(
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val uiMessages: SharedFlow<String> = _uiMessages.asSharedFlow()
+
+    private val _navToQuickTilesSettings = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 4,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val navToQuickTilesSettings: SharedFlow<Unit> = _navToQuickTilesSettings.asSharedFlow()
+
+    private val _activeProfileName = MutableStateFlow<String?>(null)
+    val activeProfileName = _activeProfileName.asStateFlow()
+
+    private fun setActiveProfileUi(name: String) {
+        _activeProfileName.value = name
+    }
+
+    private fun clearActiveProfileUi() {
+        _activeProfileName.value = null
+    }
+
+    private suspend fun probeWithRetry(server: String, token: String): CoreBridge.ProbeResult {
+        val first = CoreBridge.probeVolter(server, token, PROBE_TIMEOUT_MS)
+        if (first.ok) return first
+        delay(PROBE_RETRY_DELAY_MS)
+        return CoreBridge.probeVolter(server, token, PROBE_TIMEOUT_MS)
+    }
+
+    private fun enrichConfigItem(
+        name: String,
+        config: Config,
+        ping: CoreBridge.PingResult,
+        probe: CoreBridge.ProbeResult,
+        geo: ServerGeo?,
+    ): ConfigItemState {
+        val pingOk = ping.error == null
+        val probeUncertain = !probe.ok && pingOk
+        val tun6Hint = !config.tunCIDR6.isNullOrBlank()
+        val (ipv6Support, ipv6Uncertain) = when {
+            probe.ok -> probe.ipv6 to false
+            pingOk && tun6Hint -> true to false
+            pingOk -> false to true
+            else -> false to false
+        }
+        return ConfigItemState(
+            name = name,
+            config = config,
+            pingMs = ping.rttMs.takeIf { pingOk },
+            pingFailed = !pingOk,
+            probeOk = probe.ok,
+            probeUncertain = probeUncertain,
+            ipv6Support = ipv6Support,
+            ipv6Uncertain = ipv6Uncertain,
+            serverMode = probe.mode,
+            geo = geo,
+        )
+    }
+
+    private data class MetricDraft(
+        val start: Instant,
+        val configName: String,
+        val server: String,
+        val dnsOkBefore: Boolean,
+        val rttBeforeNs: Long?,
+        val probeOk: Boolean,
+        val reconnectCount: Int,
+        val handshakeOk: Boolean,
+    )
+
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != ACTION_CORE_SESSION) return
+            val handle = intent.getLongExtra(EXTRA_CORE_HANDLE, -1L)
+            val mode = intent.getStringExtra(EXTRA_CORE_MODE)
+            val error = intent.getStringExtra(EXTRA_CORE_ERROR)
+            VolterLog.i("ACTION_CORE_SESSION handle=$handle mode=$mode err=${error ?: "null"}")
+            if (!error.isNullOrBlank()) {
+                val normalized = error.trim()
+                val hideNoSession = normalized.equals("no session", ignoreCase = true) || normalized.equals("bad handle", ignoreCase = true)
+                pollJob?.cancel()
+                pollJob = null
+                ++pollGeneration
+                coreHandle = -1
+                if (!hideNoSession) {
+                    clearActiveProfileUi()
+                    _connectingProfileName.value = null
+                    _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = normalized)
+                    _logs.value = (_logs.value + listOf("ERR\t$normalized")).takeLast(500)
+                    _uiMessages.tryEmit(normalized)
+                    val draft = activeMetric
+                    if (draft != null) finalizeActiveMetric(Instant.now(), handshakeOk = draft.handshakeOk, errorType = classifyErr(normalized))
+                } else {
+                    clearActiveProfileUi()
+                    _connectingProfileName.value = null
+                    _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null)
+                    val draft = activeMetric
+                    if (draft != null) finalizeActiveMetric(Instant.now(), handshakeOk = draft.handshakeOk, errorType = classifyErr(normalized))
+                }
+                return
+            }
+            if (handle <= 0) {
+                VolterLog.w("ACTION_CORE_SESSION ignore bad handle=$handle")
+                return
+            }
+            coreHandle = handle
+            _connectingProfileName.value = null
+            _connection.value = ConnectionState(connected = true, ready = false, mode = mode, error = null)
+            startLogPolling(handle, mode)
+        }
+    }
+
+    init {
+        if (Build.VERSION.SDK_INT >= 33) {
+            ContextCompat.registerReceiver(appCtx, receiver, IntentFilter(ACTION_CORE_SESSION), ContextCompat.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            appCtx.registerReceiver(receiver, IntentFilter(ACTION_CORE_SESSION))
+        }
+        refreshLocalConfigs()
+        refreshCloudConfigs(true)
+        reloadProtectionAndSettings()
+        reloadMetrics()
+        viewModelScope.launch(Dispatchers.IO) {
+            _remoteReleaseTag.value = UpdatePrefs.getRemoteReleaseTag(appCtx)
+        }
+    }
+
+    override fun onCleared() {
+        runCatching { appCtx.unregisterReceiver(receiver) }
+        pollJob?.cancel()
+        super.onCleared()
+    }
+
+    fun refreshLocalConfigs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _localRefreshing.value = true
+            try {
+                val list = localRepo.listConfigs()
+                _localConfigs.value = coroutineScope {
+                    list.map { stored ->
+                        async {
+                            val ping = CoreBridge.ping(stored.config.server, PING_TIMEOUT_MS)
+                            val probe = probeWithRetry(stored.config.server, stored.config.token)
+                            val geo = withTimeoutOrNull(8000) {
+                                IpWhoLookup.lookupForServerField(stored.config.server)
+                            }
+                            enrichConfigItem(stored.name, stored.config, ping, probe, geo)
+                        }
+                    }.awaitAll()
+                }
+            } finally {
+                _localRefreshing.value = false
+                _localConfigsInitialLoad.value = false
+            }
+        }
+    }
+
+    fun refreshCloudConfigs(fetch: Boolean) {
+        cloudRefreshJob?.cancel()
+        val runId = cloudRefreshSeq.incrementAndGet()
+        cloudRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+            _cloudLoading.value = true
+            _cloudRefreshProgress.value = 0.04f
+            try {
+                val raw = cloudRepo.cloudList(fetch)
+                if (raw.isEmpty()) {
+                    _cloudConfigs.value = emptyList()
+                    _cloudRefreshProgress.value = 1f
+                    return@launch
+                }
+                val total = raw.size
+                val done = AtomicInteger(0)
+                _cloudRefreshProgress.value = 0.08f
+                _cloudConfigs.value = coroutineScope {
+                    raw.map { item ->
+                        async {
+                            val ping = CoreBridge.ping(item.config.server, PING_TIMEOUT_MS)
+                            val probe = probeWithRetry(item.config.server, item.config.token)
+                            val geo = withTimeoutOrNull(8000) {
+                                IpWhoLookup.lookupForServerField(item.config.server)
+                            }
+                            val row = enrichConfigItem(item.name, item.config, ping, probe, geo)
+                            val n = done.incrementAndGet()
+                            _cloudRefreshProgress.value = 0.08f + 0.92f * (n.toFloat() / total)
+                            row
+                        }
+                    }.awaitAll()
+                }
+                _cloudRefreshProgress.value = 1f
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiMessages.tryEmit(appCtx.getString(R.string.cloud_fetch_error, e.message ?: "unknown"))
+            } finally {
+                if (runId == cloudRefreshSeq.get()) {
+                    _cloudLoading.value = false
+                    _cloudRefreshProgress.value = 0f
+                }
+            }
+        }
+    }
+
+    fun connect(name: String, cfg: Config, applyCloudDefaults: Boolean = false, cloudServerMode: String = "", cloudProbeIpv6: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            VolterLog.i("connect name=$name")
+            _connectingProfileName.value = name
+            if (_connection.value.connected || coreHandle > 0) {
+                disconnect(clearConnecting = false)
+            }
+            val settings = localRepo.loadClientSettings()
+            var effective = cfg
+            if (applyCloudDefaults) effective = effective.withCloudDefaults(cloudServerMode, cloudProbeIpv6)
+            effective = mergeEffectiveConfig(effective)
+            beginMetric(name, effective, reconnectCount = 0)
+            fillMetricBasics(effective)
+            if (settings.mode != "proxy") {
+                val prep = VpnService.prepare(appCtx)
+                if (prep != null) {
+                    pendingConnectCfg = effective
+                    pendingConnectName = name
+                    pendingConnectSettings = settings
+                    _vpnPermissionIntent.value = prep
+                    return@launch
+                }
+            }
+            pendingConnectCfg = null
+            pendingConnectName = null
+            pendingConnectSettings = null
+            activeConfig = effective
+            activeConfigName = name
+            setActiveProfileUi(name)
+            activeStartedAt = Instant.now()
+            autoFallbackDone = false
+            activateMetric()
+            startService(effective.toJson().toString(), settings.toJson().toString())
+        }
+    }
+
+    fun confirmVpnPermission() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cfg = pendingConnectCfg ?: return@launch
+            val settings = pendingConnectSettings ?: return@launch
+            val name = pendingConnectName ?: "pending"
+            pendingConnectCfg = null
+            pendingConnectName = null
+            pendingConnectSettings = null
+            activeConfig = cfg
+            activeConfigName = name
+            setActiveProfileUi(name)
+            activeStartedAt = Instant.now()
+            autoFallbackDone = false
+            activateMetric()
+            startService(cfg.toJson().toString(), settings.toJson().toString())
+        }
+    }
+
+    fun consumeVpnPermissionIntent() { _vpnPermissionIntent.value = null }
+
+    fun cancelPendingVpnConnect() {
+        _connectingProfileName.value = null
+        pendingConnectCfg = null
+        pendingConnectName = null
+        pendingConnectSettings = null
+        _vpnPermissionIntent.value = null
+        pendingMetric?.let { finalizeMetricDraft(it, Instant.now(), false, "vpn_permission") }
+        pendingMetric = null
+    }
+
+    private fun mergeEffectiveConfig(cfg: Config): Config {
+        var c = cfg
+        if (c.protection == null) {
+            localRepo.loadProtection()?.let { c = c.copy(protection = it) }
+        }
+        val settings = localRepo.loadClientSettings()
+        if (!settings.dualTun) {
+            c = c.copy(dualTransport = false)
+        }
+        when (ClientSettings.normalizedTransportPreference(settings.transportPreference)) {
+            ClientSettings.TRANSPORT_TCP ->
+                c = c.copy(transport = "tcp", quicServer = null)
+            ClientSettings.TRANSPORT_QUIC -> {
+                val tcp = c.server.trim()
+                val qs = when {
+                    c.quicServer.isNullOrBlank() -> Config.quicHostPortForCloudTcp(c.server)
+                    c.quicServer.trim() == tcp -> Config.quicHostPortForCloudTcp(c.server)
+                    else -> c.quicServer.trim()
+                }
+                c = c.copy(transport = "quic", quicServer = qs)
+            }
+            else -> { }
+        }
+        return c
+    }
+
+    private suspend fun checkDnsOk(): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            withTimeout(5000) { InetAddress.getAllByName("google.com") }
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun classifyErr(err: String?): String {
+        val s = err?.lowercase().orEmpty()
+        if (s.isBlank()) return "graceful"
+        if ("no session" in s || "bad handle" in s) return "graceful"
+        if ("timeout" in s || "deadline" in s) return "timeout"
+        if ("context canceled" in s || s == "canceled") return "graceful"
+        if ("connection reset" in s) return "reset"
+        if ("device busy" in s || "resource busy" in s || "address already in use" in s) return "device"
+        if ("no such host" in s) return "dns"
+        if ("foreground" in s || "securityexception" in s) return "android"
+        return "unknown"
+    }
+
+    private fun beginMetric(name: String, cfg: Config, reconnectCount: Int) {
+        metricFinalized.set(false)
+        activeMetric?.let { finalizeMetricDraft(it, Instant.now(), it.handshakeOk, "replaced") }
+        pendingMetric = MetricDraft(Instant.now(), name, cfg.server, false, null, false, reconnectCount, false)
+    }
+
+    private suspend fun fillMetricBasics(cfg: Config) {
+        val draft = pendingMetric ?: return
+        val dns = checkDnsOk()
+        val ping = CoreBridge.ping(cfg.server, PING_TIMEOUT_MS)
+        val probe = probeWithRetry(cfg.server, cfg.token)
+        pendingMetric = draft.copy(
+            dnsOkBefore = dns,
+            rttBeforeNs = ping.rttMs.takeIf { ping.error == null }?.times(1_000_000L),
+            probeOk = probe.ok,
+        )
+    }
+
+    private fun activateMetric() {
+        activeMetric = pendingMetric ?: return
+        pendingMetric = null
+    }
+
+    private fun finalizeActiveMetric(end: Instant, handshakeOk: Boolean, errorType: String) {
+        val draft = activeMetric ?: return
+        activeMetric = null
+        finalizeMetricDraft(draft, end, handshakeOk, errorType)
+    }
+
+    private fun finalizeMetricDraft(draft: MetricDraft, end: Instant, handshakeOk: Boolean, errorType: String) {
+        if (!metricFinalized.compareAndSet(false, true)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            localRepo.appendMetric(SessionRecord(
+                start = draft.start,
+                end = end,
+                durationNs = Duration.between(draft.start, end).toNanos(),
+                server = draft.server,
+                configName = draft.configName,
+                errorType = errorType,
+                handshakeOk = handshakeOk,
+                reconnectCount = draft.reconnectCount,
+                rttBeforeNs = draft.rttBeforeNs,
+                dnsOkBefore = draft.dnsOkBefore,
+                dnsOkAfter = checkDnsOk(),
+                probeOk = draft.probeOk,
+            ))
+            reloadMetrics()
+        }
+    }
+
+    private fun startService(cfgJson: String, settingsJson: String) {
+        VolterLog.i("startForegroundService cfgBytes=${cfgJson.length} settingsBytes=${settingsJson.length} dir=$configDir")
+        val intent = VolterVpnService.newIntent(appCtx, cfgJson, settingsJson, configDir)
+        try {
+            ContextCompat.startForegroundService(appCtx, intent)
+        } catch (e: ForegroundServiceStartNotAllowedException) {
+            VolterLog.w("FGS blocked: ${e.message}")
+            _connectingProfileName.value = null
+            _uiMessages.tryEmit(appCtx.getString(R.string.quick_connect_fgs_blocked))
+        }
+    }
+
+    fun reloadProtectionAndSettings() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _clientSettings.value = localRepo.loadClientSettings()
+            _globalProtection.value = localRepo.loadProtection()
+        }
+    }
+
+    fun reloadMetrics() {
+        viewModelScope.launch(Dispatchers.IO) { _metrics.value = localRepo.loadMetrics() }
+    }
+
+    fun refreshRemoteReleaseTag() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _remoteReleaseTag.value = UpdatePrefs.getRemoteReleaseTag(appCtx)
+        }
+    }
+
+    fun checkForUpdateAndInstall() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _updateUi.value = UpdateUiState.Checking
+            try {
+                runCatching {
+                    updateManager.checkAndInstall(appCtx, BuildConfig.VERSION_NAME) { p ->
+                        _updateUi.value = UpdateUiState.Downloading(if (p < 0f) null else p)
+                    }
+                }
+                    .onSuccess {
+                        _remoteReleaseTag.value = UpdatePrefs.getRemoteReleaseTag(appCtx)
+                        val msg = if (it) {
+                            appCtx.getString(R.string.update_install_started)
+                        } else {
+                            appCtx.getString(R.string.update_none)
+                        }
+                        _updateStatus.value = msg
+                        _uiMessages.tryEmit(msg)
+                    }
+                    .onFailure {
+                        _remoteReleaseTag.value = UpdatePrefs.getRemoteReleaseTag(appCtx)
+                        val msg = appCtx.getString(R.string.update_error_fmt, it.message ?: "unknown")
+                        _updateStatus.value = msg
+                        _uiMessages.tryEmit(msg)
+                    }
+            } finally {
+                _updateUi.value = UpdateUiState.Idle
+            }
+        }
+    }
+
+    fun saveClientSettings(s: ClientSettings) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveClientSettings(s); reloadProtectionAndSettings() } }
+    fun saveGlobalProtection(p: dev.c0redev.volter.domain.model.ProtectionOptions?) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveProtection(p); reloadProtectionAndSettings() } }
+    fun upsertLocalConfig(name: String, cfg: Config) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveConfig(name, cfg); refreshLocalConfigs() } }
+    fun deleteLocalConfig(name: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            localRepo.deleteConfig(name)
+            _localConfigs.value = _localConfigs.value.filter { it.name != name }
+        }
+    }
+
+    fun importCloudAsLocal(desiredName: String, item: ConfigItemState) {
+        viewModelScope.launch(Dispatchers.IO) {
+            var base = Config.sanitizeName(desiredName)
+            if (base.isBlank()) base = "imported"
+            var name = base
+            var suffix = 0
+            while (localRepo.loadConfig(name) != null) {
+                suffix++
+                name = "$base-$suffix"
+            }
+            var cfg = item.config.withCloudDefaults(item.serverMode, item.ipv6Support)
+            cfg = mergeEffectiveConfig(cfg)
+            localRepo.saveConfig(name, cfg)
+            refreshLocalConfigs()
+            _uiMessages.tryEmit(appCtx.getString(R.string.cloud_import_saved, name))
+        }
+    }
+
+    fun requestQuickConnect(profileName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cfg = localRepo.loadConfig(profileName)
+            if (cfg == null) {
+                _uiMessages.tryEmit(appCtx.getString(R.string.quick_connect_unknown_profile, profileName))
+                return@launch
+            }
+            connect(profileName, cfg)
+        }
+    }
+
+    fun requestNavigateToQuickTilesSettings() {
+        _navToQuickTilesSettings.tryEmit(Unit)
+    }
+
+    fun disconnect(clearConnecting: Boolean = true) {
+        VolterLog.i("disconnect coreHandle=$coreHandle")
+        if (clearConnecting) {
+            _connectingProfileName.value = null
+        }
+        pollJob?.cancel()
+        pollJob = null
+        ++pollGeneration
+        val currentHandle = coreHandle
+        coreHandle = -1
+        _connection.value = ConnectionState()
+        clearActiveProfileUi()
+        activeStartedAt = null
+        autoFallbackDone = false
+        val draft = activeMetric
+        if (draft != null) {
+            val lastReady = runCatching { if (currentHandle > 0) CoreBridge.pollState(currentHandle).ready else false }.getOrDefault(false)
+            finalizeActiveMetric(Instant.now(), draft.handshakeOk || lastReady, "graceful")
+        }
+        runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
+        runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
+    }
+
+    private suspend fun restartAsTcpFallback() {
+        if (autoFallbackDone) return
+        val cfg = activeConfig ?: return
+        val name = activeConfigName ?: "active"
+        val alreadyTcp = cfg.transport.equals("tcp", ignoreCase = true) && cfg.quicServer.isNullOrBlank()
+        if (alreadyTcp) return
+        autoFallbackDone = true
+        VolterLog.w("QUIC startup timeout, fallback to tcp name=$name server=${cfg.server}")
+        _logs.value = (_logs.value + listOf("WARN\tQUIC startup timeout, fallback to TCP")).takeLast(500)
+
+        pollJob?.cancel()
+        pollJob = null
+        ++pollGeneration
+        coreHandle = -1
+        _connection.value = ConnectionState(connected = false, ready = false, mode = "tun", error = null)
+        runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
+        runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
+        delay(300)
+
+        val fallbackCfg = cfg.copy(transport = "tcp", quicServer = null)
+        activeConfig = fallbackCfg
+        activeConfigName = name
+        setActiveProfileUi(name)
+        activeStartedAt = Instant.now()
+        val settings = localRepo.loadClientSettings()
+        startService(fallbackCfg.toJson().toString(), settings.toJson().toString())
+    }
+
+    private suspend fun reconnectAfterWatchdog(name: String, cfg: Config, reconnectCount: Int) {
+        VolterLog.w("watchdog reconnectAfterWatchdog name=$name rc=$reconnectCount")
+        _logs.value = (_logs.value + listOf("WARN\tWatchdog: переподключение того же профиля")).takeLast(500)
+        runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
+        runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
+        delay(300)
+        val settings = localRepo.loadClientSettings()
+        val effective = mergeEffectiveConfig(cfg)
+        beginMetric(name, effective, reconnectCount = reconnectCount)
+        fillMetricBasics(effective)
+        activeConfig = effective
+        activeConfigName = name
+        setActiveProfileUi(name)
+        activeStartedAt = Instant.now()
+        autoFallbackDone = false
+        activateMetric()
+        startService(effective.toJson().toString(), settings.toJson().toString())
+    }
+
+    private fun startLogPolling(handle: Long, mode: String?) {
+        pollJob?.cancel()
+        val gen = ++pollGeneration
+        VolterLog.i("startLogPolling gen=$gen handle=$handle mode=$mode")
+        pollJob = viewModelScope.launch(Dispatchers.IO) {
+            val buf = ArrayList<String>(500)
+            while (true) {
+                ensureActive()
+                val state = CoreBridge.pollState(handle)
+                val noSession = state.error.equals("no session", ignoreCase = true) || state.error.equals("bad handle", ignoreCase = true)
+                val visibleError = if (noSession) null else state.error
+                if (gen == pollGeneration) {
+                    _connection.value = ConnectionState(connected = state.running, ready = state.ready, mode = mode, error = visibleError)
+                }
+                val cfg = activeConfig
+                val startedAt = activeStartedAt
+                if (gen == pollGeneration && state.running && !state.ready && !autoFallbackDone && cfg != null && startedAt != null) {
+                    val elapsed = Duration.between(startedAt, Instant.now()).seconds
+                    val isTcp = cfg.transport.equals("tcp", ignoreCase = true) && cfg.quicServer.isNullOrBlank()
+                    if (!isTcp && elapsed >= 32) {
+                        VolterLog.w("startup watchdog timeout elapsed=${elapsed}s handle=$handle, triggering tcp fallback")
+                        restartAsTcpFallback()
+                        break
+                    }
+                }
+                activeMetric?.let { if (state.ready && !it.handshakeOk) activeMetric = it.copy(handshakeOk = true) }
+                val newLogs = CoreBridge.pollLogs(handle, 200)
+                if (newLogs.isNotEmpty()) {
+                    buf.addAll(newLogs)
+                    if (buf.size > 500) repeat(buf.size - 500) { buf.removeAt(0) }
+                    if (gen == pollGeneration) {
+                        _logs.value = buf.toList()
+                    }
+                }
+                if (!state.running) {
+                    var handled = false
+                    if (gen == pollGeneration && state.watchdog) {
+                        val c = activeConfig
+                        val n = activeConfigName
+                        if (c != null && n != null) {
+                            handled = true
+                            val rc = (activeMetric?.reconnectCount ?: 0) + 1
+                            finalizeActiveMetric(Instant.now(), state.ready, "watchdog")
+                            pollJob = null
+                            coreHandle = -1
+                            _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null)
+                            VolterLog.w("watchdog session end, reconnect name=$n rc=$rc")
+                            viewModelScope.launch(Dispatchers.IO) {
+                                reconnectAfterWatchdog(n, c, rc)
+                            }
+                        }
+                    }
+                    if (!handled && noSession) {
+                        if (gen == pollGeneration) {
+                            coreHandle = -1
+                            clearActiveProfileUi()
+                            _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null)
+                            pollJob = null
+                            VolterLog.w("poll exit noSession gen=$gen handle=$handle")
+                        } else {
+                            VolterLog.i("poll ignore noSession stale gen=$gen current=$pollGeneration handle=$handle")
+                        }
+                    } else if (!handled && gen == pollGeneration) {
+                        VolterLog.w("poll exit err=${state.error} ready=${state.ready} handle=$handle")
+                    }
+                    if (!handled && gen == pollGeneration) {
+                        activeMetric?.let { finalizeActiveMetric(Instant.now(), it.handshakeOk || state.ready, classifyErr(state.error)) }
+                    }
+                    break
+                }
+                delay(250)
+            }
+        }
+    }
+}

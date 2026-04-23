@@ -1,0 +1,117 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: set server version from tag
+        run: |
+          RAW_VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${RAW_VERSION#v}
+          echo "Using server version $VERSION from tag $RAW_VERSION"
+          mvn -q -f server/pom.xml versions:set -DnewVersion=$VERSION -DgenerateBackupPoms=false
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: test
+        run: |
+          go test ./...
+          mvn -q -f server/pom.xml test
+
+      - name: build server
+        run: mvn -q -f server/pom.xml package
+
+      - name: build client linux
+        run: |
+          mkdir -p dist
+          VERSION=${GITHUB_REF#refs/tags/}
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/volter-client-linux-amd64 ./cmd/volter-client
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/volter-client-linux-arm64 ./cmd/volter-client
+
+      - name: collect artifacts
+        run: |
+          cp server/target/server.jar dist/
+          cp config.properties.example dist/config.properties.example
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: dist/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: choco install mingw -y
+      - run: go install github.com/akavel/rsrc@latest
+      - run: |
+          $env:CGO_ENABLED = "1"
+          $env:PATH = "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin;$env:PATH"
+          mkdir dist -Force
+          cd cmd/volter-client
+          rsrc -manifest app.manifest -o rsrc.syso
+          $version = $env:GITHUB_REF -replace 'refs/tags/', ''
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o ../../dist/volter-client-windows-amd64.exe .
+      - name: fetch wintun
+        run: |
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile wintun.zip -UseBasicParsing
+          Expand-Archive -Path wintun.zip -DestinationPath wintun
+          Copy-Item wintun\wintun\bin\amd64\wintun.dll dist\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/
+
+  build-android:
+    uses: ./.github/workflows/android-reusable.yml
+
+  release:
+    needs: [build-linux, build-windows, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-build
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/server.jar
+            dist/volter-client-linux-amd64
+            dist/volter-client-linux-arm64
+            dist/volter-client-windows-amd64.exe
+            dist/wintun.dll
+            dist/config.properties.example
+            dist/volter-android-debug.apk
+            dist/volter-core.aar
+
