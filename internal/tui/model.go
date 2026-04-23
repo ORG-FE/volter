@@ -1034,7 +1034,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, runPingAll(m.cfgs, m.names)
 			}
 		case "1", "2", "3":
-			if m.tab == tabProtection {
+			if m.tab == tabProtection && !m.protectionEditing {
 				var preset config.ProtectionOptions
 				switch msg.String() {
 				case "1":
@@ -1646,8 +1646,7 @@ func (m *Model) protectionView() string {
 		b.WriteString(hintKey.Render("Tab") + " ")
 		b.WriteString(hintText.Render("след.  ") + hintKey.Render("Enter") + " ")
 		b.WriteString(hintText.Render("сохранить  ") + hintKey.Render("Esc") + " ")
-		b.WriteString(hintText.Render("отмена  ") + hintKey.Render("1/2/3") + " ")
-		b.WriteString(hintText.Render("пресеты") + "\n")
+		b.WriteString(hintText.Render("отмена") + "\n")
 	} else {
 		var opts config.ProtectionOptions
 		if m.protectionTarget == "" {
