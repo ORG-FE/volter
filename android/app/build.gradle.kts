@@ -23,7 +23,7 @@ val ciKeystorePass =
     System.getenv("VOLTER_CI_KEYSTORE_PASS") ?: System.getenv("PTERA_CI_KEYSTORE_PASS")
         ?: (project.findProperty("volter.ciKeystorePass") as String?)
         ?: (project.findProperty("ptera.ciKeystorePass") as String?)
-        ?: "volterci-debug"
+        ?: "pteraci-debug"
 
 android {
     namespace = "dev.c0redev.volter"
