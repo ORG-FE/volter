@@ -62,7 +62,7 @@ func runTUI() error {
 		},
 		Version: version,
 	}
-	p := tea.NewProgram(tui.NewModel(opts))
+	p := tea.NewProgram(tui.NewModel(opts), tea.WithAltScreen())
 	go func() {
 		for range watchdogCh {
 			p.Send(tui.WatchdogReconnectMsg{})
