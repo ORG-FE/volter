@@ -1132,7 +1132,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-		case "tab", "right":
+		case "tab":
 			if m.deletingCfg != "" {
 				m.deletingCfg = ""
 			}
@@ -1188,7 +1188,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
 			}
 			return m, nil
-		case "shift+tab", "left":
+		case "shift+tab":
 			if m.deletingCfg != "" {
 				m.deletingCfg = ""
 			}
@@ -1235,6 +1235,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
+			}
+			m.tab = tab((int(m.tab) + 3) % 6)
+			if m.tab == tabConfig && len(m.cfgs) > 0 {
+				return m, autoProbeCmds(m.cfgs, m.names)
+			}
+			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
+				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
+			}
+			return m, nil
+		case "right":
+			if m.adding || m.editing || m.protectionEditing || m.settingsEditing {
+				break
+			}
+			if m.deletingCfg != "" {
+				m.deletingCfg = ""
+			}
+			m.tab = tab((int(m.tab) + 1) % 6)
+			if m.tab == tabConfig && len(m.cfgs) > 0 {
+				return m, autoProbeCmds(m.cfgs, m.names)
+			}
+			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
+				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
+			}
+			return m, nil
+		case "left":
+			if m.adding || m.editing || m.protectionEditing || m.settingsEditing {
+				break
+			}
+			if m.deletingCfg != "" {
+				m.deletingCfg = ""
 			}
 			m.tab = tab((int(m.tab) + 3) % 6)
 			if m.tab == tabConfig && len(m.cfgs) > 0 {
