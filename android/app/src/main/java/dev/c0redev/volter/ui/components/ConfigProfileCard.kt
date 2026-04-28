@@ -81,7 +81,7 @@ fun ConfigProfileCard(
     val hostLine = serverHostFromField(item.config.server)
     val geo = item.geo
 
-    val cardShape = RoundedCornerShape(22.dp)
+    val cardShape = RoundedCornerShape(26.dp)
     val borderMod = if (isActive) {
         Modifier.border(1.5.dp, scheme.primary.copy(alpha = 0.65f), cardShape)
     } else {
@@ -93,21 +93,21 @@ fun ConfigProfileCard(
             .then(borderMod),
         shape = cardShape,
         elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = if (isActive) 7.dp else 4.dp,
+            defaultElevation = if (isActive) 10.dp else 6.dp,
         ),
         colors = CardDefaults.elevatedCardColors(
             containerColor = if (isActive) {
-                scheme.primaryContainer.copy(alpha = 0.52f)
+                scheme.primaryContainer.copy(alpha = 0.68f)
             } else {
-                scheme.surfaceContainerHigh
+                scheme.surfaceContainer.copy(alpha = 0.98f)
             },
         ),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -116,9 +116,9 @@ fun ConfigProfileCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(scheme.primaryContainer.copy(alpha = 0.62f)),
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(scheme.primaryContainer.copy(alpha = 0.8f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(

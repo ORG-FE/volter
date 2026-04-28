@@ -179,22 +179,26 @@ type Model struct {
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("15"))
+			Foreground(lipgloss.Color("14")).
+			Padding(0, 1)
 	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(success))
+			Foreground(lipgloss.Color(success)).
+			Bold(true)
 	errStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(errCol))
+			Foreground(lipgloss.Color(errCol)).
+			Bold(true)
 	tabStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(dim)).
-			Padding(0, 2)
+			Padding(0, 1)
 	activeTabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Bold(true).
-			Foreground(lipgloss.Color("15"))
-	contentBox = lipgloss.NewStyle().
 			Padding(0, 1).
+			Bold(true).
+			Foreground(lipgloss.Color("0")).
+			Background(lipgloss.Color("14"))
+	contentBox = lipgloss.NewStyle().
+			Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(dim))
+			BorderForeground(lipgloss.Color("14"))
 	logLineStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(dim))
 	logErrStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(errCol))
 	logOKStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
@@ -203,13 +207,14 @@ var (
 	logDPIStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Bold(true)
 	logWarnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 	footerStyle     = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(dim))
+			Foreground(lipgloss.Color(dim)).
+			Padding(0, 1)
 	sectionTitle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("12")).
+			Foreground(lipgloss.Color("14")).
 			Padding(0, 0, 0, 1).
 			BorderLeft(true).
-			BorderForeground(lipgloss.Color("12"))
+			BorderForeground(lipgloss.Color("14"))
 	emptyState = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(dim)).
 			Italic(true)
@@ -1812,14 +1817,14 @@ func (m *Model) View() string {
 			}
 			content.WriteString("\n")
 		}
-		content.WriteString("Статус\n")
+		content.WriteString(sectionTitle.Render("Статус") + "\n")
 		switch m.status {
 		case statusConnected:
 			content.WriteString(statusStyle.Render("Ядро: Подключено"))
 		case statusConnecting:
-			content.WriteString("Ядро: Подключение...")
+			content.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true).Render("Ядро: Подключение..."))
 		default:
-			content.WriteString("Ядро: Отключено")
+			content.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(dim)).Render("Ядро: Отключено"))
 		}
 		content.WriteString("\n")
 		if m.activeCfg != "" {
@@ -1853,7 +1858,7 @@ func (m *Model) View() string {
 		if m.deletingCfg != "" {
 			content.WriteString("Удалить конфигурацию \"" + m.deletingCfg + "\"? y/n")
 		} else if m.editing {
-			content.WriteString("Редактирование: " + m.editingName + "\n\n")
+			content.WriteString(sectionTitle.Render("Редактирование: "+m.editingName) + "\n\n")
 			for i := range m.editInputs {
 				lbl := ""
 				if i < len(cfgFormLabels) {
@@ -1863,13 +1868,13 @@ func (m *Model) View() string {
 				content.WriteString(m.editInputs[i].View())
 				content.WriteString("\n")
 			}
-			content.WriteString("\nTab/Enter - следующее  Esc - отмена")
+			content.WriteString("\n" + hintKey.Render("Tab/Enter") + hintText.Render(" следующее  ") + hintKey.Render("Esc") + hintText.Render(" отмена"))
 			if m.err != "" {
 				content.WriteString("\n")
 				content.WriteString(errStyle.Render(m.err))
 			}
 		} else if m.adding {
-			content.WriteString("Новая конфигурация\n\n")
+			content.WriteString(sectionTitle.Render("Новая конфигурация") + "\n\n")
 			for i := range m.addInputs {
 				lbl := ""
 				if i < len(cfgFormLabels) {
@@ -1879,7 +1884,7 @@ func (m *Model) View() string {
 				content.WriteString(m.addInputs[i].View())
 				content.WriteString("\n")
 			}
-			content.WriteString("\nTab/Enter - следующее  Esc - отмена")
+			content.WriteString("\n" + hintKey.Render("Tab/Enter") + hintText.Render(" следующее  ") + hintKey.Render("Esc") + hintText.Render(" отмена"))
 			if m.err != "" {
 				content.WriteString("\n")
 				content.WriteString(errStyle.Render(m.err))
@@ -1906,7 +1911,7 @@ func (m *Model) View() string {
 		}
 	case tabCloud:
 		if m.editing {
-			content.WriteString("Редактирование (cloud): " + m.editingName + "\n\n")
+			content.WriteString(sectionTitle.Render("Редактирование cloud: "+m.editingName) + "\n\n")
 			for i := range m.editInputs {
 				lbl := ""
 				if i < len(cfgFormLabels) {
@@ -1916,7 +1921,7 @@ func (m *Model) View() string {
 				content.WriteString(m.editInputs[i].View())
 				content.WriteString("\n")
 			}
-			content.WriteString("\nTab/Enter - следующее  Esc - отмена")
+			content.WriteString("\n" + hintKey.Render("Tab/Enter") + hintText.Render(" следующее  ") + hintKey.Render("Esc") + hintText.Render(" отмена"))
 			if m.err != "" {
 				content.WriteString("\n")
 				content.WriteString(errStyle.Render(m.err))
@@ -2006,16 +2011,16 @@ func (m *Model) View() string {
 		content.WriteString(m.protectionView())
 	case tabSettings:
 		if m.settingsEditing && len(m.settingsInputs) == 3 {
-			content.WriteString("Режим подключения\n\n")
+			content.WriteString(sectionTitle.Render("Режим подключения") + "\n\n")
 			labels := []string{"Режим (tun|proxy):", "Прокси (addr:port):", "System proxy (Windows):"}
 			for i := range m.settingsInputs {
 				content.WriteString(labels[i] + " ")
 				content.WriteString(m.settingsInputs[i].View())
 				content.WriteString("\n")
 			}
-			content.WriteString("\nTab/Enter - сохранить  Esc - отмена")
+			content.WriteString("\n" + hintKey.Render("Tab/Enter") + hintText.Render(" сохранить  ") + hintKey.Render("Esc") + hintText.Render(" отмена"))
 		} else {
-			content.WriteString("Утилиты\n\n")
+			content.WriteString(sectionTitle.Render("Утилиты") + "\n\n")
 			if m.activeCfg != "" {
 				idx := -1
 				for i, n := range m.names {
@@ -2059,18 +2064,18 @@ func (m *Model) View() string {
 
 	b.WriteString(contentBox.Render(content.String()))
 	b.WriteString("\n\n")
-	footer := "Tab/Shift+Tab или ←/→ - вкладки  q/Esc - выход  Enter - подключиться/отключиться"
+	footer := hintKey.Render("Tab/Shift+Tab") + hintText.Render(" вкладки  ") + hintKey.Render("q/Esc") + hintText.Render(" выход  ") + hintKey.Render("Enter") + hintText.Render(" подключиться/отключиться")
 	if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" {
-		footer += "  ↑/↓ - выбор  N - добавить  P - ping  T - volter  E - ред.  D - удалить"
+		footer += hintText.Render("  ") + hintKey.Render("↑/↓") + hintText.Render(" выбор  ") + hintKey.Render("N") + hintText.Render(" добавить  ") + hintKey.Render("P") + hintText.Render(" ping  ") + hintKey.Render("T") + hintText.Render(" volter  ") + hintKey.Render("E") + hintText.Render(" ред.  ") + hintKey.Render("D") + hintText.Render(" удалить")
 	}
 	if m.tab == tabCloud && !m.cloudLoading {
-		footer += "  ↑/↓ - выбор  P - ping  T - volter  E - ред. (IPv6)  R - обновить"
+		footer += hintText.Render("  ") + hintKey.Render("↑/↓") + hintText.Render(" выбор  ") + hintKey.Render("P") + hintText.Render(" ping  ") + hintKey.Render("T") + hintText.Render(" volter  ") + hintKey.Render("E") + hintText.Render(" ред.  ") + hintKey.Render("R") + hintText.Render(" обновить")
 	}
 	if m.tab == tabProtection {
-		footer += "  E - редактировать  1/2/3 - баланс/усил/авто  Ctrl+←/→ - цель  ↑/↓ PgUp/PgDn - прокрутка"
+		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" редактировать  ") + hintKey.Render("1/2/3") + hintText.Render(" баланс/усил/авто  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка")
 	}
 	if m.tab == tabSettings {
-		footer += "  E - режим (TUN/Proxy)  B - тест всех конфигов"
+		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" режим TUN/Proxy  ") + hintKey.Render("B") + hintText.Render(" тест всех конфигов")
 	}
 	b.WriteString(footerStyle.Render(footer))
 	return b.String()

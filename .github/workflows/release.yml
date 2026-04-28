@@ -71,7 +71,7 @@ jobs:
           $env:PATH = "C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin;$env:PATH"
           mkdir dist -Force
           cd cmd/volter-client
-          rsrc -manifest app.manifest -o rsrc.syso
+          rsrc -ico volter.ico -manifest app.manifest -o rsrc.syso
           $version = $env:GITHUB_REF -replace 'refs/tags/', ''
           go build -trimpath -ldflags "-s -w -X main.version=$version" -o ../../dist/volter-client-windows-amd64.exe .
       - name: fetch wintun

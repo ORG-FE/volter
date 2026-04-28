@@ -58,6 +58,7 @@ import dev.c0redev.volter.ui.ConfigItemState
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.ConfigProfileCard
 import dev.c0redev.volter.ui.components.StyledTextField
+import dev.c0redev.volter.ui.protection.ProtectionEditor
 import dev.c0redev.volter.ui.qr.buildQrBitmap
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -475,20 +476,7 @@ private fun ConfigEditorDialog(
     var quicCaCert by remember { mutableStateOf("") }
     var traceLog by remember { mutableStateOf(false) }
     var protEnabled by remember { mutableStateOf(false) }
-    var pObf by remember { mutableStateOf("") }
-    var pJunkCount by remember { mutableStateOf("0") }
-    var pJunkMin by remember { mutableStateOf("0") }
-    var pJunkMax by remember { mutableStateOf("0") }
-    var pPadS1 by remember { mutableStateOf("0") }
-    var pPadS2 by remember { mutableStateOf("0") }
-    var pPadS3 by remember { mutableStateOf("0") }
-    var pPadS4 by remember { mutableStateOf("0") }
-    var pPreCheck by remember { mutableStateOf(false) }
-    var pMagicSplit by remember { mutableStateOf("") }
-    var pJunkStyle by remember { mutableStateOf("") }
-    var pFlush by remember { mutableStateOf("") }
-    var pPreambleProfile by remember { mutableStateOf("") }
-    var pPreambleRotate by remember { mutableStateOf(false) }
+    var protection by remember { mutableStateOf<ProtectionOptions?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initialConfig, oldName) {
@@ -508,37 +496,7 @@ private fun ConfigEditorDialog(
             traceLog = initialConfig.quicTraceLog == true
             val pr = initialConfig.protection
             protEnabled = pr != null
-            if (pr != null) {
-                pObf = pr.obfuscation ?: ""
-                pJunkCount = pr.junkCount.toString()
-                pJunkMin = pr.junkMin.toString()
-                pJunkMax = pr.junkMax.toString()
-                pPadS1 = pr.padS1.toString()
-                pPadS2 = pr.padS2.toString()
-                pPadS3 = pr.padS3.toString()
-                pPadS4 = pr.padS4.toString()
-                pPreCheck = pr.preCheck
-                pMagicSplit = pr.magicSplit ?: ""
-                pJunkStyle = pr.junkStyle ?: ""
-                pFlush = pr.flushPolicy ?: ""
-                pPreambleProfile = pr.preambleProfile ?: ""
-                pPreambleRotate = pr.preambleRotate
-            } else {
-                pObf = ""
-                pJunkCount = "0"
-                pJunkMin = "0"
-                pJunkMax = "0"
-                pPadS1 = "0"
-                pPadS2 = "0"
-                pPadS3 = "0"
-                pPadS4 = "0"
-                pPreCheck = false
-                pMagicSplit = ""
-                pJunkStyle = ""
-                pFlush = ""
-                pPreambleProfile = ""
-                pPreambleRotate = false
-            }
+            protection = pr
         } else {
             connection = ""
             routes = ""
@@ -552,20 +510,7 @@ private fun ConfigEditorDialog(
             quicCaCert = ""
             traceLog = false
             protEnabled = false
-            pObf = ""
-            pJunkCount = "0"
-            pJunkMin = "0"
-            pJunkMax = "0"
-            pPadS1 = "0"
-            pPadS2 = "0"
-            pPadS3 = "0"
-            pPadS4 = "0"
-            pPreCheck = false
-            pMagicSplit = ""
-            pJunkStyle = ""
-            pFlush = ""
-            pPreambleProfile = ""
-            pPreambleRotate = false
+            protection = null
         }
     }
 
@@ -624,26 +569,7 @@ private fun ConfigEditorDialog(
 
                     val quicSrvOut = quicServer.trim().takeIf { it.isNotBlank() }
                     val quicSrvFinal = if (transportOut == "tcp") null else quicSrvOut
-                    val prot = if (!protEnabled) {
-                        null
-                    } else {
-                        ProtectionOptions(
-                            obfuscation = pObf.trim().takeIf { it.isNotEmpty() },
-                            junkCount = pJunkCount.toIntOrNull() ?: 0,
-                            junkMin = pJunkMin.toIntOrNull() ?: 0,
-                            junkMax = pJunkMax.toIntOrNull() ?: 0,
-                            padS1 = pPadS1.toIntOrNull() ?: 0,
-                            padS2 = pPadS2.toIntOrNull() ?: 0,
-                            padS3 = pPadS3.toIntOrNull() ?: 0,
-                            padS4 = pPadS4.toIntOrNull() ?: 0,
-                            preCheck = pPreCheck,
-                            magicSplit = pMagicSplit.trim().takeIf { it.isNotEmpty() },
-                            junkStyle = pJunkStyle.trim().takeIf { it.isNotEmpty() },
-                            flushPolicy = pFlush.trim().takeIf { it.isNotEmpty() },
-                            preambleProfile = pPreambleProfile.trim().takeIf { it.isNotEmpty() },
-                            preambleRotate = pPreambleRotate,
-                        )
-                    }
+                    val prot = if (protEnabled) protection else null
                     val cfg = Config(
                         server = server,
                         token = token,
@@ -692,30 +618,23 @@ private fun ConfigEditorDialog(
                 }
 
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = protEnabled, onCheckedChange = { protEnabled = it })
+                    Switch(
+                        checked = protEnabled,
+                        onCheckedChange = {
+                            protEnabled = it
+                            if (it && protection == null) protection = ProtectionOptions()
+                        },
+                    )
                     Text("protection в конфиге", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
                 }
                 if (protEnabled) {
-                    StyledTextField(value = pObf, onValueChange = { pObf = it }, label = "prot obfuscation", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pJunkCount, onValueChange = { pJunkCount = it }, label = "prot junkCount", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pJunkMin, onValueChange = { pJunkMin = it }, label = "prot junkMin", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pJunkMax, onValueChange = { pJunkMax = it }, label = "prot junkMax", modifier = Modifier.fillMaxWidth())
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Switch(checked = pPreCheck, onCheckedChange = { pPreCheck = it })
-                        Text("prot preCheck", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                    }
-                    StyledTextField(value = pPadS1, onValueChange = { pPadS1 = it }, label = "prot padS1", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pPadS2, onValueChange = { pPadS2 = it }, label = "prot padS2", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pPadS3, onValueChange = { pPadS3 = it }, label = "prot padS3", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pPadS4, onValueChange = { pPadS4 = it }, label = "prot padS4", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pMagicSplit, onValueChange = { pMagicSplit = it }, label = "prot magicSplit", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pJunkStyle, onValueChange = { pJunkStyle = it }, label = "prot junkStyle", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pFlush, onValueChange = { pFlush = it }, label = "prot flushPolicy", modifier = Modifier.fillMaxWidth())
-                    StyledTextField(value = pPreambleProfile, onValueChange = { pPreambleProfile = it }, label = "prot preambleProfile", modifier = Modifier.fillMaxWidth())
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Switch(checked = pPreambleRotate, onCheckedChange = { pPreambleRotate = it })
-                        Text("prot preambleRotate", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                    }
+                    ProtectionEditor(
+                        value = protection,
+                        metrics = emptyList(),
+                        showActions = false,
+                        onSave = { protection = it },
+                        onChange = { protection = it },
+                    )
                 }
 
                 if (err != null) {

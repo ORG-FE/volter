@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Volter VPN
+Comment=Volter TUI
+Exec=/usr/share/volter/volter-tui-launcher
+Icon=volter
+Terminal=false
+Categories=Network;Security;
+StartupNotify=true

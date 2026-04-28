@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -21,6 +23,155 @@ import (
 	"github.com/xjasonlyu/tun2socks/v2/core/device"
 	"github.com/xjasonlyu/tun2socks/v2/core/device/fdbased"
 )
+
+func autoInstallDesktopIntegration() {
+	if os.Getenv("VOLTER_SKIP_DESKTOP_INSTALL") == "1" {
+		return
+	}
+	if desktopIntegrationInstalled() {
+		return
+	}
+	installer := findDesktopInstaller()
+	if installer != "" && os.Geteuid() == 0 {
+		_ = exec.Command(installer).Run()
+		return
+	}
+	if installer == "" && os.Geteuid() == 0 {
+		_ = installDesktopIntegration()
+		return
+	}
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		return
+	}
+	if installer != "" {
+		_ = exec.Command("pkexec", installer).Run()
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	_ = exec.Command("pkexec", exe, "--install-desktop").Run()
+}
+
+func desktopIntegrationInstalled() bool {
+	for _, p := range []string{
+		"/usr/share/volter/volter-tui-launcher",
+		"/usr/share/applications/dev.c0redev.volter.desktop",
+		"/usr/share/polkit-1/actions/dev.c0redev.volter.policy",
+		"/usr/share/icons/hicolor/scalable/apps/volter.svg",
+	} {
+		if _, err := os.Stat(p); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func findDesktopInstaller() string {
+	exe, _ := os.Executable()
+	exeDir := filepath.Dir(exe)
+	wd, _ := os.Getwd()
+	candidates := []string{
+		filepath.Join(wd, "contrib/scripts/install-linux-desktop"),
+		filepath.Join(exeDir, "contrib/scripts/install-linux-desktop"),
+		filepath.Join(exeDir, "../contrib/scripts/install-linux-desktop"),
+		filepath.Join(exeDir, "../../contrib/scripts/install-linux-desktop"),
+	}
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+func installDesktopIntegration() error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("desktop install requires root")
+	}
+	files := map[string]struct {
+		mode os.FileMode
+		data string
+	}{
+		"/usr/share/volter/volter-tui-launcher": {0755, embeddedLauncher},
+		"/usr/share/applications/dev.c0redev.volter.desktop": {0644, embeddedDesktop},
+		"/usr/share/polkit-1/actions/dev.c0redev.volter.policy": {0644, embeddedPolicy},
+		"/usr/share/icons/hicolor/scalable/apps/volter.svg": {0644, embeddedIconSVG},
+	}
+	for path, f := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(f.data), f.mode); err != nil {
+			return err
+		}
+	}
+	_ = exec.Command("gtk-update-icon-cache", "-f", "/usr/share/icons/hicolor").Run()
+	_ = exec.Command("update-desktop-database", "/usr/share/applications").Run()
+	return nil
+}
+
+const embeddedDesktop = `[Desktop Entry]
+Type=Application
+Name=Volter VPN
+Comment=Open Volter TUI with administrator privileges
+Exec=/usr/share/volter/volter-tui-launcher
+Icon=volter
+Terminal=false
+Categories=Network;Security;
+StartupNotify=true
+`
+
+const embeddedLauncher = `#!/bin/sh
+set -eu
+VOLTER_BIN="${VOLTER_BIN:-/usr/bin/volter-client}"
+if [ ! -x "$VOLTER_BIN" ] && command -v volter-client >/dev/null 2>&1; then
+  VOLTER_BIN="$(command -v volter-client)"
+fi
+CMD="exec pkexec \"$VOLTER_BIN\""
+if [ -t 0 ] && [ -t 1 ]; then
+  exec pkexec "$VOLTER_BIN"
+fi
+if [ -n "${VOLTER_TERMINAL:-}" ]; then exec "$VOLTER_TERMINAL" -e sh -lc "$CMD"; fi
+if command -v x-terminal-emulator >/dev/null 2>&1; then exec x-terminal-emulator -e sh -lc "$CMD"; fi
+if command -v konsole >/dev/null 2>&1; then exec konsole -e sh -lc "$CMD"; fi
+if command -v gnome-terminal >/dev/null 2>&1; then exec gnome-terminal -- sh -lc "$CMD"; fi
+if command -v kitty >/dev/null 2>&1; then exec kitty sh -lc "$CMD"; fi
+if command -v alacritty >/dev/null 2>&1; then exec alacritty -e sh -lc "$CMD"; fi
+if command -v foot >/dev/null 2>&1; then exec foot sh -lc "$CMD"; fi
+echo "Volter: no terminal emulator found. Set VOLTER_TERMINAL." >&2
+exit 127
+`
+
+const embeddedPolicy = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Volter</vendor>
+  <vendor_url>https://github.com/ORG-FE/volter</vendor_url>
+  <action id="dev.c0redev.volter.pkexec">
+    <description>Run Volter VPN</description>
+    <message>Authentication is required to run Volter VPN with network privileges.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/volter-client</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>
+`
+
+const embeddedIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 108 108">
+  <rect width="108" height="108" rx="24" fill="#070B12"/>
+  <path d="M54 18 84 34 84 72 54 90 24 72 24 34Z" fill="#123E45"/>
+  <path d="M54 26 76 38 76 68 54 82 32 68 32 38Z" fill="#7CE7D2"/>
+  <path d="M21 46 32 39 32 68 21 75Z" fill="#A9B8FF"/>
+  <path d="M76 38 88 45 88 74 76 68Z" fill="#FFB86B"/>
+  <path d="M54 39 66 46 66 62 54 69 42 62 42 46Z" fill="#070B12"/>
+</svg>
+`
 
 func dedupeIPs(ips []net.IP) []net.IP {
 	seen := make(map[string]struct{})

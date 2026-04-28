@@ -66,6 +66,7 @@ func main() {
 func run() error {
 	var (
 		tui            = flag.Bool("tui", false, "run TUI")
+		installDesktop = flag.Bool("install-desktop", false, "install Linux desktop integration")
 		server         = flag.String("server", "", "host:port or host")
 		ports          = flag.String("ports", "", "csv ports for multiport")
 		token          = flag.String("token", "", "token")
@@ -88,6 +89,12 @@ func run() error {
 		systemProxy    = flag.Bool("system-proxy", false, "set Windows system proxy (Windows only)")
 	)
 	flag.Parse()
+
+	if *installDesktop {
+		return installDesktopIntegration()
+	}
+
+	autoInstallDesktopIntegration()
 
 	if *key != "" {
 		s, t, ok := config.ParseConnection(*key)

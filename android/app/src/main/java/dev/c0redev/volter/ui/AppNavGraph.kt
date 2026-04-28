@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Dns
@@ -23,6 +24,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
@@ -105,8 +108,8 @@ fun AppNavGraph(vm: ConnectionViewModel) {
         bottomBar = {
             if (!useRail) {
                 NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
+                    tonalElevation = 8.dp,
                 ) {
                     navItems.forEach { item ->
                         val cd = stringResource(R.string.common_cd_nav, stringResource(item.labelRes))
@@ -121,6 +124,13 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                             },
                             icon = { item.icon(cd) },
                             label = { Text(stringResource(item.labelRes)) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
                         )
                     }
                 }
@@ -130,7 +140,7 @@ fun AppNavGraph(vm: ConnectionViewModel) {
         Row(Modifier.fillMaxSize()) {
             if (useRail) {
                 NavigationRail(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
                 ) {
                     navItems.forEach { item ->
                         val cd = stringResource(R.string.common_cd_nav, stringResource(item.labelRes))
@@ -146,6 +156,13 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                             icon = { item.icon(cd) },
                             label = { Text(stringResource(item.labelRes)) },
                             alwaysShowLabel = true,
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
                         )
                     }
                 }
