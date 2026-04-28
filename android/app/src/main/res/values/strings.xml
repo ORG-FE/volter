@@ -40,6 +40,7 @@
     <string name="configs_tab_cloud">Cloud</string>
     <string name="configs_add">Add</string>
     <string name="configs_connect">Connect</string>
+    <string name="configs_connect_short">Start</string>
     <string name="config_profile_active">Active</string>
     <string name="configs_empty_local">No local configs. Tap Add.</string>
     <string name="configs_local_wait">Checking servers and probes, hang on</string>

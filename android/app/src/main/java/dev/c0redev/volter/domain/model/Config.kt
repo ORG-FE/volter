@@ -167,17 +167,36 @@ data class Config(
         fun parseShareUri(raw: String): Pair<String, Config>? {
             val cfg = parseVolterUriConfig(raw) ?: return null
             val name = parseVolterUriName(raw)?.ifBlank { "imported" } ?: "imported"
-            return sanitizeName(name) to cfg
+            return sanitizeName(name) to cfg.copy(protection = null)
         }
 
         fun buildShareUri(name: String, cfg: Config): String {
             val payload = JSONObject()
             payload.put("v", 1)
             payload.put("n", sanitizeName(name))
-            payload.put("c", cfg.toJson())
+            payload.put("c", cfg.copy(protection = null).toJson())
             val b = Base64.encodeToString(payload.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             return "volter://$b"
         }
+
+        fun buildProtectionUri(name: String, protection: ProtectionOptions): String {
+            val payload = JSONObject()
+            payload.put("v", 1)
+            payload.put("t", "protection")
+            payload.put("n", sanitizeName(name))
+            payload.put("p", protection.toJson())
+            val b = Base64.encodeToString(payload.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            return "volter://$b"
+        }
+
+        fun parseProtectionUri(raw: String): ProtectionOptions? {
+            val j = decodeVolterUriPayload(raw) ?: return null
+            if (j.optString("t", "") != "protection") return null
+            val p = j.optJSONObject("p") ?: return null
+            return runCatching { ProtectionOptions.fromJson(p) }.getOrNull()
+        }
+
+        fun parseConnectionConfig(s: String): Config? = parseVolterUriConfig(s.trim())?.copy(protection = null)
 
         private fun parseVolterUriName(raw: String): String? {
             val j = decodeVolterUriPayload(raw) ?: return null
@@ -196,7 +215,25 @@ data class Config(
             val server = j.optString("s", "").trim()
             val token = j.optString("k", "").trim().ifEmpty { j.optString("token", "").trim() }
             if (server.isBlank() || token.isBlank() || !isValidServerHostPort(server)) return null
-            return Config(server = server, token = token)
+            val qh = j.optString("qh", "").trim().takeIf { it.isNotEmpty() }
+            val qp = j.optString("qp", "").trim().toIntOrNull()
+            val quic = if (qh != null && qp != null && qp in 1..65535) quicHostPort(qh, qp) else null
+            return Config(server = server, token = token, quicServer = quic)
+        }
+
+        fun hostFromServer(server: String): String {
+            val s = server.trim()
+            if (s.startsWith("[")) {
+                val end = s.indexOf(']')
+                return if (end > 0) s.substring(1, end) else s
+            }
+            val idx = s.lastIndexOf(':')
+            return if (idx > 0) s.substring(0, idx) else s
+        }
+
+        fun quicHostPort(host: String, port: Int): String {
+            val h = host.trim().removePrefix("[").removeSuffix("]")
+            return if (h.contains(":")) "[$h]:$port" else "$h:$port"
         }
 
         private fun decodeVolterUriPayload(raw: String): JSONObject? {

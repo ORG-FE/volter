@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Lan
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.Button
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -287,9 +289,19 @@ fun ConfigProfileCard(
                                     strokeWidth = 2.dp,
                                 )
                                 Spacer(Modifier.width(10.dp))
-                                Text(if (primaryBusyLabel.isNotBlank()) primaryBusyLabel else primaryLabel)
+                                Text(
+                                    text = if (primaryBusyLabel.isNotBlank()) primaryBusyLabel else primaryLabel,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                )
                             } else {
-                                Text(primaryLabel)
+                                Text(
+                                    text = primaryLabel,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                )
                             }
                         }
                         if (onImport != null && importLabel != null) {
@@ -333,7 +345,7 @@ fun ConfigProfileCard(
                         Button(
                             onClick = onPrimary,
                             enabled = !primaryBusy,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f, fill = true),
                             shape = RoundedCornerShape(14.dp),
                         ) {
                             if (primaryBusy) {
@@ -342,9 +354,25 @@ fun ConfigProfileCard(
                                     strokeWidth = 2.dp,
                                 )
                                 Spacer(Modifier.width(10.dp))
-                                Text(if (primaryBusyLabel.isNotBlank()) primaryBusyLabel else primaryLabel)
+                                Text(
+                                    text = if (primaryBusyLabel.isNotBlank()) primaryBusyLabel else primaryLabel,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                )
                             } else {
-                                Text(primaryLabel)
+                                Icon(
+                                    Icons.Outlined.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.configs_connect_short),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Clip,
+                                    textAlign = TextAlign.Center,
+                                )
                             }
                         }
                     }

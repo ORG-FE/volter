@@ -52,13 +52,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
 import dev.c0redev.volter.domain.model.Config
-import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConfigItemState
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.ConfigProfileCard
 import dev.c0redev.volter.ui.components.StyledTextField
-import dev.c0redev.volter.ui.protection.ProtectionEditor
 import dev.c0redev.volter.ui.qr.buildQrBitmap
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -469,14 +467,12 @@ private fun ConfigEditorDialog(
     var exclude by remember { mutableStateOf("") }
     var tunCIDR6 by remember { mutableStateOf("") }
     var transport by remember { mutableStateOf("auto") }
-    var quicServer by remember { mutableStateOf("") }
+    var quicPort by remember { mutableStateOf("") }
     var quicServerName by remember { mutableStateOf("") }
     var quicSkipVerify by remember { mutableStateOf("") }
     var quicCertPin by remember { mutableStateOf("") }
     var quicCaCert by remember { mutableStateOf("") }
     var traceLog by remember { mutableStateOf(false) }
-    var protEnabled by remember { mutableStateOf(false) }
-    var protection by remember { mutableStateOf<ProtectionOptions?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initialConfig, oldName) {
@@ -488,29 +484,24 @@ private fun ConfigEditorDialog(
             exclude = initialConfig.exclude ?: ""
             tunCIDR6 = initialConfig.tunCIDR6 ?: ""
             transport = initialConfig.transport ?: "auto"
-            quicServer = initialConfig.quicServer ?: ""
+            quicPort = portFromHostPort(initialConfig.quicServer) ?: ""
             quicServerName = initialConfig.quicServerName ?: ""
             quicSkipVerify = initialConfig.quicSkipVerify?.toString() ?: ""
             quicCertPin = initialConfig.quicCertPinSHA256 ?: ""
             quicCaCert = initialConfig.quicCaCert ?: ""
             traceLog = initialConfig.quicTraceLog == true
-            val pr = initialConfig.protection
-            protEnabled = pr != null
-            protection = pr
         } else {
             connection = ""
             routes = ""
             exclude = ""
             tunCIDR6 = ""
             transport = "auto"
-            quicServer = ""
+            quicPort = ""
             quicServerName = ""
             quicSkipVerify = ""
             quicCertPin = ""
             quicCaCert = ""
             traceLog = false
-            protEnabled = false
-            protection = null
         }
     }
 
@@ -524,15 +515,16 @@ private fun ConfigEditorDialog(
                     if (shareParsed != null) {
                         val (parsedName, parsedCfg) = shareParsed
                         val outName = Config.sanitizeName(if (oldName == null && name.isBlank()) parsedName else name)
-                        onSave(outName, parsedCfg)
+                        onSave(outName, parsedCfg.copy(protection = null))
                         return@Button
                     }
+                    val parsedCfg = Config.parseConnectionConfig(connection)
                     val parsed = Config.parseConnection(connection)
-                    if (parsed == null) {
+                    if (parsed == null && parsedCfg == null) {
                         err = "connection: volter://..."
                         return@Button
                     }
-                    val (server, token) = parsed
+                    val (server, token) = parsed ?: (parsedCfg!!.server to parsedCfg.token)
                     val safeName = Config.sanitizeName(name)
 
                     val tr = transport.trim().lowercase()
@@ -567,9 +559,14 @@ private fun ConfigEditorDialog(
                     val excludeOut = exclude.trim().takeIf { it.isNotBlank() }
                     val tun6Out = tunCIDR6.trim().takeIf { it.isNotBlank() }
 
-                    val quicSrvOut = quicServer.trim().takeIf { it.isNotBlank() }
+                    val quicPortOut = quicPort.trim().toIntOrNull()
+                    if (quicPort.trim().isNotBlank() && (quicPortOut == null || quicPortOut !in 1..65535)) {
+                        err = "quic port: 1-65535"
+                        return@Button
+                    }
+                    val quicHost = parsedCfg?.quicServer?.let { Config.hostFromServer(it) } ?: Config.hostFromServer(server)
+                    val quicSrvOut = quicPortOut?.let { Config.quicHostPort(quicHost, it) }
                     val quicSrvFinal = if (transportOut == "tcp") null else quicSrvOut
-                    val prot = if (protEnabled) protection else null
                     val cfg = Config(
                         server = server,
                         token = token,
@@ -583,7 +580,7 @@ private fun ConfigEditorDialog(
                         quicCertPinSHA256 = pin,
                         quicCaCert = ca,
                         quicTraceLog = if (traceLog) true else null,
-                        protection = prot,
+                        protection = null,
                     )
 
                     onSave(safeName, cfg)
@@ -606,7 +603,7 @@ private fun ConfigEditorDialog(
                 StyledTextField(value = exclude, onValueChange = { exclude = it }, label = "exclude (cidrs)", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = tunCIDR6, onValueChange = { tunCIDR6 = it }, label = "tunCIDR6", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = transport, onValueChange = { transport = it }, label = "transport tcp/quic/auto", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = quicServer, onValueChange = { quicServer = it }, label = "quic host:port", modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = quicPort, onValueChange = { quicPort = digitsOnly(it).take(5) }, label = "quic port (host из ключа)", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = quicServerName, onValueChange = { quicServerName = it }, label = "quic SNI", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = quicSkipVerify, onValueChange = { quicSkipVerify = it }, label = "quic skipVerify true/false/пусто", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = quicCertPin, onValueChange = { quicCertPin = it }, label = "quic pin sha256 hex", modifier = Modifier.fillMaxWidth())
@@ -616,27 +613,6 @@ private fun ConfigEditorDialog(
                     Switch(checked = traceLog, onCheckedChange = { traceLog = it })
                     Text("quicTraceLog", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
                 }
-
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = protEnabled,
-                        onCheckedChange = {
-                            protEnabled = it
-                            if (it && protection == null) protection = ProtectionOptions()
-                        },
-                    )
-                    Text("protection в конфиге", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                }
-                if (protEnabled) {
-                    ProtectionEditor(
-                        value = protection,
-                        metrics = emptyList(),
-                        showActions = false,
-                        onSave = { protection = it },
-                        onChange = { protection = it },
-                    )
-                }
-
                 if (err != null) {
                     Text(
                         text = err ?: "",
@@ -648,6 +624,28 @@ private fun ConfigEditorDialog(
             }
         }
     )
+}
+
+private fun portFromHostPort(value: String?): String? {
+    val s = value?.trim().orEmpty()
+    if (s.isBlank()) return null
+    val rawPort = if (s.startsWith("[")) {
+        val end = s.indexOf(']')
+        if (end < 0 || end + 2 > s.length) return null
+        s.substring(end + 2)
+    } else {
+        val idx = s.lastIndexOf(':')
+        if (idx < 0) return null
+        s.substring(idx + 1)
+    }
+    val port = rawPort.toIntOrNull() ?: return null
+    return port.takeIf { it in 1..65535 }?.toString()
+}
+
+private fun digitsOnly(v: String): String {
+    val out = StringBuilder(v.length)
+    for (ch in v) if (ch in '0'..'9') out.append(ch)
+    return out.toString()
 }
 
 @Composable

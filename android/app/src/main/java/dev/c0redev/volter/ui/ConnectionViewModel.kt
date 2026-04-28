@@ -601,6 +601,13 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun importShareUri(raw: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val protection = Config.parseProtectionUri(raw)
+            if (protection != null) {
+                localRepo.saveProtection(protection)
+                reloadProtectionAndSettings()
+                _uiMessages.tryEmit("Protection imported")
+                return@launch
+            }
             val parsed = Config.parseShareUri(raw) ?: return@launch
             val (parsedName, parsedCfg) = parsed
             var base = Config.sanitizeName(parsedName)

@@ -39,6 +39,7 @@
     <string name="configs_tab_cloud">Облако</string>
     <string name="configs_add">Добавить</string>
     <string name="configs_connect">Подключить</string>
+    <string name="configs_connect_short">Пуск</string>
     <string name="config_profile_active">Активно</string>
     <string name="configs_empty_local">Нет локальных конфигов. Нажми «Добавить».</string>
     <string name="configs_local_wait">Проверяется информация, погоди</string>
