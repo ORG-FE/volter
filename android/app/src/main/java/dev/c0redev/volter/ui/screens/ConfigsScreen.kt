@@ -512,20 +512,21 @@ private fun ConfigEditorDialog(
                 onClick = {
                     err = null
                     val shareParsed = Config.parseShareUri(connection)
-                    if (shareParsed != null) {
-                        val (parsedName, parsedCfg) = shareParsed
-                        val outName = Config.sanitizeName(if (oldName == null && name.isBlank()) parsedName else name)
-                        onSave(outName, parsedCfg.copy(protection = null))
-                        return@Button
-                    }
-                    val parsedCfg = Config.parseConnectionConfig(connection)
+                    val parsedFromShare = shareParsed?.second?.copy(protection = null)
+                    val parsedCfg = Config.parseConnectionConfig(connection) ?: parsedFromShare
                     val parsed = Config.parseConnection(connection)
                     if (parsed == null && parsedCfg == null) {
                         err = "connection: volter://..."
                         return@Button
                     }
                     val (server, token) = parsed ?: (parsedCfg!!.server to parsedCfg.token)
-                    val safeName = Config.sanitizeName(name)
+                    val safeName = Config.sanitizeName(
+                        if (oldName == null && name.isBlank()) {
+                            shareParsed?.first ?: name
+                        } else {
+                            name
+                        },
+                    )
 
                     val tr = transport.trim().lowercase()
                     val transportOut = when (tr) {

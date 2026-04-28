@@ -3,12 +3,18 @@ package dev.c0redev.volter.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import android.os.Build
 
 private val VolterDarkColors = darkColorScheme(
     primary = Color(0xFF7CE7D2),
@@ -40,6 +46,27 @@ private val VolterDarkColors = darkColorScheme(
     outlineVariant = Color(0xFF2C3547),
 )
 
+private val VolterLightColors = lightColorScheme(
+    primary = Color(0xFF006A68),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFF8EF2EC),
+    onPrimaryContainer = Color(0xFF00201F),
+    secondary = Color(0xFF4A5E9E),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFDAE2FF),
+    onSecondaryContainer = Color(0xFF04174F),
+    tertiary = Color(0xFF8A5000),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFFFDDBD),
+    onTertiaryContainer = Color(0xFF2C1600),
+    background = Color(0xFFF5FAFF),
+    onBackground = Color(0xFF0E1726),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF0E1726),
+    surfaceVariant = Color(0xFFDCE4F3),
+    onSurfaceVariant = Color(0xFF414C61),
+)
+
 private val Mono = FontFamily.Monospace
 
 private val VolterTypography = Typography(
@@ -62,8 +89,15 @@ private val VolterTypography = Typography(
 
 @Composable
 fun VolterTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val ctx = LocalContext.current
+    val colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+    } else {
+        if (dark) VolterDarkColors else VolterLightColors
+    }
     MaterialTheme(
-        colorScheme = VolterDarkColors,
+        colorScheme = colors,
         typography = VolterTypography,
         content = content,
     )
