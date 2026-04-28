@@ -44,6 +44,11 @@ class MainActivity : ComponentActivity() {
 
     private fun handleRouteIntent(intent: Intent?) {
         if (intent == null) return
+        val data = intent.dataString?.trim().orEmpty()
+        if (data.startsWith("volter://", ignoreCase = true)) {
+            vm.importShareUri(data)
+            intent.data = null
+        }
         val profile = intent.getStringExtra(EXTRA_QUICK_PROFILE)?.trim().orEmpty()
         if (profile.isNotEmpty()) {
             vm.requestQuickConnect(profile)

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Lan
+import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -72,6 +73,7 @@ fun ConfigProfileCard(
     onPrimary: () -> Unit,
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
     onImport: (() -> Unit)? = null,
     importLabel: String? = null,
 ) {
@@ -360,6 +362,14 @@ fun ConfigProfileCard(
                                 stringResource(R.string.config_delete),
                                 color = scheme.error,
                             )
+                        }
+                    }
+                    if (onShare != null) {
+                        FilledTonalButton(
+                            onClick = onShare,
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Icon(Icons.Outlined.QrCode2, contentDescription = null)
                         }
                     }
                 }

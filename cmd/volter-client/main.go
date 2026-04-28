@@ -69,6 +69,7 @@ func run() error {
 		server         = flag.String("server", "", "host:port or host")
 		ports          = flag.String("ports", "", "csv ports for multiport")
 		token          = flag.String("token", "", "token")
+		key            = flag.String("key", "", "volter:// key")
 		transport      = flag.String("transport", "auto", "transport: auto|tcp|quic")
 		quicServer     = flag.String("quic-server", "", "QUIC server host:port")
 		quicServerName = flag.String("quic-server-name", "", "SNI/server name for QUIC TLS")
@@ -87,6 +88,14 @@ func run() error {
 		systemProxy    = flag.Bool("system-proxy", false, "set Windows system proxy (Windows only)")
 	)
 	flag.Parse()
+
+	if *key != "" {
+		s, t, ok := config.ParseConnection(*key)
+		if !ok {
+			return errors.New("bad --key, expected volter://...")
+		}
+		*server, *token = s, t
+	}
 
 	if *tui || (*server == "" && *token == "") {
 		return runTUI()

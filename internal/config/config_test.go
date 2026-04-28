@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -76,6 +77,8 @@ func TestSanitizeName(t *testing.T) {
 }
 
 func TestParseConnection(t *testing.T) {
+	uriJSON := `{"s":"1.2.3.4:443","k":"VIKDKKKK23K3KKJ4JK3"}`
+	uriB64 := base64.RawURLEncoding.EncodeToString([]byte(uriJSON))
 	for _, tc := range []struct {
 		in         string
 		wantServer string
@@ -85,6 +88,9 @@ func TestParseConnection(t *testing.T) {
 		{"1.2.3.4:443:abc:def", "1.2.3.4:443", "abc:def", true},
 		{"[2001:db8::1]:443:tok", "[2001:db8::1]:443", "tok", true},
 		{"[2001:db8::1]:443:abc:def", "[2001:db8::1]:443", "abc:def", true},
+		{"volter://" + uriB64, "1.2.3.4:443", "VIKDKKKK23K3KKJ4JK3", true},
+		{"volter://" + uriB64 + "?x=1", "1.2.3.4:443", "VIKDKKKK23K3KKJ4JK3", true},
+		{"volter://badbase64", "", "", false},
 		{"bad format", "", "", false},
 		{"[2001:db8::1]  :443:tok", "", "", false},
 	} {
@@ -97,6 +103,20 @@ func TestParseConnection(t *testing.T) {
 				t.Fatalf("ParseConnection(%q)=%q %q want %q %q", tc.in, server, token, tc.wantServer, tc.wantToken)
 			}
 		}
+	}
+}
+
+func TestBuildConnectionURI(t *testing.T) {
+	uri := BuildConnectionURI("1.2.3.4:443", "abc:def")
+	if uri == "" {
+		t.Fatal("empty uri")
+	}
+	server, token, ok := ParseConnection(uri)
+	if !ok {
+		t.Fatal("parse uri failed")
+	}
+	if server != "1.2.3.4:443" || token != "abc:def" {
+		t.Fatalf("got %q %q", server, token)
 	}
 }
 

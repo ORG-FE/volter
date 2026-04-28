@@ -599,6 +599,24 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun importShareUri(raw: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val parsed = Config.parseShareUri(raw) ?: return@launch
+            val (parsedName, parsedCfg) = parsed
+            var base = Config.sanitizeName(parsedName)
+            if (base.isBlank()) base = "imported"
+            var name = base
+            var suffix = 0
+            while (localRepo.loadConfig(name) != null) {
+                suffix++
+                name = "$base-$suffix"
+            }
+            localRepo.saveConfig(name, parsedCfg)
+            refreshLocalConfigs()
+            _uiMessages.tryEmit(appCtx.getString(R.string.cloud_import_saved, name))
+        }
+    }
+
     fun requestQuickConnect(profileName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val cfg = localRepo.loadConfig(profileName)

@@ -677,7 +677,7 @@ func newInputsWithValues(name, connection, routes, exclude, tunCIDR6, transport,
 	skip := strings.TrimSpace(quicSkipVerify)
 	return []textinput.Model{
 		ti("имя", name),
-		ti("host:port:key", connection),
+		ti("volter://... (или host:port:key)", connection),
 		ti("routes (пусто=all)", routes),
 		ti("exclude", exclude),
 		ti("tun-cidr6 (fd00:.../64)", tunCIDR6),
@@ -692,7 +692,7 @@ func newInputsWithValues(name, connection, routes, exclude, tunCIDR6, transport,
 
 var cfgFormLabels = []string{
 	"Имя:",
-	"Connection (host:port:key):",
+	"Connection (volter://...):",
 	"Routes:",
 	"Exclude:",
 	"TUN IPv6 CIDR:",
@@ -710,7 +710,7 @@ func configFromConnFormInputs(inputs []textinput.Model) (config.Config, string) 
 	}
 	server, token, ok := config.ParseConnection(strings.TrimSpace(inputs[1].Value()))
 	if !ok {
-		return config.Config{}, "connection: host:port:key"
+		return config.Config{}, "connection: volter://... или host:port:key"
 	}
 	tr := strings.ToLower(strings.TrimSpace(inputs[5].Value()))
 	if tr == "auto" {
@@ -1073,7 +1073,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editing = true
 					m.editingName = m.cloudNames[idx]
 					cfg := m.cloudCfgs[idx]
-					m.editInputs = newInputsWithValues(m.cloudNames[idx], cfg.Server+":"+cfg.Token, cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
+					m.editInputs = newInputsWithValues(m.cloudNames[idx], config.BuildConnectionURI(cfg.Server, cfg.Token), cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
 						cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyFormField(), cfg.QuicCertPinSHA256, cfg.QuicCaCert)
 					m.editFocus = 0
 					m.editInputs[0].Focus()
@@ -1103,7 +1103,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editing = true
 					m.editingName = m.names[idx]
 					cfg := m.cfgs[idx]
-					m.editInputs = newInputsWithValues(m.names[idx], cfg.Server+":"+cfg.Token, cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
+					m.editInputs = newInputsWithValues(m.names[idx], config.BuildConnectionURI(cfg.Server, cfg.Token), cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
 						cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyFormField(), cfg.QuicCertPinSHA256, cfg.QuicCaCert)
 					m.editFocus = 0
 					m.editInputs[0].Focus()

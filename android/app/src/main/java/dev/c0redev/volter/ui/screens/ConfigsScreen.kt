@@ -1,5 +1,10 @@
 package dev.c0redev.volter.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -40,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,10 +58,12 @@ import dev.c0redev.volter.ui.ConfigItemState
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.ConfigProfileCard
 import dev.c0redev.volter.ui.components.StyledTextField
+import dev.c0redev.volter.ui.qr.buildQrBitmap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
+    val ctx = LocalContext.current
     val localItems = vm.localConfigs.collectAsState().value
     val cloudItems = vm.cloudConfigs.collectAsState().value
     val cloudLoading = vm.cloudLoading.collectAsState().value
@@ -72,6 +81,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
     var editorCfg by remember { mutableStateOf<Config?>(null) }
     var importTarget by remember { mutableStateOf<ConfigItemState?>(null) }
     var deleteConfirmName by remember { mutableStateOf<String?>(null) }
+    var shareTarget by remember { mutableStateOf<Pair<String, Config>?>(null) }
 
     Column(
         modifier = Modifier
@@ -191,6 +201,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             editorOpen = true
                         },
                         onDelete = { deleteConfirmName = it.name },
+                        onShare = { shareTarget = it.name to it.config },
                     )
                 }
             }
@@ -337,6 +348,59 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             },
         )
     }
+    if (shareTarget != null) {
+        val (name, cfg) = shareTarget!!
+        ShareConfigQrDialog(
+            name = name,
+            cfg = cfg,
+            context = ctx,
+            onDismiss = { shareTarget = null },
+        )
+    }
+}
+
+@Composable
+private fun ShareConfigQrDialog(name: String, cfg: Config, context: Context, onDismiss: () -> Unit) {
+    val uri = remember(name, cfg) { Config.buildShareUri(name, cfg) }
+    val img = remember(uri) { buildQrBitmap(uri).asImageBitmap() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(onClick = {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, uri)
+                }
+                context.startActivity(Intent.createChooser(intent, "Share Volter"))
+            }) {
+                Text("Share")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cb.setPrimaryClip(ClipData.newPlainText("volter", uri))
+                onDismiss()
+            }) {
+                Text("Copy")
+            }
+        },
+        title = { Text("QR config + protection") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Image(
+                    bitmap = img,
+                    contentDescription = "volter qr",
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                )
+                Text(text = name, style = MaterialTheme.typography.bodyMedium)
+            }
+        },
+    )
 }
 
 @Composable
@@ -431,7 +495,7 @@ private fun ConfigEditorDialog(
         err = null
         name = oldName ?: "default"
         if (initialConfig != null) {
-            connection = "${initialConfig.server}:${initialConfig.token}"
+            connection = Config.buildShareUri(oldName ?: "default", initialConfig)
             routes = initialConfig.routes ?: ""
             exclude = initialConfig.exclude ?: ""
             tunCIDR6 = initialConfig.tunCIDR6 ?: ""
@@ -511,9 +575,16 @@ private fun ConfigEditorDialog(
             Button(
                 onClick = {
                     err = null
+                    val shareParsed = Config.parseShareUri(connection)
+                    if (shareParsed != null) {
+                        val (parsedName, parsedCfg) = shareParsed
+                        val outName = Config.sanitizeName(if (oldName == null && name.isBlank()) parsedName else name)
+                        onSave(outName, parsedCfg)
+                        return@Button
+                    }
                     val parsed = Config.parseConnection(connection)
                     if (parsed == null) {
-                        err = "connection: host:port:key"
+                        err = "connection: volter://..."
                         return@Button
                     }
                     val (server, token) = parsed
@@ -604,7 +675,7 @@ private fun ConfigEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 StyledTextField(value = name, onValueChange = { name = it }, label = "Имя", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = connection, onValueChange = { connection = it }, label = "host:port:key", modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = connection, onValueChange = { connection = it }, label = "volter://...", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = routes, onValueChange = { routes = it }, label = "routes (cidrs)", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = exclude, onValueChange = { exclude = it }, label = "exclude (cidrs)", modifier = Modifier.fillMaxWidth())
                 StyledTextField(value = tunCIDR6, onValueChange = { tunCIDR6 = it }, label = "tunCIDR6", modifier = Modifier.fillMaxWidth())

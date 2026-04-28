@@ -1,7 +1,9 @@
 listenPorts=0
-token=your-secret-key
+# token=your-secret-key
+# connectionKey=volter://...
 udpChannels=4
-publicHost=1.2.3.4
+# publicHost optional, empty = auto detect public ip
+# publicHost=1.2.3.4
 debug=true
 
 # tcp-only | quic-only | both

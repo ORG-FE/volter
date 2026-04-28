@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net"
 	"os"
@@ -295,6 +296,12 @@ func ParseConnection(s string) (server, token string, ok bool) {
 	if s == "" {
 		return "", "", false
 	}
+	if strings.HasPrefix(strings.ToLower(s), "volter://") {
+		server, token, ok = parseVolterURI(s)
+		if ok {
+			return server, token, true
+		}
+	}
 	for i := len(s) - 1; i >= 0; i-- {
 		if s[i] != ':' {
 			continue
@@ -309,6 +316,65 @@ func ParseConnection(s string) (server, token string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+func BuildConnectionURI(server, token string) string {
+	u := volterURI{
+		Server: strings.TrimSpace(server),
+		Token:  strings.TrimSpace(token),
+	}
+	if u.Server == "" || u.Token == "" {
+		return ""
+	}
+	b, err := json.Marshal(u)
+	if err != nil {
+		return ""
+	}
+	return "volter://" + base64.RawURLEncoding.EncodeToString(b)
+}
+
+type volterURI struct {
+	Server string `json:"s"`
+	Token  string `json:"k"`
+}
+
+func parseVolterURI(raw string) (server, token string, ok bool) {
+	body := strings.TrimSpace(raw[len("volter://"):])
+	if body == "" {
+		return "", "", false
+	}
+	if i := strings.IndexAny(body, "?#"); i >= 0 {
+		body = body[:i]
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", "", false
+	}
+	var data []byte
+	var err error
+	data, err = base64.RawURLEncoding.DecodeString(body)
+	if err != nil {
+		data, err = base64.URLEncoding.DecodeString(body)
+	}
+	if err != nil {
+		data, err = base64.RawStdEncoding.DecodeString(body)
+	}
+	if err != nil {
+		data, err = base64.StdEncoding.DecodeString(body)
+	}
+	if err != nil {
+		return "", "", false
+	}
+	var u volterURI
+	if err := json.Unmarshal(data, &u); err != nil {
+		return "", "", false
+	}
+	server = strings.TrimSpace(u.Server)
+	token = strings.TrimSpace(u.Token)
+	if server == "" || token == "" || !isValidServerAddress(server) {
+		return "", "", false
+	}
+	return server, token, true
 }
 
 func isValidServerAddress(raw string) bool {

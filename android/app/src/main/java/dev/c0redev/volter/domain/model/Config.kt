@@ -1,5 +1,6 @@
 package dev.c0redev.volter.domain.model
 
+import android.util.Base64
 import org.json.JSONObject
 
 data class Config(
@@ -149,6 +150,9 @@ data class Config(
         fun parseConnection(s: String): Pair<String, String>? {
             val raw = s.trim()
             if (raw.isEmpty()) return null
+            parseVolterUriConfig(raw)?.let { cfg ->
+                return cfg.server to cfg.token
+            }
             for (i in raw.lastIndex downTo 0) {
                 if (raw[i] != ':') continue
                 val server = raw.substring(0, i).trim()
@@ -158,6 +162,59 @@ data class Config(
                 return server to token
             }
             return null
+        }
+
+        fun parseShareUri(raw: String): Pair<String, Config>? {
+            val cfg = parseVolterUriConfig(raw) ?: return null
+            val name = parseVolterUriName(raw)?.ifBlank { "imported" } ?: "imported"
+            return sanitizeName(name) to cfg
+        }
+
+        fun buildShareUri(name: String, cfg: Config): String {
+            val payload = JSONObject()
+            payload.put("v", 1)
+            payload.put("n", sanitizeName(name))
+            payload.put("c", cfg.toJson())
+            val b = Base64.encodeToString(payload.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            return "volter://$b"
+        }
+
+        private fun parseVolterUriName(raw: String): String? {
+            val j = decodeVolterUriPayload(raw) ?: return null
+            return j.optString("n", "").trim().takeIf { it.isNotEmpty() }
+        }
+
+        private fun parseVolterUriConfig(raw: String): Config? {
+            val j = decodeVolterUriPayload(raw) ?: return null
+            val cfgObj = when {
+                j.has("c") && !j.isNull("c") -> j.optJSONObject("c")
+                else -> null
+            }
+            if (cfgObj != null) {
+                return runCatching { fromJson(cfgObj) }.getOrNull()
+            }
+            val server = j.optString("s", "").trim()
+            val token = j.optString("k", "").trim().ifEmpty { j.optString("token", "").trim() }
+            if (server.isBlank() || token.isBlank() || !isValidServerHostPort(server)) return null
+            return Config(server = server, token = token)
+        }
+
+        private fun decodeVolterUriPayload(raw: String): JSONObject? {
+            val lower = raw.trim()
+            if (!lower.startsWith("volter://", ignoreCase = true)) return null
+            var body = raw.trim().substringAfter("://").trim()
+            if (body.isEmpty()) return null
+            val q = body.indexOfAny(charArrayOf('?', '#'))
+            if (q >= 0) body = body.substring(0, q)
+            if (body.isBlank()) return null
+            val bytes = runCatching {
+                Base64.decode(body, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            }.recoverCatching {
+                Base64.decode(body, Base64.URL_SAFE or Base64.NO_WRAP)
+            }.recoverCatching {
+                Base64.decode(body, Base64.DEFAULT)
+            }.getOrNull() ?: return null
+            return runCatching { JSONObject(bytes.toString(Charsets.UTF_8)) }.getOrNull()
         }
 
         private fun isValidServerHostPort(value: String): Boolean {
