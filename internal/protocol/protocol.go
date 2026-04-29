@@ -39,21 +39,22 @@ const (
 	addrV6 = 6
 	maxPad = 32
 
-	CapsVersion   = 1
-	TransportTCP  = 1
-	TransportQUIC = 1 << 1
-	FeatureIPv6   = 1
+	CapsVersion          = 1
+	TransportTCP         = 1
+	TransportQUIC        = 1 << 1
+	FeatureIPv6          = 1
+	FeaturePolyHandshake = 1 << 1
 )
 
 type ServerHelloCaps struct {
-	Version       byte
-	LegacyIPv6    bool
-	TransportMask byte
-	FeatureBits   uint16
-	QuicPort      uint16
-	TCPPortHint   uint16
-	ObfsProfileID byte
-	Nonce         []byte
+	Version           byte
+	LegacyIPv6        bool
+	TransportMask     byte
+	FeatureBits       uint16
+	QuicPort          uint16
+	TCPPortHint       uint16
+	ObfsProfileID     byte
+	Nonce             []byte
 	QuicLeafPinSHA256 []byte
 }
 

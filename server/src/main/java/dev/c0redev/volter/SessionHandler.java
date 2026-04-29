@@ -35,7 +35,9 @@ final class SessionHandler {
       TcpHandler tcpHandler,
       ExecutorService udpOffloadExecutor
   ) throws IOException {
-    log.info("Accepted role=" + hs.role() + " from " + remote);
+    int requestedObfs = hr.opts().map(Protocol.ClientOptions::probeObfsProfileId).orElse(0);
+    int agreedObfs = Protocol.normalizeObfsProfile(requestedObfs);
+    log.info("Accepted role=" + hs.role() + " from " + remote + " obfsProfile=" + agreedObfs);
     if (hs.role() == Protocol.ROLE_UDP) {
       Runnable r = () -> {
         try {

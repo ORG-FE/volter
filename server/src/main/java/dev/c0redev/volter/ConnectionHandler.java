@@ -17,7 +17,7 @@ import java.util.logging.Logger;
 final class ConnectionHandler implements Runnable {
 
     private static final Logger log = Log.logger(ConnectionHandler.class);
-    private static final int HANDSHAKE_TIMEOUT_MS = 10_000;
+    private static final int HANDSHAKE_TIMEOUT_MS = 60_000;
     private static final SecureRandom HELLO_RND = new SecureRandom();
     
     private static final String PROBE_HANDSHAKE_TOKEN = "probe-bad-token";
@@ -98,6 +98,8 @@ final class ConnectionHandler implements Runnable {
             if (cfg.tcpEnabled()) transportMask |= Protocol.TRANSPORT_TCP;
             if (cfg.quicEnabled()) transportMask |= Protocol.TRANSPORT_QUIC;
             int featureBits = legacyIpv6 == 1 ? Protocol.FEAT_IPV6 : 0;
+            featureBits |= Protocol.FEAT_POLY_HANDSHAKE;
+            int obfsProfileId = Protocol.pickObfsProfileId();
             int tcpPortHint = cfg.listenPorts().isEmpty() ? 0 : cfg.listenPorts().get(0);
             byte[] nonce = new byte[8];
             HELLO_RND.nextBytes(nonce);
@@ -108,7 +110,7 @@ final class ConnectionHandler implements Runnable {
                 featureBits,
                 cfg.quicEnabled() ? cfg.quicListenPort() : 0,
                 tcpPortHint,
-                0,
+                obfsProfileId,
                 nonce,
                 QuicServer.getAdvertisedQuicLeafPin()
             ));

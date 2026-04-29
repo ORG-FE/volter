@@ -287,10 +287,12 @@ final class QuicServer implements AutoCloseable {
               if (cfg.tcpEnabled()) transportMask |= Protocol.TRANSPORT_TCP;
               if (cfg.quicEnabled()) transportMask |= Protocol.TRANSPORT_QUIC;
               int featureBits = legacyIpv6 == 1 ? Protocol.FEAT_IPV6 : 0;
+              featureBits |= Protocol.FEAT_POLY_HANDSHAKE;
+              int obfsProfileId = Protocol.pickObfsProfileId();
               int tcpPortHint = cfg.listenPorts().isEmpty() ? 0 : cfg.listenPorts().get(0);
               Protocol.writeServerHelloCaps(out, new Protocol.ServerHelloCaps(
                   Protocol.CAPS_VERSION, legacyIpv6, transportMask, featureBits,
-                  cfg.quicEnabled() ? cfg.quicListenPort() : 0, tcpPortHint, 0, new byte[0],
+                  cfg.quicEnabled() ? cfg.quicListenPort() : 0, tcpPortHint, obfsProfileId, new byte[0],
                   QuicServer.getAdvertisedQuicLeafPin()));
               return;
             }
@@ -328,7 +330,7 @@ final class QuicServer implements AutoCloseable {
           }
         });
         int handshakeMs = cfg.quicHandshakeTimeoutMs();
-        long cancelAfterMs = handshakeMs > 0 ? handshakeMs : (countHandshake ? 60_000L : -1L);
+        long cancelAfterMs = handshakeMs > 0 ? handshakeMs : (countHandshake ? 180_000L : -1L);
         if (cancelAfterMs > 0) {
           handshakeTimers.schedule(
               () -> {

@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	quic "github.com/quic-go/quic-go"
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/sockprotect"
+	quic "github.com/quic-go/quic-go"
 )
 
 type QUICConn = quic.Conn
@@ -147,20 +147,6 @@ func dialQUICConn(addr, serverName string, skipVerify bool, certPinSHA256 string
 		return nil, nil, fmt.Errorf("quic: bad udp port %q", portStr)
 	}
 
-	resolveCtx, cancelRes := context.WithTimeout(context.Background(), 12*time.Second)
-	ips, err := LookupHostIPsPreferV4(resolveCtx, dialHost)
-	cancelRes()
-	if err != nil {
-		return nil, nil, fmt.Errorf("quic: resolve %q: %w", dialHost, err)
-	}
-	if quicTraceOn() {
-		ipStrs := make([]string, 0, len(ips))
-		for _, ip := range ips {
-			ipStrs = append(ipStrs, ip.String())
-		}
-		clientlog.Trace("quic dial addr=%q sni=%q ips=%v", addr, sniHost, ipStrs)
-	}
-
 	qconf := &quic.Config{
 		EnableDatagrams:                false,
 		MaxIdleTimeout:                 15 * time.Minute,
@@ -177,65 +163,88 @@ func dialQUICConn(addr, serverName string, skipVerify bool, certPinSHA256 string
 	}
 
 	var lastErr error
-	for _, ip := range ips {
-		dialCtx, cancelDial := context.WithTimeout(context.Background(), 50*time.Second)
-		if v4 := ip.To4(); v4 != nil {
-			remote := &net.UDPAddr{IP: v4, Port: port}
+	backoff := 250 * time.Millisecond
+	for round := 0; round < 4; round++ {
+		resolveCtx, cancelRes := context.WithTimeout(context.Background(), 12*time.Second)
+		ips, err := LookupHostIPsPreferV4(resolveCtx, dialHost)
+		cancelRes()
+		if err != nil {
+			lastErr = fmt.Errorf("quic: resolve %q: %w", dialHost, err)
+		} else {
 			if quicTraceOn() {
-				clientlog.Trace("quic dial try Dial udp4 -> %s", remote.String())
+				ipStrs := make([]string, 0, len(ips))
+				for _, ip := range ips {
+					ipStrs = append(ipStrs, ip.String())
+				}
+				clientlog.Trace("quic dial round=%d addr=%q sni=%q ips=%v", round+1, addr, sniHost, ipStrs)
 			}
-			pc, lerr := listenUDPForQUIC("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
-			if lerr != nil {
+			for _, ip := range ips {
+				dialCtx, cancelDial := context.WithTimeout(context.Background(), 50*time.Second)
+				if v4 := ip.To4(); v4 != nil {
+					remote := &net.UDPAddr{IP: v4, Port: port}
+					if quicTraceOn() {
+						clientlog.Trace("quic dial try Dial udp4 -> %s", remote.String())
+					}
+					pc, lerr := listenUDPForQUIC("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+					if lerr != nil {
+						cancelDial()
+						if quicTraceOn() {
+							clientlog.Trace("quic ListenUDP udp4: %v", lerr)
+						}
+						lastErr = lerr
+						continue
+					}
+					conn, derr := quic.Dial(dialCtx, pc, remote, tlsCfg, qconf)
+					cancelDial()
+					if derr == nil {
+						if quicTraceOn() {
+							clientlog.Trace("quic dial ok local=%s remote=%s", conn.LocalAddr(), conn.RemoteAddr())
+						}
+						closePC := func() { _ = pc.Close() }
+						return conn, closePC, nil
+					}
+					_ = pc.Close()
+					if quicTraceOn() {
+						clientlog.Trace("quic dial fail Dial %s: %v", remote.String(), derr)
+					}
+					lastErr = derr
+					continue
+				}
+				pc, lerr := listenUDPForQUIC("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
+				if lerr != nil {
+					cancelDial()
+					if quicTraceOn() {
+						clientlog.Trace("quic dial ListenUDP udp6: %v", lerr)
+					}
+					lastErr = lerr
+					continue
+				}
+				udpAddr := &net.UDPAddr{IP: ip, Port: port}
+				if quicTraceOn() {
+					clientlog.Trace("quic dial try Dial udp6 local=%s -> %s", pc.LocalAddr(), udpAddr)
+				}
+				conn, derr := quic.Dial(dialCtx, pc, udpAddr, tlsCfg, qconf)
 				cancelDial()
-				if quicTraceOn() {
-					clientlog.Trace("quic ListenUDP udp4: %v", lerr)
+				if derr == nil {
+					if quicTraceOn() {
+						clientlog.Trace("quic dial ok local=%s remote=%s", conn.LocalAddr(), conn.RemoteAddr())
+					}
+					closePC := func() { _ = pc.Close() }
+					return conn, closePC, nil
 				}
-				lastErr = lerr
-				continue
-			}
-			conn, derr := quic.Dial(dialCtx, pc, remote, tlsCfg, qconf)
-			cancelDial()
-			if derr == nil {
+				_ = pc.Close()
 				if quicTraceOn() {
-					clientlog.Trace("quic dial ok local=%s remote=%s", conn.LocalAddr(), conn.RemoteAddr())
+					clientlog.Trace("quic dial fail Dial %s: %v", udpAddr, derr)
 				}
-				closePC := func() { _ = pc.Close() }
-				return conn, closePC, nil
+				lastErr = derr
 			}
-			_ = pc.Close()
-			if quicTraceOn() {
-				clientlog.Trace("quic dial fail Dial %s: %v", remote.String(), derr)
+		}
+		if round < 3 {
+			time.Sleep(backoff)
+			if backoff < 2*time.Second {
+				backoff *= 2
 			}
-			lastErr = derr
-			continue
 		}
-		pc, lerr := listenUDPForQUIC("udp6", &net.UDPAddr{IP: net.IPv6zero, Port: 0})
-		if lerr != nil {
-			cancelDial()
-			if quicTraceOn() {
-				clientlog.Trace("quic dial ListenUDP udp6: %v", lerr)
-			}
-			lastErr = lerr
-			continue
-		}
-		udpAddr := &net.UDPAddr{IP: ip, Port: port}
-		if quicTraceOn() {
-			clientlog.Trace("quic dial try Dial udp6 local=%s -> %s", pc.LocalAddr(), udpAddr)
-		}
-		conn, derr := quic.Dial(dialCtx, pc, udpAddr, tlsCfg, qconf)
-		cancelDial()
-		if derr == nil {
-			if quicTraceOn() {
-				clientlog.Trace("quic dial ok local=%s remote=%s", conn.LocalAddr(), conn.RemoteAddr())
-			}
-			closePC := func() { _ = pc.Close() }
-			return conn, closePC, nil
-		}
-		_ = pc.Close()
-		if quicTraceOn() {
-			clientlog.Trace("quic dial fail Dial %s: %v", udpAddr, derr)
-		}
-		lastErr = derr
 	}
 	return nil, nil, wrapQUICDialTLS(lastErr, addr, skipVerify, hasPin, rootCAs != nil)
 }

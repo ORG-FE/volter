@@ -155,13 +155,28 @@ func TestLoadProtectionNotExist(t *testing.T) {
 
 func TestMergeProbeObfsIntoProtection(t *testing.T) {
 	p := &ProtectionOptions{JunkCount: 3}
-	caps := &protocol.ServerHelloCaps{ObfsProfileID: 9}
+	caps := &protocol.ServerHelloCaps{
+		ObfsProfileID: 9,
+		FeatureBits:   protocol.FeaturePolyHandshake,
+	}
 	out := MergeProbeObfsIntoProtection(p, caps)
-	if out.JunkCount != 3 || out.ProbeObfsProfileID != 9 {
+	if out.JunkCount != 3 || out.ProbeObfsProfileID != 9 || out.PreambleProfile != protocol.PreambleRotate || !out.PreambleRotate {
 		t.Fatalf("got %+v", out)
 	}
 	out2 := MergeProbeObfsIntoProtection(nil, caps)
-	if out2.ProbeObfsProfileID != 9 {
+	if out2.ProbeObfsProfileID != 9 || out2.PreambleProfile != protocol.PreambleRotate || !out2.PreambleRotate {
 		t.Fatalf("got %+v", out2)
+	}
+}
+
+func TestMergeProbeObfsDoesNotForceRotateWithoutFeature(t *testing.T) {
+	p := &ProtectionOptions{}
+	caps := &protocol.ServerHelloCaps{ObfsProfileID: 4}
+	out := MergeProbeObfsIntoProtection(p, caps)
+	if out.ProbeObfsProfileID != 4 {
+		t.Fatalf("got %+v", out)
+	}
+	if out.PreambleProfile != "" || out.PreambleRotate {
+		t.Fatalf("rotate must stay off without poly feature: %+v", out)
 	}
 }

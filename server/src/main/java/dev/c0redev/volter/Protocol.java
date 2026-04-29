@@ -27,8 +27,20 @@ final class Protocol {
   static final int TRANSPORT_TCP = 1;
   static final int TRANSPORT_QUIC = 1 << 1;
   static final int FEAT_IPV6 = 1;
+  static final int FEAT_POLY_HANDSHAKE = 1 << 1;
+  static final int OBFS_PROFILE_MIN = 1;
+  static final int OBFS_PROFILE_MAX = 4;
 
   static record HandshakeResult(Handshake handshake, Optional<ClientOptions> opts) {}
+
+  static int pickObfsProfileId() {
+    return OBFS_PROFILE_MIN + RND.nextInt(OBFS_PROFILE_MAX - OBFS_PROFILE_MIN + 1);
+  }
+
+  static int normalizeObfsProfile(int profileId) {
+    if (profileId < OBFS_PROFILE_MIN || profileId > OBFS_PROFILE_MAX) return 0;
+    return profileId;
+  }
 
   static HandshakeResult readHandshake(InputStream in) throws IOException {
     skipUntilMagic(in);
@@ -261,10 +273,11 @@ final class Protocol {
       byte[] nonce,
       byte[] quicLeafPinSha256) {}
 
-  record ClientOptions(int padS4) {
+  record ClientOptions(int padS4, int probeObfsProfileId) {
     static Optional<ClientOptions> parse(String json) {
       try {
         int padS4 = 32;
+        int probeObfsProfileId = 0;
         if (json.contains("\"padS4\"")) {
           int i = json.indexOf("\"padS4\"");
           int start = json.indexOf(":", i) + 1;
@@ -274,7 +287,16 @@ final class Protocol {
           padS4 = Integer.parseInt(json.substring(start, end).trim());
           if (padS4 < 0 || padS4 > 64) padS4 = 32;
         }
-        return Optional.of(new ClientOptions(padS4));
+        if (json.contains("\"probeObfsProfileID\"")) {
+          int i = json.indexOf("\"probeObfsProfileID\"");
+          int start = json.indexOf(":", i) + 1;
+          int end = json.indexOf(",", start);
+          if (end < 0) end = json.indexOf("}", start);
+          if (end < 0) end = json.length();
+          probeObfsProfileId = Integer.parseInt(json.substring(start, end).trim());
+          probeObfsProfileId = normalizeObfsProfile(probeObfsProfileId);
+        }
+        return Optional.of(new ClientOptions(padS4, probeObfsProfileId));
       } catch (Exception e) {
         return Optional.empty();
       }

@@ -23,36 +23,36 @@ type Config struct {
 	QuicCertPinSHA256 string `json:"quicCertPinSHA256,omitempty"`
 	QuicCaCert        string `json:"quicCaCert,omitempty"`
 
-	QuicTraceLog bool               `json:"quicTraceLog,omitempty"`
-	DualTransport *bool `json:"dualTransport,omitempty"`
-	Routes       string             `json:"routes,omitempty"`
-	Exclude      string             `json:"exclude,omitempty"`
-	TunCIDR6     string             `json:"tunCIDR6,omitempty"`
-	Protection   *ProtectionOptions `json:"protection,omitempty"`
+	QuicTraceLog  bool               `json:"quicTraceLog,omitempty"`
+	DualTransport *bool              `json:"dualTransport,omitempty"`
+	Routes        string             `json:"routes,omitempty"`
+	Exclude       string             `json:"exclude,omitempty"`
+	TunCIDR6      string             `json:"tunCIDR6,omitempty"`
+	Protection    *ProtectionOptions `json:"protection,omitempty"`
 }
 
 type ProtectionOptions struct {
-	Obfuscation string `json:"obfuscation,omitempty"`
-	PreambleProfile string `json:"preambleProfile,omitempty"`
-	PreambleRotate  bool   `json:"preambleRotate,omitempty"`
-	ProbeObfsProfileID byte `json:"-"`
-	JunkCount   int    `json:"junkCount,omitempty"`
-	JunkMin     int    `json:"junkMin,omitempty"`
-	JunkMax     int    `json:"junkMax,omitempty"`
-	PadS1       int    `json:"padS1,omitempty"`
-	PadS2       int    `json:"padS2,omitempty"`
-	PadS3       int    `json:"padS3,omitempty"`
-	PadS4       int    `json:"padS4,omitempty"`
-	PreCheck    bool   `json:"preCheck,omitempty"`
-	MagicSplit  string `json:"magicSplit,omitempty"`
-	JunkStyle   string `json:"junkStyle,omitempty"`
-	FlushPolicy string `json:"flushPolicy,omitempty"`
-	ObfSeed     string `json:"obfSeed,omitempty"`
-	CapsVersion int    `json:"capsVersion,omitempty"`
-	TransportMask int  `json:"transportMask,omitempty"`
-	FeatureBits   int  `json:"featureBits,omitempty"`
-	ClientNonce   string `json:"clientNonce,omitempty"`
-	ClientTsSec   int64  `json:"clientTsSec,omitempty"`
+	Obfuscation        string `json:"obfuscation,omitempty"`
+	PreambleProfile    string `json:"preambleProfile,omitempty"`
+	PreambleRotate     bool   `json:"preambleRotate,omitempty"`
+	ProbeObfsProfileID byte   `json:"-"`
+	JunkCount          int    `json:"junkCount,omitempty"`
+	JunkMin            int    `json:"junkMin,omitempty"`
+	JunkMax            int    `json:"junkMax,omitempty"`
+	PadS1              int    `json:"padS1,omitempty"`
+	PadS2              int    `json:"padS2,omitempty"`
+	PadS3              int    `json:"padS3,omitempty"`
+	PadS4              int    `json:"padS4,omitempty"`
+	PreCheck           bool   `json:"preCheck,omitempty"`
+	MagicSplit         string `json:"magicSplit,omitempty"`
+	JunkStyle          string `json:"junkStyle,omitempty"`
+	FlushPolicy        string `json:"flushPolicy,omitempty"`
+	ObfSeed            string `json:"obfSeed,omitempty"`
+	CapsVersion        int    `json:"capsVersion,omitempty"`
+	TransportMask      int    `json:"transportMask,omitempty"`
+	FeatureBits        int    `json:"featureBits,omitempty"`
+	ClientNonce        string `json:"clientNonce,omitempty"`
+	ClientTsSec        int64  `json:"clientTsSec,omitempty"`
 }
 
 func Dir() (string, error) {
@@ -287,6 +287,11 @@ func MergeProbeObfsIntoProtection(p *ProtectionOptions, caps *protocol.ServerHel
 	}
 	if caps != nil {
 		base.ProbeObfsProfileID = caps.ObfsProfileID
+		poly := (caps.FeatureBits & protocol.FeaturePolyHandshake) != 0
+		if poly && caps.ObfsProfileID > 0 && strings.TrimSpace(strings.ToLower(base.PreambleProfile)) == "" {
+			base.PreambleProfile = protocol.PreambleRotate
+			base.PreambleRotate = true
+		}
 	}
 	return &base
 }

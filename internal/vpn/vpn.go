@@ -163,7 +163,26 @@ func newUDPMux(addrs []string, token string, n int, prot *config.ProtectionOptio
 		chans: make([]*udpChan, n),
 	}
 	if tunnel.UsesQUICTransport(transport, quicServer) {
-		closeConn, sharedConn, streams, err := tunnel.DialUDPMuxQUIC(addrs, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, n, token, prot)
+		var (
+			closeConn  func()
+			sharedConn *tunnel.QUICConn
+			streams    []tunnel.UDPMuxQUICStream
+			err        error
+		)
+		backoff := 300 * time.Millisecond
+		for attempt := 0; attempt < 4; attempt++ {
+			closeConn, sharedConn, streams, err = tunnel.DialUDPMuxQUIC(addrs, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, n, token, prot)
+			if err == nil {
+				break
+			}
+			clientlog.Warn("vpn: QUIC UDP mux attempt %d failed: %v", attempt+1, err)
+			if attempt < 3 {
+				time.Sleep(backoff)
+				if backoff < 2*time.Second {
+					backoff *= 2
+				}
+			}
+		}
 		if err != nil {
 			clientlog.Drop("vpn: QUIC UDP mux failed: %v", err)
 			return nil, err
@@ -261,32 +280,41 @@ type udpChan struct {
 func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame), prot *config.ProtectionOptions, transport, quicServer string) (*udpChan, error) {
 	var last error
 	start := int(id) % len(addrs)
-	for i := 0; i < len(addrs); i++ {
-		a := addrs[(start+i)%len(addrs)]
-		c, err := dialTCP(a, token)
-		if err != nil {
-			last = err
-			continue
+	backoff := 250 * time.Millisecond
+	for round := 0; round < 3; round++ {
+		for i := 0; i < len(addrs); i++ {
+			a := addrs[(start+i)%len(addrs)]
+			c, err := dialTCP(a, token)
+			if err != nil {
+				last = err
+				continue
+			}
+			slot := protocol.TimeSlot()
+			bufSize := protocol.BufSizeForConn(slot)
+			uc := &udpChan{
+				conn: c,
+				r:    bufio.NewReaderSize(c, bufSize),
+				w:    bufio.NewWriterSize(c, bufSize),
+				stop: make(chan struct{}),
+				cb:   cb,
+			}
+			maxPad, err := tunnel.WriteUDPChannelPreambleSlot(uc.w, id, token, prot, slot)
+			if err != nil {
+				_ = c.Close()
+				last = err
+				continue
+			}
+			uc.maxPad = maxPad
+			clientlog.Traffic("vpn: udp ch %d  [%s]  server=%s  %s", id, tunnel.VolterTunnelTag(transport, quicServer), a, volterTunnelCfg(transport, quicServer))
+			go uc.readLoop()
+			return uc, nil
 		}
-		slot := protocol.TimeSlot()
-		bufSize := protocol.BufSizeForConn(slot)
-		uc := &udpChan{
-			conn: c,
-			r:    bufio.NewReaderSize(c, bufSize),
-			w:    bufio.NewWriterSize(c, bufSize),
-			stop: make(chan struct{}),
-			cb:   cb,
+		if round < 2 {
+			time.Sleep(backoff)
+			if backoff < 1200*time.Millisecond {
+				backoff *= 2
+			}
 		}
-		maxPad, err := tunnel.WriteUDPChannelPreambleSlot(uc.w, id, token, prot, slot)
-		if err != nil {
-			_ = c.Close()
-			last = err
-			continue
-		}
-		uc.maxPad = maxPad
-		clientlog.Traffic("vpn: udp ch %d  [%s]  server=%s  %s", id, tunnel.VolterTunnelTag(transport, quicServer), a, volterTunnelCfg(transport, quicServer))
-		go uc.readLoop()
-		return uc, nil
 	}
 	if last == nil {
 		last = errors.New("dial failed")

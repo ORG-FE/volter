@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/x509"
+	"fmt"
 	"net"
 	"strings"
 	"syscall"
@@ -20,24 +21,45 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 	if !tunPreferTCP && UsesQUICTransport(transport, quicServer) {
 		return dialQUIC(serverAddrs, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, targetIP, targetPort, token, prot, quicShared)
 	}
-	addr := pickAddr(serverAddrs, targetIP, targetPort)
-	c, err := dialServer(addr, token)
-	if err != nil {
-		return nil, err
+	if len(serverAddrs) == 0 {
+		return nil, fmt.Errorf("tcp dial: empty server addresses")
 	}
-	slot := protocol.TimeSlot()
-	bufSize := protocol.BufSizeForConn(slot)
-	r := bufio.NewReaderSize(c, bufSize)
-	w := bufio.NewWriterSize(c, bufSize)
-	if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
-		c.Close()
-		return nil, err
+	start := pickAddrIndex(serverAddrs, targetIP, targetPort)
+	var lastErr error
+	backoff := 200 * time.Millisecond
+	for round := 0; round < 3; round++ {
+		for i := 0; i < len(serverAddrs); i++ {
+			addr := serverAddrs[(start+i)%len(serverAddrs)]
+			c, err := dialServer(addr, token)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			slot := protocol.TimeSlot()
+			bufSize := protocol.BufSizeForConn(slot)
+			r := bufio.NewReaderSize(c, bufSize)
+			w := bufio.NewWriterSize(c, bufSize)
+			if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
+				_ = c.Close()
+				lastErr = err
+				continue
+			}
+			if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
+				_ = c.Close()
+				lastErr = err
+				continue
+			}
+			return &tunnelConn{Conn: c, r: r}, nil
+		}
+		time.Sleep(backoff)
+		if backoff < 1200*time.Millisecond {
+			backoff *= 2
+		}
 	}
-	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
-		c.Close()
-		return nil, err
+	if lastErr == nil {
+		lastErr = fmt.Errorf("tcp dial failed")
 	}
-	return &tunnelConn{Conn: c, r: r}, nil
+	return nil, lastErr
 }
 
 func UsesQUICTransport(transport, quicServer string) bool {
@@ -153,13 +175,17 @@ func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipV
 }
 
 func pickAddr(addrs []string, ip net.IP, port uint16) string {
+	return addrs[pickAddrIndex(addrs, ip, port)]
+}
+
+func pickAddrIndex(addrs []string, ip net.IP, port uint16) int {
 	if len(addrs) == 1 {
-		return addrs[0]
+		return 0
 	}
 	h := uint(0)
 	for _, b := range []byte(ip.String()) {
 		h = h*31 + uint(b)
 	}
 	h += uint(port)
-	return addrs[int(h)%len(addrs)]
+	return int(h) % len(addrs)
 }
