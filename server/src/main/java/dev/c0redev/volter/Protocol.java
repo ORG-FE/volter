@@ -14,6 +14,7 @@ final class Protocol {
   static final byte VERSION = 1;
   static final byte ROLE_UDP = 1;
   static final byte ROLE_TCP = 2;
+  static final byte ROLE_RELAY_TCP = 3;
   static final byte MSG_UDP = 1;
   static final byte ADDR_V4 = 4;
   static final byte ADDR_V6 = 6;
@@ -28,6 +29,8 @@ final class Protocol {
   static final int TRANSPORT_QUIC = 1 << 1;
   static final int FEAT_IPV6 = 1;
   static final int FEAT_POLY_HANDSHAKE = 1 << 1;
+  static final int FEAT_RELAY_SERVER = 1 << 2;
+  static final int FEAT_RELAY_PEER = 1 << 3;
   static final int OBFS_PROFILE_MIN = 1;
   static final int OBFS_PROFILE_MAX = 4;
 
@@ -207,6 +210,9 @@ final class Protocol {
   }
 
   static final int HELLO_CAPS_EXT_QUIC_LEAF_PIN = 1;
+  static final int HELLO_CAPS_EXT_RELAY_CLASS = 2;
+  static final int HELLO_CAPS_EXT_PATH_TTL = 3;
+  static final int HELLO_CAPS_EXT_RELAY_FLAGS = 4;
 
   static void writeServerHelloCaps(OutputStream out, ServerHelloCaps caps) throws IOException {
     out.write(caps.version() & 0xff);
@@ -222,8 +228,19 @@ final class Protocol {
     if (nonceLen > 0) out.write(caps.nonce());
     byte[] qp = caps.quicLeafPinSha256();
     if (qp != null && qp.length == 32) {
-      out.write(HELLO_CAPS_EXT_QUIC_LEAF_PIN);
-      out.write(qp);
+      writeCapsTlv(out, HELLO_CAPS_EXT_QUIC_LEAF_PIN, qp);
+    }
+    if (caps.relayClass() > 0) {
+      writeCapsTlv(out, HELLO_CAPS_EXT_RELAY_CLASS, new byte[] {(byte) (caps.relayClass() & 0xff)});
+    }
+    if (caps.pathTtl() > 0) {
+      writeCapsTlv(out, HELLO_CAPS_EXT_PATH_TTL, new byte[] {(byte) (caps.pathTtl() & 0xff)});
+    }
+    if (caps.relayFlags() != 0) {
+      writeCapsTlv(out, HELLO_CAPS_EXT_RELAY_FLAGS, new byte[] {
+          (byte) ((caps.relayFlags() >>> 8) & 0xff),
+          (byte) (caps.relayFlags() & 0xff)
+      });
     }
     out.flush();
   }
@@ -240,12 +257,31 @@ final class Protocol {
     if (nonceLen > MAX_HELLO_CAPS_NONCE) throw new IOException("caps nonce too long");
     byte[] nonce = nonceLen == 0 ? new byte[0] : readN(in, nonceLen);
     byte[] qpin = null;
-    int ext = in.read();
-    if (ext >= 0) {
-      if (ext != HELLO_CAPS_EXT_QUIC_LEAF_PIN) {
+    int relayClass = 0;
+    int pathTtl = 0;
+    int relayFlags = 0;
+    while (true) {
+      int ext = in.read();
+      if (ext < 0) {
+        break;
+      }
+      int ln = readU8(in);
+      byte[] val = readN(in, ln);
+      if (ext == HELLO_CAPS_EXT_QUIC_LEAF_PIN) {
+        if (ln != 32) throw new IOException("bad quic pin len");
+        qpin = val;
+      } else if (ext == HELLO_CAPS_EXT_RELAY_CLASS) {
+        if (ln != 1) throw new IOException("bad relay class len");
+        relayClass = val[0] & 0xff;
+      } else if (ext == HELLO_CAPS_EXT_PATH_TTL) {
+        if (ln != 1) throw new IOException("bad path ttl len");
+        pathTtl = val[0] & 0xff;
+      } else if (ext == HELLO_CAPS_EXT_RELAY_FLAGS) {
+        if (ln != 2) throw new IOException("bad relay flags len");
+        relayFlags = ((val[0] & 0xff) << 8) | (val[1] & 0xff);
+      } else {
         throw new IOException("bad caps extension tag: " + ext);
       }
-      qpin = readN(in, 32);
     }
     return new ServerHelloCaps(
         version,
@@ -256,7 +292,17 @@ final class Protocol {
         tcpPortHint,
         obfsProfileId,
         nonce,
-        qpin);
+        qpin,
+        relayClass,
+        pathTtl,
+        relayFlags);
+  }
+
+  static void writeCapsTlv(OutputStream out, int tag, byte[] val) throws IOException {
+    int ln = val == null ? 0 : Math.min(255, val.length);
+    out.write(tag & 0xff);
+    out.write(ln & 0xff);
+    if (ln > 0) out.write(val, 0, ln);
   }
 
   record Handshake(byte role, int channelId, String token) {}
@@ -271,13 +317,30 @@ final class Protocol {
       int tcpPortHint,
       int obfsProfileId,
       byte[] nonce,
-      byte[] quicLeafPinSha256) {}
+      byte[] quicLeafPinSha256,
+      int relayClass,
+      int pathTtl,
+      int relayFlags) {}
 
-  record ClientOptions(int padS4, int probeObfsProfileId) {
+  record ClientOptions(
+      int padS4,
+      int probeObfsProfileId,
+      int relayHop,
+      int relayMaxHop,
+      int relayBudgetKbps,
+      String peerId,
+      String relayNonce,
+      String relaySig) {
     static Optional<ClientOptions> parse(String json) {
       try {
         int padS4 = 32;
         int probeObfsProfileId = 0;
+        int relayHop = 0;
+        int relayMaxHop = 2;
+        int relayBudgetKbps = 0;
+        String peerId = "";
+        String relayNonce = "";
+        String relaySig = "";
         if (json.contains("\"padS4\"")) {
           int i = json.indexOf("\"padS4\"");
           int start = json.indexOf(":", i) + 1;
@@ -296,7 +359,65 @@ final class Protocol {
           probeObfsProfileId = Integer.parseInt(json.substring(start, end).trim());
           probeObfsProfileId = normalizeObfsProfile(probeObfsProfileId);
         }
-        return Optional.of(new ClientOptions(padS4, probeObfsProfileId));
+        if (json.contains("\"relayHop\"")) {
+          int i = json.indexOf("\"relayHop\"");
+          int start = json.indexOf(":", i) + 1;
+          int end = json.indexOf(",", start);
+          if (end < 0) end = json.indexOf("}", start);
+          if (end < 0) end = json.length();
+          relayHop = Integer.parseInt(json.substring(start, end).trim());
+          if (relayHop < 0) relayHop = 0;
+          if (relayHop > 8) relayHop = 8;
+        }
+        if (json.contains("\"relayMaxHop\"")) {
+          int i = json.indexOf("\"relayMaxHop\"");
+          int start = json.indexOf(":", i) + 1;
+          int end = json.indexOf(",", start);
+          if (end < 0) end = json.indexOf("}", start);
+          if (end < 0) end = json.length();
+          relayMaxHop = Integer.parseInt(json.substring(start, end).trim());
+          if (relayMaxHop < 1) relayMaxHop = 1;
+          if (relayMaxHop > 8) relayMaxHop = 8;
+        }
+        if (json.contains("\"relayBudgetKbps\"")) {
+          int i = json.indexOf("\"relayBudgetKbps\"");
+          int start = json.indexOf(":", i) + 1;
+          int end = json.indexOf(",", start);
+          if (end < 0) end = json.indexOf("}", start);
+          if (end < 0) end = json.length();
+          relayBudgetKbps = Integer.parseInt(json.substring(start, end).trim());
+          if (relayBudgetKbps < 0) relayBudgetKbps = 0;
+        }
+        if (json.contains("\"peerId\"")) {
+          int i = json.indexOf("\"peerId\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) peerId = json.substring(q1 + 1, q2).trim();
+        }
+        if (json.contains("\"relayNonce\"")) {
+          int i = json.indexOf("\"relayNonce\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) relayNonce = json.substring(q1 + 1, q2).trim();
+        }
+        if (json.contains("\"relaySig\"")) {
+          int i = json.indexOf("\"relaySig\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) relaySig = json.substring(q1 + 1, q2).trim();
+        }
+        return Optional.of(new ClientOptions(
+            padS4,
+            probeObfsProfileId,
+            relayHop,
+            relayMaxHop,
+            relayBudgetKbps,
+            peerId,
+            relayNonce,
+            relaySig));
       } catch (Exception e) {
         return Optional.empty();
       }

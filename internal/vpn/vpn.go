@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	frand "math/rand/v2"
 	"net"
 	"strconv"
 	"strings"
@@ -17,9 +19,11 @@ import (
 
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/ice"
 	"dev.c0redev.volter/internal/obfuscate"
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/sockprotect"
+	"dev.c0redev.volter/internal/telemetry"
 	"dev.c0redev.volter/internal/tunnel"
 
 	core "github.com/xjasonlyu/tun2socks/v2/core"
@@ -46,6 +50,8 @@ type Options struct {
 	QuicTLSRoots      *x509.CertPool
 	QuicTraceLog      bool
 	DualTransport     bool
+	PathManager       *tunnel.PathManager
+	Relay             *config.RelayOptions
 
 	WatchdogInterval          time.Duration
 	WatchdogServerPingTimeout time.Duration
@@ -56,16 +62,12 @@ func Run(ctx context.Context, opt Options) error {
 	if len(opt.ServerAddrs) == 0 {
 		return errors.New("server addrs empty")
 	}
+	telemetry.NoteVPNStart()
+	readyCb := opt.Ready
 	tunnel.SetQUICTrace(opt.QuicTraceLog)
-	if opt.QuicTraceLog {
-		clientlog.Info("vpn: quicTraceLog=true — строки TRACE в логе QUIC dial")
-	}
 	clientlog.Info("vpn: starting, servers=%v", opt.ServerAddrs)
 	clientlog.OK("vpn: volter link %s | %s",
 		tunnel.VolterTunnelTag(opt.Transport, opt.QuicServer), volterTunnelCfg(opt.Transport, opt.QuicServer))
-	if opt.DualTransport && tunnel.UsesQUICTransport(opt.Transport, opt.QuicServer) {
-		clientlog.Info("vpn: dual transport blend QUIC/TCP по метрикам пути; при провале QUIC сдвиг в TCP-first и пробное восстановление QUIC")
-	}
 	if tunnel.UsesQUICTransport(opt.Transport, opt.QuicServer) {
 		if ep, derived, err := tunnel.ResolveQUICDialAddr(opt.ServerAddrs, opt.QuicServer); err == nil {
 			if derived {
@@ -79,6 +81,48 @@ func Run(ctx context.Context, opt Options) error {
 	udpMux, err := newUDPMux(opt.ServerAddrs, opt.Token, 4, opt.Protection, opt.Transport, opt.QuicServer, opt.QuicServerName, opt.QuicSkipVerify, opt.QuicCertPinSHA256, opt.QuicTLSRoots)
 	if err != nil {
 		return err
+	}
+
+	if emergencyPolicyConfigured(opt.Relay) {
+		ectx, ecancel := context.WithTimeout(ctx, 15*time.Second)
+		applyEmergencyPolicyOnce(ectx, opt.Relay)
+		ecancel()
+		go runEmergencyPolicyPoll(ctx, opt.Relay)
+	}
+	if opt.PathManager != nil && opt.Relay != nil && !emergencyPeerRelayBlocked() {
+		r := opt.Relay
+		if r.GossipEnabled || r.PeerPathFromDiscovery ||
+			r.PeerRelayUseUDP || r.DhtPublishSrflx || r.SymmetricNatHolePunch ||
+			len(r.StunServers) > 0 || len(r.TurnURLs) > 0 ||
+			len(r.GossipPeers) > 0 || len(r.DHTFindURLs) > 0 ||
+			strings.TrimSpace(r.DhtRpcListenUDP) != "" || len(r.DhtRpcSeedPeers) > 0 {
+			go probeICEForRelay(opt.PathManager, opt.Relay)
+		}
+	}
+	if opt.Relay != nil && strings.TrimSpace(opt.Relay.BootstrapPubKey) != "" &&
+		(strings.TrimSpace(opt.Relay.DiscoveryURL) != "" || strings.TrimSpace(opt.Relay.DiscoverySigned) != "") {
+		go runRelayBootstrapVerify(ctx, opt.Relay)
+	}
+	if opt.Relay != nil && (len(opt.Relay.GossipPeers) > 0 || len(opt.Relay.DHTFindURLs) > 0) {
+		go runGossipMesh(ctx, opt.Relay)
+	}
+	if opt.Relay != nil && (strings.TrimSpace(opt.Relay.DhtRpcListenUDP) != "" || len(opt.Relay.DhtRpcSeedPeers) > 0) {
+		go runDhtRpcSidecar(ctx, opt.Relay)
+	}
+	if opt.Relay != nil && strings.TrimSpace(opt.Relay.PeerRelayUDPListen) != "" {
+		go runPeerRelayUDP(ctx, opt.Token, opt.Relay)
+	}
+	if opt.PathManager != nil && opt.Relay != nil && opt.Relay.PeerRelayUseUDP && len(opt.Relay.DhtRpcSeedPeers) > 0 {
+		relay := opt.Relay
+		opt.PathManager.SetPeerUDPEndpointsResolver(func(peerID string) []string {
+			sub, cancel := context.WithTimeout(ctx, 7*time.Second)
+			defer cancel()
+			return fetchUdpEndpointsFromDHT(sub, relay, peerID)
+		})
+	}
+	if opt.Relay != nil && opt.Relay.SymmetricNatHolePunch && strings.TrimSpace(opt.Relay.PeerID) != "" &&
+		len(opt.Relay.DhtRpcSeedPeers) > 0 {
+		go runSymmetricNatHolePunch(ctx, opt.Relay)
 	}
 
 	var dev device.Device
@@ -111,6 +155,7 @@ func Run(ctx context.Context, opt Options) error {
 		opt:     opt,
 		udpMux:  udpMux,
 		dualSel: dualSel,
+		pathMgr: opt.PathManager,
 	}
 
 	st, err := core.CreateStack(&core.Config{
@@ -126,8 +171,10 @@ func Run(ctx context.Context, opt Options) error {
 	defer udpMux.Close()
 
 	clientlog.OK("vpn: netstack ready")
-	if opt.Ready != nil {
-		opt.Ready()
+	if readyCb != nil {
+		telemetry.NoteSessionReady()
+		go func() { _ = telemetry.WriteSLOSnapshotFile() }()
+		readyCb()
 	}
 	if opt.WatchdogInterval > 0 && opt.OnWatchdogFail != nil {
 		go runWatchdog(ctx, h, opt)
@@ -199,6 +246,15 @@ func newUDPMux(addrs []string, token string, n int, prot *config.ProtectionOptio
 				stop:   make(chan struct{}),
 				cb:     m.dispatch,
 			}
+			if prot != nil && prot.ShapeMaxKbps > 0 {
+				uc.shape = tunnel.NewByteBucket(prot.ShapeMaxKbps)
+			}
+			if prot != nil && prot.ShapeJitterMaxMs > 0 {
+				uc.shapeJitterMaxMs = prot.ShapeJitterMaxMs
+			}
+			if prot != nil && prot.ShapeExpMeanMs > 0 {
+				uc.shapeExpMeanMs = prot.ShapeExpMeanMs
+			}
 			clientlog.Traffic("vpn: udp ch %d  [%s]  %s", i, tunnel.VolterTunnelTag(transport, quicServer), volterTunnelCfg(transport, quicServer))
 			go uc.readLoop()
 			clientlog.OK("vpn: udp channel %d connected", i)
@@ -267,14 +323,18 @@ func (m *udpMux) dispatch(f protocol.UDPFrame) {
 }
 
 type udpChan struct {
-	conn     net.Conn
-	r        *bufio.Reader
-	w        *bufio.Writer
-	maxPad   int
-	mu       sync.Mutex
-	stopOnce sync.Once
-	stop     chan struct{}
-	cb       func(protocol.UDPFrame)
+	conn             net.Conn
+	r                *bufio.Reader
+	w                *bufio.Writer
+	maxPad           int
+	burstSmoothMaxMs int
+	shapeJitterMaxMs int
+	shapeExpMeanMs   int
+	shape            *tunnel.ByteBucket
+	mu               sync.Mutex
+	stopOnce         sync.Once
+	stop             chan struct{}
+	cb               func(protocol.UDPFrame)
 }
 
 func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame), prot *config.ProtectionOptions, transport, quicServer string) (*udpChan, error) {
@@ -289,7 +349,7 @@ func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame
 				last = err
 				continue
 			}
-			slot := protocol.TimeSlot()
+			slot := tunnel.SlotForProtection(prot)
 			bufSize := protocol.BufSizeForConn(slot)
 			uc := &udpChan{
 				conn: c,
@@ -305,6 +365,18 @@ func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame
 				continue
 			}
 			uc.maxPad = maxPad
+			if prot != nil && prot.BurstSmoothingMaxMs > 0 {
+				uc.burstSmoothMaxMs = prot.BurstSmoothingMaxMs
+			}
+			if prot != nil && prot.ShapeMaxKbps > 0 {
+				uc.shape = tunnel.NewByteBucket(prot.ShapeMaxKbps)
+			}
+			if prot != nil && prot.ShapeJitterMaxMs > 0 {
+				uc.shapeJitterMaxMs = prot.ShapeJitterMaxMs
+			}
+			if prot != nil && prot.ShapeExpMeanMs > 0 {
+				uc.shapeExpMeanMs = prot.ShapeExpMeanMs
+			}
 			clientlog.Traffic("vpn: udp ch %d  [%s]  server=%s  %s", id, tunnel.VolterTunnelTag(transport, quicServer), a, volterTunnelCfg(transport, quicServer))
 			go uc.readLoop()
 			return uc, nil
@@ -330,6 +402,27 @@ func (c *udpChan) Close() error {
 func (c *udpChan) Send(f protocol.UDPFrame) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.shape != nil {
+		c.shape.WaitTake(len(f.Payload) + 96)
+	}
+	if c.shapeJitterMaxMs > 0 {
+		time.Sleep(time.Duration(frand.IntN(c.shapeJitterMaxMs+1)) * time.Millisecond)
+	}
+	if c.shapeExpMeanMs > 0 {
+		u := frand.Float64()
+		if u < 1e-12 {
+			u = 1e-12
+		}
+		ms := -math.Log(u) * float64(c.shapeExpMeanMs)
+		cap := float64(c.shapeExpMeanMs * 30)
+		if ms > cap {
+			ms = cap
+		}
+		time.Sleep(time.Duration(ms * float64(time.Millisecond)))
+	}
+	if c.burstSmoothMaxMs > 0 {
+		time.Sleep(time.Duration(frand.IntN(c.burstSmoothMaxMs+1)) * time.Millisecond)
+	}
 	return protocol.WriteUDPFrameWithPad(c.w, f, c.maxPad)
 }
 
@@ -353,6 +446,7 @@ type handler struct {
 	opt     Options
 	udpMux  *udpMux
 	dualSel *tunnel.DualPathSelector
+	pathMgr *tunnel.PathManager
 }
 
 func (h *handler) HandleTCP(c adapter.TCPConn) {
@@ -418,10 +512,11 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 
 	var sconn net.Conn
 	var r *bufio.Reader
-	slot := protocol.TimeSlot()
+	slot := tunnel.SlotForProtection(h.opt.Protection)
 	var err error
 	var fellBackTCP, tcpOnly bool
-	sconn, fellBackTCP, tcpOnly, err = tunnel.DialTunFlow(h.opt.ServerAddrs, dstIP, dstPort, h.opt.Token, h.opt.Protection, h.opt.Transport, h.opt.QuicServer, h.opt.QuicServerName, h.opt.QuicSkipVerify, h.opt.QuicCertPinSHA256, h.opt.QuicTLSRoots, shared, h.opt.DualTransport, h.dualSel)
+	allowPeerPath := h.opt.Relay != nil && h.opt.Relay.PeerPathFromDiscovery && !emergencyPeerRelayBlocked()
+	sconn, fellBackTCP, tcpOnly, err = tunnel.DialTunFlow(h.opt.ServerAddrs, dstIP, dstPort, h.opt.Token, h.opt.Protection, h.opt.Transport, h.opt.QuicServer, h.opt.QuicServerName, h.opt.QuicSkipVerify, h.opt.QuicCertPinSHA256, h.opt.QuicTLSRoots, shared, h.opt.DualTransport, h.dualSel, h.pathMgr, allowPeerPath, h.opt.Relay)
 	if h.opt.DualTransport && shared != nil {
 		if fellBackTCP || tcpOnly {
 			tag = "TCP"
@@ -527,4 +622,92 @@ func pickAddr(addrs []string, ip net.IP, port uint16) string {
 func tcpipToIP(a tcpip.Address) net.IP {
 	b := append([]byte(nil), a.AsSlice()...)
 	return net.IP(b)
+}
+
+func runPeerRelayUDP(ctx context.Context, token string, relay *config.RelayOptions) {
+	if relay == nil {
+		return
+	}
+	listen := strings.TrimSpace(relay.PeerRelayUDPListen)
+	if listen == "" {
+		return
+	}
+	explicitAdvertise := strings.TrimSpace(relay.PeerRelayUDPAdvertise)
+	advertise := explicitAdvertise
+	if advertise == "" {
+		advertise = listen
+	}
+	pr, err := tunnel.ListenPeerRelayUDP(ctx, tunnel.PeerRelayUDPOptions{
+		Addr:          listen,
+		Token:         token,
+		MaxConcurrent: relay.MaxConcurrent,
+		StunServers:   relay.StunServers,
+		OnSrflx: func(s string) {
+			if s != "" {
+				publishSrflxToDHT(ctx, relay, s)
+			}
+		},
+	})
+	if err != nil {
+		clientlog.Warn("vpn: peer udp listen %s: %v", listen, err)
+		return
+	}
+	defer func() { _ = pr.Close() }()
+	clientlog.OK("vpn: peer udp relay %s", pr.String())
+	if explicitAdvertise != "" {
+		publishSrflxToDHT(ctx, relay, advertise)
+	}
+	<-ctx.Done()
+}
+
+func probeICEForRelay(pm *tunnel.PathManager, relay *config.RelayOptions) {
+	if pm == nil || relay == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+
+	needStun := relay.GossipEnabled || len(relay.StunServers) > 0 || relay.PeerPathFromDiscovery ||
+		relay.PeerRelayUseUDP || relay.DhtPublishSrflx || relay.SymmetricNatHolePunch ||
+		len(relay.GossipPeers) > 0 || len(relay.DHTFindURLs) > 0 ||
+		strings.TrimSpace(relay.DhtRpcListenUDP) != "" || len(relay.DhtRpcSeedPeers) > 0
+	if needStun {
+		r, err := ice.GatherSrflx(ctx, relay.StunServers)
+		if err != nil {
+			clientlog.Warn("vpn: STUN gather failed: %v", err)
+		} else {
+			pm.SetSrflxRTT(r.RTT)
+			if locals, err := ice.InterfaceIPs(); err == nil && ice.IPOnLocalMachine(r.IP, locals) {
+				pm.SetGlobalCandidate(ice.CandidateHost)
+			} else {
+				pm.SetGlobalCandidate(ice.CandidateSrflx)
+			}
+			note := fmt.Sprintf("srflx %s:%d rtt=%v via %s", r.IP.String(), r.Port, r.RTT, r.Server)
+			telemetry.RecordPath(telemetry.SwitchICE, note)
+			clientlog.Info("vpn: STUN srflx %s:%d rtt=%v server=%s", r.IP, r.Port, r.RTT, r.Server)
+			hp := fmt.Sprintf("%s:%d", r.IP.String(), r.Port)
+			setLastClientSrflx(hp)
+			if strings.TrimSpace(relay.PeerRelayUDPListen) == "" {
+				publishSrflxToDHT(ctx, relay, hp)
+			}
+		}
+	}
+
+	for _, u := range relay.TurnURLs {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		tr, err := ice.TryTurnAllocate(ctx, u)
+		if err != nil {
+			clientlog.Warn("vpn: TURN %s: %v", u, err)
+			continue
+		}
+		pm.SetGlobalCandidate(ice.CandidateRelay)
+		pm.SetSrflxRTT(tr.RTT)
+		telemetry.RecordPath(telemetry.SwitchICE, fmt.Sprintf("turn relay %s rtt=%v", tr.Relayed.String(), tr.RTT))
+		clientlog.Info("vpn: TURN relay %s rtt=%v server=%s", tr.Relayed.String(), tr.RTT, tr.Server)
+		break
+	}
+	telemetry.SetIceSrflxRttEwmaMs(pm.SrflxRTTEwmaMs())
 }

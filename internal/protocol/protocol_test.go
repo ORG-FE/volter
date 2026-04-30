@@ -162,6 +162,17 @@ func TestTimeSlot(t *testing.T) {
 	}
 }
 
+func TestEffectiveSlotChurn(t *testing.T) {
+	base := TimeSlot()
+	if EffectiveSlot(0) != base {
+		t.Fatalf("churn 0 must match TimeSlot")
+	}
+	b := EffectiveSlot(30)
+	if b <= base {
+		t.Fatalf("churn must lift slot")
+	}
+}
+
 func TestApplyTimeVariation(t *testing.T) {
 	c, mn, mx := ApplyTimeVariation(3, 64, 512, 0)
 	if c != 3 || mn != 64 || mx != 512 {

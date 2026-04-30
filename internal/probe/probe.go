@@ -3,8 +3,8 @@ package probe
 import (
 	"bufio"
 	"bytes"
-	"crypto/rand"
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"log"

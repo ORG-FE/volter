@@ -38,6 +38,7 @@ import java.util.logging.Logger;
 
 final class QuicServer implements AutoCloseable {
   private static final Logger log = Log.logger(QuicServer.class);
+  private static final String PROBE_HANDSHAKE_TOKEN = "probe-bad-token";
 
   private static volatile byte[] advertisedQuicLeafPin;
 
@@ -105,7 +106,9 @@ final class QuicServer implements AutoCloseable {
         .initialMaxData(connWin)
         .initialMaxStreamDataBidirectionalLocal(streamWin)
         .initialMaxStreamDataBidirectionalRemote(streamWin)
-        .tokenHandler(VolterNoRetryTokenHandler.INSTANCE)
+        .tokenHandler(cfg.quicRetryTokens()
+            ? new VolterHmacRetryTokenHandler(cfg.token())
+            : VolterNoRetryTokenHandler.INSTANCE)
         .handler(quicParentHandler)
         .streamHandler(quicStreamChannelInit).build();
 
@@ -240,6 +243,7 @@ final class QuicServer implements AutoCloseable {
         if (io.feed(data)) {
           return;
         }
+        QuicSignals.noteIngressBackpressure();
         pending = data;
         ctx.channel().config().setAutoRead(false);
         return;
@@ -282,6 +286,12 @@ final class QuicServer implements AutoCloseable {
               log.info("[quic-trace] volter handshake read role=" + hs.role() + " ch=" + hs.channelId());
             }
             if (!MessageDigest.isEqual(cfg.token().getBytes(StandardCharsets.UTF_8), hs.token().getBytes(StandardCharsets.UTF_8))) {
+              if (!PROBE_HANDSHAKE_TOKEN.equals(hs.token())) {
+                if (cfg.quicTraceLog()) {
+                  log.info("[quic-trace] non-volter quic stream, no caps response");
+                }
+                return;
+              }
               int legacyIpv6 = Ipv6Detect.hasIPv6() ? 1 : 0;
               int transportMask = 0;
               if (cfg.tcpEnabled()) transportMask |= Protocol.TRANSPORT_TCP;
@@ -293,7 +303,7 @@ final class QuicServer implements AutoCloseable {
               Protocol.writeServerHelloCaps(out, new Protocol.ServerHelloCaps(
                   Protocol.CAPS_VERSION, legacyIpv6, transportMask, featureBits,
                   cfg.quicEnabled() ? cfg.quicListenPort() : 0, tcpPortHint, obfsProfileId, new byte[0],
-                  QuicServer.getAdvertisedQuicLeafPin()));
+                  QuicServer.getAdvertisedQuicLeafPin(), 2, 2, 1));
               return;
             }
             if (hs.role() == Protocol.ROLE_UDP) {

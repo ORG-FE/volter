@@ -25,6 +25,7 @@ import dev.c0redev.volter.data.servergeo.IpWhoLookup
 import dev.c0redev.volter.data.servergeo.ServerGeo
 import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
+import dev.c0redev.volter.domain.model.VolterMeshDefaults
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.R
 import dev.c0redev.volter.update.UpdateManager
@@ -438,6 +439,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             }
             else -> { }
         }
+        c = VolterMeshDefaults.applyIfEnabled(c, settings)
         return c
     }
 
@@ -605,7 +607,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             if (protection != null) {
                 localRepo.saveProtection(protection)
                 reloadProtectionAndSettings()
-                _uiMessages.tryEmit("Protection imported")
+                _uiMessages.tryEmit(appCtx.getString(R.string.protection_imported))
                 return@launch
             }
             val parsed = Config.parseShareUri(raw) ?: return@launch
@@ -670,7 +672,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         if (alreadyTcp) return
         autoFallbackDone = true
         VolterLog.w("QUIC startup timeout, fallback to tcp name=$name server=${cfg.server}")
-        _logs.value = (_logs.value + listOf("WARN\tQUIC startup timeout, fallback to TCP")).takeLast(500)
+        _logs.value = (_logs.value + listOf("WARN\t${appCtx.getString(R.string.log_quic_tcp_fallback)}")).takeLast(500)
 
         pollJob?.cancel()
         pollJob = null
@@ -692,7 +694,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun reconnectAfterWatchdog(name: String, cfg: Config, reconnectCount: Int) {
         VolterLog.w("watchdog reconnectAfterWatchdog name=$name rc=$reconnectCount")
-        _logs.value = (_logs.value + listOf("WARN\tWatchdog: переподключение того же профиля")).takeLast(500)
+        _logs.value = (_logs.value + listOf("WARN\t${appCtx.getString(R.string.log_watchdog_reconnect)}")).takeLast(500)
         runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
         runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
         delay(300)

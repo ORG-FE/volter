@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/metrics"
 	"dev.c0redev.volter/internal/netcfg"
 	"dev.c0redev.volter/internal/probe"
-	"dev.c0redev.volter/internal/tunnel"
 	"dev.c0redev.volter/internal/tui"
+	"dev.c0redev.volter/internal/tunnel"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type logWriter struct {

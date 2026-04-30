@@ -1,0 +1,54 @@
+{
+  "relay": {
+    "peerId": "REPLACE_WITH_STABLE_PEER_ID",
+    "discoveryURL": "https://relay.example/volter/bootstrap.json",
+    "bootstrapPubKey": "REPLACE_WITH_ED25519_PUBLIC_KEY_BASE64",
+    "discoverySigned": "",
+    "allowedClasses": ["server", "peer"],
+    "stakeMin": 0,
+
+    "stakeMerkleFile": "/home/user/.config/volter/stake-merkle.json",
+    "stakeMerkleRootUrl": "https://registry.example/api/v1/merkle-root",
+    "stakeRegistryURL": "",
+    "stakeRegistryPubKey": "",
+    "stakeReputationFile": "",
+    "stakeBonusHttpUrl": "",
+
+    "pathAggressive": true,
+    "pathCooldownMs": 0,
+    "peerPathFromDiscovery": true,
+    "peerRelayUseQuic": false,
+    "peerRelayUseUdp": true,
+    "peerRelayUdpListen": "0.0.0.0:0",
+    "peerRelayUdpAdvertise": "",
+    "peerQuicServerName": "",
+    "dhtFindUrls": [],
+
+    "dhtRpcSeedPeers": ["dht-seed.example:4001"],
+    "dhtRpcSecret": "REPLACE_WITH_HMAC_SHARED_SECRET",
+    "dhtRpcListenUdp": "",
+    "dhtRpcIntervalSec": 120,
+    "dhtRpcFindK": 20,
+    "dhtIterativeRounds": 0,
+    "dhtIterativeAlpha": 3,
+    "dhtPublishSrflx": true,
+    "symmetricNatHolePunch": true,
+
+    "stunServers": [
+      "stun.l.google.com:19302",
+      "stun.cloudflare.com:3478"
+    ],
+    "turnUrls": [],
+
+    "gossipEnabled": false,
+    "gossipPeers": [],
+    "gossipIntervalSec": 180,
+    "gossipMaxAgeSec": 900,
+
+    "geoAllowCountries": [],
+    "geoDenyCountries": [],
+
+    "emergencyPolicyURL": "",
+    "emergencyPolicyPubKey": ""
+  }
+}

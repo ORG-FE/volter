@@ -1,27 +1,36 @@
-listenPorts=0
-# token=your-secret-key
-# connectionKey=volter://...
+# Volter Java server — рядом с server.jar, имя: config.properties
+# Документация ключей: server/src/main/java/dev/c0redev/volter/Config.java
+
+# Обязательно: TCP-порт(ы) VPN + встроенный HTTP (relay-index, dht find и т.д.)
+listenPorts=25565
+
+
 udpChannels=4
-# publicHost optional, empty = auto detect public ip
-# publicHost=1.2.3.4
-debug=true
+
+# Публичный хост для подсказок в индексах (можно пусто)
+# publicHost=89.144.63.81
+
+debug=false
 
 # tcp-only | quic-only | both
-serverMode=tcp-only
+serverMode=both
 
-# quicListenPort=4433
-# quicCertPath=quic/auto.crt
-# quicKeyPath=quic/auto.key
+quicListenPort=4433
+quicCertPath=quic/auto.crt
+quicKeyPath=quic/auto.key
 
-# quicAlpn=volter
-# quicMaxStreams=0
-# quicMaxHandshakes=0
-# quicIdleTimeoutMs=900000
-# quicHandshakeTimeoutMs=60000
-# quicTcpConnectTimeoutMs=10000
-# quicIngressRingSlots=4096
+# HTTP-пути (по умолчанию совместимы с клиентом Android / Go relay)
+# relayIndexFile=...   # если нужен статический JSON с диска
+# relayIndexPath=/volter/relay-index.json
+# dhtFindPath=/volter/dht/find
+# gossipIndexPath=/volter/gossip-nodes.json
 
-update.enabled=true
+# Peer relay / QUIC retry (см. Config.java)
+peerRelayEnabled=true
+# quicRetryTokens=false
+
+# Обновления с GitHub (интервал не меньше 15 минут в коде)
+update.enabled=false
 update.repo=ORG-FE/volter
-update.checkIntervalMinutes=1
+update.checkIntervalMinutes=60
 update.restartExitCode=1

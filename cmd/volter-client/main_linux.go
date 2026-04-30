@@ -94,10 +94,10 @@ func installDesktopIntegration() error {
 		mode os.FileMode
 		data string
 	}{
-		"/usr/share/volter/volter-tui-launcher": {0755, embeddedLauncher},
-		"/usr/share/applications/dev.c0redev.volter.desktop": {0644, embeddedDesktop},
+		"/usr/share/volter/volter-tui-launcher":                 {0755, embeddedLauncher},
+		"/usr/share/applications/dev.c0redev.volter.desktop":    {0644, embeddedDesktop},
 		"/usr/share/polkit-1/actions/dev.c0redev.volter.policy": {0644, embeddedPolicy},
-		"/usr/share/icons/hicolor/scalable/apps/volter.svg": {0644, embeddedIconSVG},
+		"/usr/share/icons/hicolor/scalable/apps/volter.svg":     {0644, embeddedIconSVG},
 	}
 	for path, f := range files {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -290,6 +290,8 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 			QuicTLSRoots:      opts.quicTLSRoots,
 			QuicTraceLog:      opts.quicTraceLog,
 			DualTransport:     opts.dualTransport,
+			PathManager:       tunnel.NewPathManagerFromRelay(opts.relay),
+			Relay:             opts.relay,
 			Ready:             func() { close(ready) },
 			Protection:        opts.protection,
 		}

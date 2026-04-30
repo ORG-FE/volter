@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import dev.c0redev.volter.R
 import dev.c0redev.volter.clientlog.parseLogLine
 import dev.c0redev.volter.clientlog.tagColor
@@ -43,7 +44,19 @@ import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
 
-private val TAG_FILTERS = listOf("ALL", "ERR", "WARN", "OK", "INFO", "DPI", "DROP", "TRAFFIC")
+private data class LogTagChip(val key: String, @StringRes val labelRes: Int)
+
+private val LOG_TAG_CHIPS = listOf(
+    LogTagChip("ALL", R.string.logs_filter_all),
+    LogTagChip("ERR", R.string.logs_filter_err),
+    LogTagChip("WARN", R.string.logs_filter_warn),
+    LogTagChip("OK", R.string.logs_filter_ok),
+    LogTagChip("INFO", R.string.logs_filter_info),
+    LogTagChip("DPI", R.string.logs_filter_dpi),
+    LogTagChip("DROP", R.string.logs_filter_drop),
+    LogTagChip("TRAFFIC", R.string.logs_filter_traffic),
+    LogTagChip("TRACE", R.string.logs_filter_trace),
+)
 
 @Composable
 fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
@@ -109,11 +122,11 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                 .padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            TAG_FILTERS.forEach { tag ->
+            LOG_TAG_CHIPS.forEach { chip ->
                 FilterChip(
-                    selected = tagFilter == tag,
-                    onClick = { tagFilter = tag },
-                    label = { Text(tag) },
+                    selected = tagFilter == chip.key,
+                    onClick = { tagFilter = chip.key },
+                    label = { Text(stringResource(chip.labelRes)) },
                 )
             }
         }
@@ -134,14 +147,20 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             }
         }
 
-        if (filtered.isEmpty() && logs.isEmpty()) {
-            Text(
+        when {
+            logs.isEmpty() -> Text(
                 text = stringResource(R.string.logs_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 24.dp),
             )
-        } else {
+            filtered.isEmpty() -> Text(
+                text = stringResource(R.string.logs_empty_filtered),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            else -> {
             SectionCard(modifier = Modifier.weight(1f), expandHeight = true) {
                 LazyColumn(
                     state = listState,
@@ -174,6 +193,7 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         }
                     }
                 }
+            }
             }
         }
     }

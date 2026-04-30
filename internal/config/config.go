@@ -29,30 +29,89 @@ type Config struct {
 	Exclude       string             `json:"exclude,omitempty"`
 	TunCIDR6      string             `json:"tunCIDR6,omitempty"`
 	Protection    *ProtectionOptions `json:"protection,omitempty"`
+	Relay         *RelayOptions      `json:"relay,omitempty"`
+}
+
+type RelayOptions struct {
+	PeerID                string   `json:"peerId,omitempty"`
+	PrivateKey            string   `json:"privateKey,omitempty"`
+	AllowedClasses        []string `json:"allowedClasses,omitempty"`
+	MaxConcurrent         int      `json:"maxConcurrent,omitempty"`
+	BudgetKbps            int      `json:"budgetKbps,omitempty"`
+	DiscoverySigned       string   `json:"discoverySigned,omitempty"`
+	DiscoveryURL          string   `json:"discoveryURL,omitempty"`
+	GossipEnabled         bool     `json:"gossipEnabled,omitempty"`
+	BootstrapPubKey       string   `json:"bootstrapPubKey,omitempty"`
+	EmergencyPolicyURL    string   `json:"emergencyPolicyURL,omitempty"`
+	EmergencyPolicyPubKey string   `json:"emergencyPolicyPubKey,omitempty"`
+	PathAggressive        bool     `json:"pathAggressive,omitempty"`
+	PathCooldownMs        int      `json:"pathCooldownMs,omitempty"`
+	StunServers           []string `json:"stunServers,omitempty"`
+	TurnURLs              []string `json:"turnUrls,omitempty"`
+	GossipPeers           []string `json:"gossipPeers,omitempty"`
+	GossipIntervalSec     int      `json:"gossipIntervalSec,omitempty"`
+	GossipMaxAgeSec       int      `json:"gossipMaxAgeSec,omitempty"`
+	GeoAllowCountries     []string `json:"geoAllowCountries,omitempty"`
+	GeoDenyCountries      []string `json:"geoDenyCountries,omitempty"`
+	StakeMin              int      `json:"stakeMin,omitempty"`
+	PeerPathFromDiscovery bool     `json:"peerPathFromDiscovery,omitempty"`
+	PeerRelayUseQUIC      bool     `json:"peerRelayUseQuic,omitempty"`
+	PeerRelayUseUDP       bool     `json:"peerRelayUseUdp,omitempty"`
+	PeerRelayUDPListen    string   `json:"peerRelayUdpListen,omitempty"`
+	PeerRelayUDPAdvertise string   `json:"peerRelayUdpAdvertise,omitempty"`
+	PeerQuicServerName    string   `json:"peerQuicServerName,omitempty"`
+	DHTFindURLs           []string `json:"dhtFindUrls,omitempty"`
+	StakeRegistryURL      string   `json:"stakeRegistryURL,omitempty"`
+	StakeRegistryPubKey   string   `json:"stakeRegistryPubKey,omitempty"`
+	StakeReputationFile   string   `json:"stakeReputationFile,omitempty"`
+	StakeBonusHTTPURL     string   `json:"stakeBonusHttpUrl,omitempty"`
+	StakeMerkleFile       string   `json:"stakeMerkleFile,omitempty"`
+	StakeMerkleRootURL    string   `json:"stakeMerkleRootUrl,omitempty"`
+	DhtRpcListenUDP       string   `json:"dhtRpcListenUdp,omitempty"`
+	DhtRpcSecret          string   `json:"dhtRpcSecret,omitempty"`
+	DhtRpcSeedPeers       []string `json:"dhtRpcSeedPeers,omitempty"`
+	DhtRpcIntervalSec     int      `json:"dhtRpcIntervalSec,omitempty"`
+	DhtRpcFindK           int      `json:"dhtRpcFindK,omitempty"`
+	DhtIterativeRounds    int      `json:"dhtIterativeRounds,omitempty"`
+	DhtIterativeAlpha     int      `json:"dhtIterativeAlpha,omitempty"`
+	DhtPublishSrflx       bool     `json:"dhtPublishSrflx,omitempty"`
+	SymmetricNatHolePunch bool     `json:"symmetricNatHolePunch,omitempty"`
 }
 
 type ProtectionOptions struct {
-	Obfuscation        string `json:"obfuscation,omitempty"`
-	PreambleProfile    string `json:"preambleProfile,omitempty"`
-	PreambleRotate     bool   `json:"preambleRotate,omitempty"`
-	ProbeObfsProfileID byte   `json:"-"`
-	JunkCount          int    `json:"junkCount,omitempty"`
-	JunkMin            int    `json:"junkMin,omitempty"`
-	JunkMax            int    `json:"junkMax,omitempty"`
-	PadS1              int    `json:"padS1,omitempty"`
-	PadS2              int    `json:"padS2,omitempty"`
-	PadS3              int    `json:"padS3,omitempty"`
-	PadS4              int    `json:"padS4,omitempty"`
-	PreCheck           bool   `json:"preCheck,omitempty"`
-	MagicSplit         string `json:"magicSplit,omitempty"`
-	JunkStyle          string `json:"junkStyle,omitempty"`
-	FlushPolicy        string `json:"flushPolicy,omitempty"`
-	ObfSeed            string `json:"obfSeed,omitempty"`
-	CapsVersion        int    `json:"capsVersion,omitempty"`
-	TransportMask      int    `json:"transportMask,omitempty"`
-	FeatureBits        int    `json:"featureBits,omitempty"`
-	ClientNonce        string `json:"clientNonce,omitempty"`
-	ClientTsSec        int64  `json:"clientTsSec,omitempty"`
+	Obfuscation         string `json:"obfuscation,omitempty"`
+	PreambleProfile     string `json:"preambleProfile,omitempty"`
+	PreambleRotate      bool   `json:"preambleRotate,omitempty"`
+	ProbeObfsProfileID  byte   `json:"-"`
+	JunkCount           int    `json:"junkCount,omitempty"`
+	JunkMin             int    `json:"junkMin,omitempty"`
+	JunkMax             int    `json:"junkMax,omitempty"`
+	PadS1               int    `json:"padS1,omitempty"`
+	PadS2               int    `json:"padS2,omitempty"`
+	PadS3               int    `json:"padS3,omitempty"`
+	PadS4               int    `json:"padS4,omitempty"`
+	PreCheck            bool   `json:"preCheck,omitempty"`
+	MagicSplit          string `json:"magicSplit,omitempty"`
+	JunkStyle           string `json:"junkStyle,omitempty"`
+	FlushPolicy         string `json:"flushPolicy,omitempty"`
+	ObfSeed             string `json:"obfSeed,omitempty"`
+	CapsVersion         int    `json:"capsVersion,omitempty"`
+	TransportMask       int    `json:"transportMask,omitempty"`
+	FeatureBits         int    `json:"featureBits,omitempty"`
+	ClientNonce         string `json:"clientNonce,omitempty"`
+	ClientTsSec         int64  `json:"clientTsSec,omitempty"`
+	RelayHop            int    `json:"relayHop,omitempty"`
+	RelayMaxHop         int    `json:"relayMaxHop,omitempty"`
+	RelayBudgetKbps     int    `json:"relayBudgetKbps,omitempty"`
+	PeerID              string `json:"peerId,omitempty"`
+	RelayNonce          string `json:"relayNonce,omitempty"`
+	RelaySig            string `json:"relaySig,omitempty"`
+	ChurnEpochSec       int    `json:"churnEpochSec,omitempty"`
+	FlushJitterMaxMs    int    `json:"flushJitterMaxMs,omitempty"`
+	BurstSmoothingMaxMs int    `json:"burstSmoothingMaxMs,omitempty"`
+	ShapeMaxKbps        int    `json:"shapeMaxKbps,omitempty"`
+	ShapeJitterMaxMs    int    `json:"shapeJitterMaxMs,omitempty"`
+	ShapeExpMeanMs      int    `json:"shapeExpMeanMs,omitempty"`
 }
 
 func Dir() (string, error) {
@@ -287,10 +346,23 @@ func MergeProbeObfsIntoProtection(p *ProtectionOptions, caps *protocol.ServerHel
 	}
 	if caps != nil {
 		base.ProbeObfsProfileID = caps.ObfsProfileID
+		base.TransportMask = int(caps.TransportMask)
+		base.FeatureBits = int(caps.FeatureBits)
 		poly := (caps.FeatureBits & protocol.FeaturePolyHandshake) != 0
 		if poly && caps.ObfsProfileID > 0 && strings.TrimSpace(strings.ToLower(base.PreambleProfile)) == "" {
 			base.PreambleProfile = protocol.PreambleRotate
 			base.PreambleRotate = true
+		}
+		if (caps.FeatureBits&protocol.FeatureRelayServer) != 0 && base.RelayMaxHop == 0 {
+			base.RelayHop = 1
+			if caps.PathTTL > 0 {
+				base.RelayMaxHop = int(caps.PathTTL)
+			} else {
+				base.RelayMaxHop = 2
+			}
+			if caps.RelayFlags != 0 && base.RelayBudgetKbps == 0 {
+				base.RelayBudgetKbps = 2048
+			}
 		}
 	}
 	return &base

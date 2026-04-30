@@ -12,39 +12,39 @@ import (
 type Mode string
 
 const (
-	ModeTCPOnly Mode = "tcp-only"
+	ModeTCPOnly  Mode = "tcp-only"
 	ModeQUICOnly Mode = "quic-only"
-	ModeBoth    Mode = "both"
+	ModeBoth     Mode = "both"
 )
 
 type Config struct {
-	ListenPorts              []int
-	Token                    string
-	UDPChannels              int
-	PublicHost               string
-	Debug                    bool
-	ServerMode               Mode
-	QUICListenPort           int
-	QUICCertPath             string
-	QUICKeyPath              string
-	QUICALPN                 string
-	QUICMaxStreams           int
-	QUICMaxHandshakes        int
-	QUICIdleTimeout          time.Duration
-	QUICHandshakeTimeout     time.Duration
-	QUICTCPConnectTimeout    time.Duration
-	QUICIngressRingSlots     int
-	RealityEnabled           bool
-	RealityDest              string
-	RealityPrivateKeyPEM     string
-	RealityShortIDs          [][8]byte
-	RealityServerNames       []string
-	RealityMinVer            []byte
-	RealityMaxVer            []byte
-	WireProfileRotateSec     int
-	TCPNoDelay               bool
-	HandshakeSkew            time.Duration
-	ReplayWindow             time.Duration
+	ListenPorts           []int
+	Token                 string
+	UDPChannels           int
+	PublicHost            string
+	Debug                 bool
+	ServerMode            Mode
+	QUICListenPort        int
+	QUICCertPath          string
+	QUICKeyPath           string
+	QUICALPN              string
+	QUICMaxStreams        int
+	QUICMaxHandshakes     int
+	QUICIdleTimeout       time.Duration
+	QUICHandshakeTimeout  time.Duration
+	QUICTCPConnectTimeout time.Duration
+	QUICIngressRingSlots  int
+	RealityEnabled        bool
+	RealityDest           string
+	RealityPrivateKeyPEM  string
+	RealityShortIDs       [][8]byte
+	RealityServerNames    []string
+	RealityMinVer         []byte
+	RealityMaxVer         []byte
+	WireProfileRotateSec  int
+	TCPNoDelay            bool
+	HandshakeSkew         time.Duration
+	ReplayWindow          time.Duration
 }
 
 func LoadConfig(path string) (*Config, error) {

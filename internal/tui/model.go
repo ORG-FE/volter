@@ -2,7 +2,6 @@ package tui
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -11,17 +10,18 @@ import (
 	"sync"
 	"time"
 
+	"dev.c0redev.volter/internal/clientlog"
+	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/geo"
+	"dev.c0redev.volter/internal/meshstatus"
+	"dev.c0redev.volter/internal/metrics"
+	"dev.c0redev.volter/internal/probe"
+	"dev.c0redev.volter/internal/update"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"dev.c0redev.volter/internal/clientlog"
-	"dev.c0redev.volter/internal/config"
-	"dev.c0redev.volter/internal/geo"
-	"dev.c0redev.volter/internal/metrics"
-	"dev.c0redev.volter/internal/probe"
-	"dev.c0redev.volter/internal/update"
 )
 
 const (
@@ -32,6 +32,7 @@ const (
 	pingYellow   = "11"
 	pingRed      = "1"
 	probeTimeout = 5 * time.Second
+	tabCount     = 7
 )
 
 type tab int
@@ -41,11 +42,14 @@ const (
 	tabConfig
 	tabCloud
 	tabLogs
+	tabMesh
 	tabProtection
 	tabSettings
 )
 
-var tabNames = []string{"Главная", "Конфигурации", "Cloud", "Логи", "Защита", "Настройки"}
+var tabNames = []string{"Главная", "Конфигурации", "Облако", "Логи", "Mesh", "Защита", "Настройки"}
+
+type meshRefreshMsg struct{}
 
 type status int
 
@@ -155,12 +159,17 @@ type Model struct {
 	cloudLoading  bool
 	cloudFetchErr string
 
+	meshViewport        viewport.Model
 	protectionViewport  viewport.Model
 	protectionEditing   bool
 	protectionFormFocus int
 	protectionInputs    []textinput.Model
 	protectionTarget    string
 	protectionClientIdx int
+
+	meshEditing   bool
+	meshFormFocus int
+	meshInputs    []textinput.Model
 
 	clientSettings    config.ClientSettings
 	settingsEditing   bool
@@ -246,6 +255,7 @@ func NewModel(opts Opts) *Model {
 		cfgMode:            make(map[string]string),
 		logViewport:        viewport.New(60, 14),
 		logAutoScroll:      true,
+		meshViewport:       viewport.New(60, 14),
 		protectionViewport: viewport.New(60, 14),
 	}
 	m.clientSettings, _ = config.LoadClientSettings()
@@ -256,6 +266,96 @@ func NewModel(opts Opts) *Model {
 	m.cloudIPv6 = make(map[string]bool)
 	m.cloudMode = make(map[string]string)
 	return m
+}
+
+func meshTickCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		return meshRefreshMsg{}
+	})
+}
+
+func (m *Model) batchTabSwitch() tea.Cmd {
+	var cmds []tea.Cmd
+	if m.tab == tabMesh {
+		m.setMeshViewportContent()
+		cmds = append(cmds, meshTickCmd())
+	}
+	if m.tab == tabConfig && len(m.cfgs) > 0 {
+		cmds = append(cmds, autoProbeCmds(m.cfgs, m.names))
+	}
+	if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
+		cmds = append(cmds, autoProbeCmds(m.cloudCfgs, m.cloudNames))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) meshRelayEffectiveTarget() string {
+	if m.protectionTarget != "" {
+		return m.protectionTarget
+	}
+	if len(m.names) > 0 {
+		return m.names[0]
+	}
+	return ""
+}
+
+func (m *Model) setMeshViewportContent() {
+	m.meshViewport.SetContent(m.meshFullContent())
+}
+
+func (m *Model) meshFullContent() string {
+	var b strings.Builder
+	b.WriteString(sectionTitle.Render("Relay / mesh") + "\n")
+	target := "—"
+	if m.protectionTarget != "" {
+		target = m.protectionTarget
+	} else if len(m.names) > 0 {
+		target = "«" + m.names[0] + "» (цель не выбрана — как глобальная)"
+	}
+	b.WriteString("  Цель профиля: " + target)
+	if len(m.names) > 0 {
+		b.WriteString("   ")
+		b.WriteString(hintKey.Render("Ctrl+←/→"))
+		b.WriteString(hintText.Render(" цель (та же, что «Защита»)"))
+	}
+	b.WriteString("\n")
+	if len(m.names) == 0 {
+		b.WriteString(emptyState.Render("Нет локальных конфигов — добавь профиль во вкладке «Конфигурации».") + "\n")
+	}
+
+	if m.meshEditing && len(m.meshInputs) == meshRelayInputCount {
+		b.WriteString("\n")
+		for i := range m.meshInputs {
+			b.WriteString("  ")
+			b.WriteString(kvLabel.Render(meshRelayLabels[i]+":") + " ")
+			b.WriteString(m.meshInputs[i].View())
+			b.WriteString("\n")
+		}
+		b.WriteString("\n  ")
+		b.WriteString(hintKey.Render("Tab") + hintText.Render(" поле  ") + hintKey.Render("Enter") + hintText.Render(" сохранить  ") + hintKey.Render("Esc") + hintText.Render(" отмена\n"))
+	} else {
+		name := m.meshRelayEffectiveTarget()
+		var r *config.RelayOptions
+		if name != "" {
+			if cfg, err := config.LoadByName(name); err == nil && cfg.Relay != nil {
+				r = cfg.Relay
+			}
+		}
+		b.WriteString(relaySummaryShort(r))
+		b.WriteString("  ")
+		b.WriteString(hintKey.Render("E") + hintText.Render(" форма relay/mesh (STUN/TURN/DHT…)\n"))
+	}
+
+	b.WriteString("\n")
+	b.WriteString(sectionTitle.Render("Статус Mesh / DHT / ICE") + "\n\n")
+	if m.status != statusConnected {
+		b.WriteString(emptyState.Render("Не подключено — таблица узлов и srflx после VPN-сессии с relay.") + "\n\n")
+	}
+	b.WriteString(meshstatus.Format(meshstatus.Gather()))
+	return b.String()
 }
 
 func (m *Model) configSnapshotForActive() (config.Config, bool) {
@@ -397,7 +497,7 @@ func (m *Model) reloadCloud(fetch bool) tea.Cmd {
 	}
 	items := m.buildCloudItems()
 	l := list.New(items, list.NewDefaultDelegate(), 40, 14)
-	l.Title = "Cloud конфиги"
+	l.Title = "Облачные конфиги"
 	l.SetShowStatusBar(false)
 	m.cloudList = l
 	return runGeoFetches(m.cloudCfgs)
@@ -928,6 +1028,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.deletingCfg = ""
 				return m, nil
 			}
+			if m.meshEditing {
+				m.meshEditing = false
+				m.meshFormFocus = 0
+				m.setMeshViewportContent()
+				return m, nil
+			}
 			if m.protectionEditing {
 				m.protectionEditing = false
 				m.protectionFormFocus = 0
@@ -1086,6 +1192,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+			if m.tab == tabMesh && !m.meshEditing && len(m.names) > 0 {
+				name := m.meshRelayEffectiveTarget()
+				var r *config.RelayOptions
+				if name != "" {
+					if cfg, err := config.LoadByName(name); err == nil && cfg.Relay != nil {
+						r = cfg.Relay
+					}
+				}
+				m.meshInputs = newMeshRelayInputs(r)
+				m.meshEditing = true
+				m.meshFormFocus = 0
+				m.meshInputs[0].Focus()
+				m.err = ""
+				return m, nil
+			}
 			if m.tab == tabProtection && !m.protectionEditing {
 				var opts config.ProtectionOptions
 				if m.protectionTarget == "" {
@@ -1117,7 +1238,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "ctrl+left", "ctrl+h":
-			if m.tab == tabProtection && !m.protectionEditing && len(m.names) > 0 {
+			if (m.tab == tabProtection || m.tab == tabMesh) && !m.protectionEditing && !m.meshEditing && len(m.names) > 0 {
 				m.protectionClientIdx--
 				if m.protectionClientIdx < 0 {
 					m.protectionClientIdx = len(m.names)
@@ -1126,20 +1247,37 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.protectionClientIdx > 0 {
 					m.protectionTarget = m.names[m.protectionClientIdx-1]
 				}
+				if m.tab == tabMesh {
+					m.setMeshViewportContent()
+				}
 				return m, nil
 			}
 		case "ctrl+right", "ctrl+l":
-			if m.tab == tabProtection && !m.protectionEditing && len(m.names) > 0 {
+			if (m.tab == tabProtection || m.tab == tabMesh) && !m.protectionEditing && !m.meshEditing && len(m.names) > 0 {
 				m.protectionClientIdx = (m.protectionClientIdx + 1) % (len(m.names) + 1)
 				m.protectionTarget = ""
 				if m.protectionClientIdx > 0 {
 					m.protectionTarget = m.names[m.protectionClientIdx-1]
+				}
+				if m.tab == tabMesh {
+					m.setMeshViewportContent()
 				}
 				return m, nil
 			}
 		case "tab":
 			if m.deletingCfg != "" {
 				m.deletingCfg = ""
+			}
+			if m.meshEditing && len(m.meshInputs) == meshRelayInputCount {
+				m.meshFormFocus = (m.meshFormFocus + 1) % len(m.meshInputs)
+				for i := range m.meshInputs {
+					if i == m.meshFormFocus {
+						m.meshInputs[i].Focus()
+					} else {
+						m.meshInputs[i].Blur()
+					}
+				}
+				return m, nil
 			}
 			if m.settingsEditing && len(m.settingsInputs) == 3 {
 				m.settingsFormFocus = (m.settingsFormFocus + 1) % 3
@@ -1185,17 +1323,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			m.tab = tab((int(m.tab) + 1) % 6)
-			if m.tab == tabConfig && len(m.cfgs) > 0 {
-				return m, autoProbeCmds(m.cfgs, m.names)
-			}
-			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
-				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
-			}
-			return m, nil
+			m.tab = tab((int(m.tab) + 1) % tabCount)
+			return m, m.batchTabSwitch()
 		case "shift+tab":
 			if m.deletingCfg != "" {
 				m.deletingCfg = ""
+			}
+			if m.meshEditing && len(m.meshInputs) == meshRelayInputCount {
+				m.meshFormFocus = (m.meshFormFocus + len(m.meshInputs) - 1) % len(m.meshInputs)
+				for i := range m.meshInputs {
+					if i == m.meshFormFocus {
+						m.meshInputs[i].Focus()
+					} else {
+						m.meshInputs[i].Blur()
+					}
+				}
+				return m, nil
 			}
 			if m.settingsEditing && len(m.settingsInputs) == 3 {
 				m.settingsFormFocus = (m.settingsFormFocus + 2) % 3
@@ -1241,50 +1384,65 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			m.tab = tab((int(m.tab) + 3) % 6)
-			if m.tab == tabConfig && len(m.cfgs) > 0 {
-				return m, autoProbeCmds(m.cfgs, m.names)
-			}
-			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
-				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
-			}
-			return m, nil
+			m.tab = tab((int(m.tab) + 3) % tabCount)
+			return m, m.batchTabSwitch()
 		case "right":
-			if m.adding || m.editing || m.protectionEditing || m.settingsEditing {
+			if m.adding || m.editing || m.protectionEditing || m.meshEditing || m.settingsEditing {
 				break
 			}
 			if m.deletingCfg != "" {
 				m.deletingCfg = ""
 			}
-			m.tab = tab((int(m.tab) + 1) % 6)
-			if m.tab == tabConfig && len(m.cfgs) > 0 {
-				return m, autoProbeCmds(m.cfgs, m.names)
-			}
-			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
-				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
-			}
-			return m, nil
+			m.tab = tab((int(m.tab) + 1) % tabCount)
+			return m, m.batchTabSwitch()
 		case "left":
-			if m.adding || m.editing || m.protectionEditing || m.settingsEditing {
+			if m.adding || m.editing || m.protectionEditing || m.meshEditing || m.settingsEditing {
 				break
 			}
 			if m.deletingCfg != "" {
 				m.deletingCfg = ""
 			}
-			m.tab = tab((int(m.tab) + 3) % 6)
-			if m.tab == tabConfig && len(m.cfgs) > 0 {
-				return m, autoProbeCmds(m.cfgs, m.names)
-			}
-			if m.tab == tabCloud && len(m.cloudCfgs) > 0 {
-				return m, autoProbeCmds(m.cloudCfgs, m.cloudNames)
-			}
-			return m, nil
+			m.tab = tab((int(m.tab) + 3) % tabCount)
+			return m, m.batchTabSwitch()
 		case "enter":
 			if m.settingsEditing && len(m.settingsInputs) == 3 {
 				m.clientSettings = settingsFromInputs(m.settingsInputs)
 				_ = config.SaveClientSettings(m.clientSettings)
 				m.settingsEditing = false
 				m.settingsFormFocus = 0
+				return m, nil
+			}
+			if m.meshEditing && len(m.meshInputs) == meshRelayInputCount {
+				nu, formErr := meshRelayFromInputs(m.meshInputs)
+				if formErr != "" {
+					m.err = formErr
+					return m, nil
+				}
+				name := m.meshRelayEffectiveTarget()
+				if name == "" {
+					m.err = "нет локального профиля"
+					return m, nil
+				}
+				cfg, err := config.LoadByName(name)
+				if err != nil {
+					m.err = err.Error()
+					return m, nil
+				}
+				var old *config.RelayOptions
+				if cfg.Relay != nil {
+					old = cfg.Relay
+				}
+				relayMergeKeepAdvanced(old, &nu)
+				cfg.Relay = &nu
+				if err := config.Save(name, cfg); err != nil {
+					m.err = err.Error()
+					return m, nil
+				}
+				m.reloadCfgs()
+				m.meshEditing = false
+				m.meshFormFocus = 0
+				m.err = ""
+				m.setMeshViewportContent()
 				return m, nil
 			}
 			if m.protectionEditing && len(m.protectionInputs) == 14 {
@@ -1322,6 +1480,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if formErr != "" {
 						m.err = formErr
 					} else {
+						cfg = mergeCfgPreserveRelayProtection(oldName, cfg)
 						if newName != oldName {
 							_ = config.Delete(oldName)
 						}
@@ -1443,6 +1602,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectedMsg:
 		m.status = statusConnected
 		m.stop = msg.stop
+		if m.tab == tabMesh {
+			m.setMeshViewportContent()
+			return m, meshTickCmd()
+		}
 		return m, nil
 	case disconnectedMsg:
 		m.status = statusDisconnected
@@ -1479,6 +1642,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshCfgItems()
 		m.refreshCloudItems()
 		return m, nil
+	case meshRefreshMsg:
+		m.setMeshViewportContent()
+		if m.tab == tabMesh {
+			return m, meshTickCmd()
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.logViewport.Width = msg.Width - 4
 		m.logViewport.Height = msg.Height - 10
@@ -1487,6 +1656,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.logViewport.Width < 20 {
 			m.logViewport.Width = 20
+		}
+		m.meshViewport.Width = msg.Width - 4
+		m.meshViewport.Height = msg.Height - 14
+		if m.meshViewport.Height < 5 {
+			m.meshViewport.Height = 5
+		}
+		if m.meshViewport.Width < 20 {
+			m.meshViewport.Width = 20
 		}
 		m.protectionViewport.Width = msg.Width - 4
 		m.protectionViewport.Height = msg.Height - 10
@@ -1589,6 +1766,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settingsInputs[m.settingsFormFocus], cmd = m.settingsInputs[m.settingsFormFocus].Update(msg)
 		return m, cmd
 	}
+	if m.meshEditing && m.meshFormFocus < len(m.meshInputs) {
+		m.meshInputs[m.meshFormFocus], cmd = m.meshInputs[m.meshFormFocus].Update(msg)
+		return m, cmd
+	}
 	if m.protectionEditing && m.protectionFormFocus < len(m.protectionInputs) {
 		m.protectionInputs[m.protectionFormFocus], cmd = m.protectionInputs[m.protectionFormFocus].Update(msg)
 		return m, cmd
@@ -1601,6 +1782,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.adding && m.addFocus < len(m.addInputs) {
 		m.addInputs[m.addFocus], cmd = m.addInputs[m.addFocus].Update(msg)
 		m.addInputs = fillConnectionFromAnyField(m.addInputs)
+		return m, cmd
+	}
+	if m.tab == tabMesh && !m.meshEditing {
+		m.meshViewport, cmd = m.meshViewport.Update(msg)
 		return m, cmd
 	}
 	if m.tab == tabProtection {
@@ -2007,6 +2192,8 @@ func (m *Model) View() string {
 			m.logViewport.GotoBottom()
 		}
 		content.WriteString(m.logViewport.View())
+	case tabMesh:
+		content.WriteString(m.meshViewport.View())
 	case tabProtection:
 		content.WriteString(m.protectionView())
 	case tabSettings:
@@ -2030,21 +2217,16 @@ func (m *Model) View() string {
 					}
 				}
 				if idx >= 0 && idx < len(m.cfgs) {
-					content.WriteString("Активный конфиг: " + m.activeCfg + "\n\n")
-					raw, _ := json.MarshalIndent(m.cfgs[idx], "", "  ")
-					content.WriteString(string(raw))
-					content.WriteString("\n\n")
+					content.WriteString("Активный профиль: " + m.activeCfg + "  →  " + m.cfgs[idx].Server + "\n\n")
 				} else {
 					for i, n := range m.cloudNames {
 						if n == m.activeCfg && i < len(m.cloudCfgs) {
-							content.WriteString("Активный конфиг: " + m.activeCfg + "\n\n")
-							raw, _ := json.MarshalIndent(m.cloudCfgs[i], "", "  ")
-							content.WriteString(string(raw))
-							content.WriteString("\n\n")
+							content.WriteString("Активный профиль: " + m.activeCfg + "  →  " + m.cloudCfgs[i].Server + "\n\n")
 							break
 						}
 					}
 				}
+				content.WriteString("Полный JSON профиля лежит в ~/.config/volter/<имя>.json — правь relay/mesh во вкладке «Mesh».\n\n")
 			}
 			content.WriteString("Режим: ")
 			if m.clientSettings.Mode == "proxy" {
@@ -2070,6 +2252,9 @@ func (m *Model) View() string {
 	}
 	if m.tab == tabCloud && !m.cloudLoading {
 		footer += hintText.Render("  ") + hintKey.Render("↑/↓") + hintText.Render(" выбор  ") + hintKey.Render("P") + hintText.Render(" ping  ") + hintKey.Render("T") + hintText.Render(" volter  ") + hintKey.Render("E") + hintText.Render(" ред.  ") + hintKey.Render("R") + hintText.Render(" обновить")
+	}
+	if m.tab == tabMesh {
+		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabProtection {
 		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" редактировать  ") + hintKey.Render("1/2/3") + hintText.Render(" баланс/усил/авто  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка")

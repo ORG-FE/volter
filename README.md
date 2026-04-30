@@ -36,7 +36,3 @@ sudo ./volter-client \
 ```
 
 Windows (администратор, `wintun.dll` рядом с exe или из релиза):
-
-## systemd
-
-Пример юнита: [contrib/volter-client.service](contrib/volter-client.service).

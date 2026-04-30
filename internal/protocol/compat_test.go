@@ -51,11 +51,14 @@ func TestServerHelloCapsRoundtrip(t *testing.T) {
 		Version:       CapsVersion,
 		LegacyIPv6:    true,
 		TransportMask: TransportTCP | TransportQUIC,
-		FeatureBits:   FeatureIPv6,
+		FeatureBits:   FeatureIPv6 | FeatureRelayServer,
 		QuicPort:      7443,
 		TCPPortHint:   8443,
 		ObfsProfileID: 7,
 		Nonce:         []byte{1, 2, 3, 4},
+		RelayClass:    2,
+		PathTTL:       3,
+		RelayFlags:    5,
 	}
 	var buf bytes.Buffer
 	if err := WriteServerHelloCaps(&buf, caps); err != nil {
@@ -66,6 +69,9 @@ func TestServerHelloCapsRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Version != caps.Version || got.TransportMask != caps.TransportMask || got.QuicPort != caps.QuicPort || got.TCPPortHint != caps.TCPPortHint {
+		t.Fatalf("caps mismatch got=%+v want=%+v", got, caps)
+	}
+	if got.RelayClass != caps.RelayClass || got.PathTTL != caps.PathTTL || got.RelayFlags != caps.RelayFlags {
 		t.Fatalf("caps mismatch got=%+v want=%+v", got, caps)
 	}
 }
@@ -92,5 +98,16 @@ func TestServerHelloCapsQuicPinRoundtrip(t *testing.T) {
 	}
 	if len(got.QuicLeafPinSHA256) != 32 || !bytes.Equal(got.QuicLeafPinSHA256, pin) {
 		t.Fatalf("pin mismatch")
+	}
+}
+
+func TestServerHelloCapsUnknownExtensionFails(t *testing.T) {
+	wire := []byte{
+		CapsVersion, 0, TransportTCP, 0, 0, 0, 0, 0, 0, 0, 0,
+		0x7f, 0x01, 0xaa,
+	}
+	_, err := ReadServerHelloCaps(bytes.NewReader(wire))
+	if err == nil {
+		t.Fatal("want error for unknown caps extension")
 	}
 }

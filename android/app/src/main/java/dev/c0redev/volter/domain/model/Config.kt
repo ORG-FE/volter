@@ -18,6 +18,7 @@ data class Config(
     val tunCIDR6: String? = null,
     val dualTransport: Boolean? = null,
     val protection: ProtectionOptions? = null,
+    val relay: RelayOptions? = null,
 ) {
     fun withCloudDefaults(serverMode: String, probeIPv6: Boolean): Config {
         val noPin = quicCertPinSHA256.isNullOrBlank()
@@ -82,6 +83,7 @@ data class Config(
         tunCIDR6?.let { j.put("tunCIDR6", it) }
         dualTransport?.let { j.put("dualTransport", it) }
         protection?.let { j.put("protection", it.toJson()) }
+        relay?.let { j.put("relay", it.toJson()) }
         return j
     }
 
@@ -132,6 +134,7 @@ data class Config(
                     else -> j.optBoolean("dualTransport", true)
                 },
                 protection = j.optJSONObject("protection")?.let { ProtectionOptions.fromJson(it) },
+                relay = j.optJSONObject("relay")?.let { RelayOptions.fromJson(it) },
             )
         }
 
@@ -167,14 +170,14 @@ data class Config(
         fun parseShareUri(raw: String): Pair<String, Config>? {
             val cfg = parseVolterUriConfig(raw) ?: return null
             val name = parseVolterUriName(raw)?.ifBlank { "imported" } ?: "imported"
-            return sanitizeName(name) to cfg.copy(protection = null)
+            return sanitizeName(name) to cfg.copy(protection = null, relay = null)
         }
 
         fun buildShareUri(name: String, cfg: Config): String {
             val payload = JSONObject()
             payload.put("v", 1)
             payload.put("n", sanitizeName(name))
-            payload.put("c", cfg.copy(protection = null).toJson())
+            payload.put("c", cfg.copy(protection = null, relay = null).toJson())
             val b = Base64.encodeToString(payload.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             return "volter://$b"
         }
@@ -229,6 +232,27 @@ data class Config(
             }
             val idx = s.lastIndexOf(':')
             return if (idx > 0) s.substring(0, idx) else s
+        }
+
+        
+        fun tcpPortFromServer(server: String): Int? {
+            val s = server.trim()
+            if (s.startsWith("[")) {
+                val end = s.indexOf(']')
+                if (end <= 0 || end >= s.lastIndex || s[end + 1] != ':') return null
+                return s.substring(end + 2).toIntOrNull()?.takeIf { it in 1..65535 }
+            }
+            val idx = s.lastIndexOf(':')
+            if (idx <= 0 || idx == s.lastIndex) return null
+            return s.substring(idx + 1).toIntOrNull()?.takeIf { it in 1..65535 }
+        }
+
+        
+        fun tcpAuthorityForHttp(server: String): String? {
+            val port = tcpPortFromServer(server) ?: return null
+            val host = hostFromServer(server)
+            val hostPart = if (host.contains(':')) "[$host]" else host
+            return "$hostPart:$port"
         }
 
         fun quicHostPort(host: String, port: Int): String {

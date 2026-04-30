@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -240,7 +241,11 @@ func dialQUICConn(addr, serverName string, skipVerify bool, certPinSHA256 string
 			}
 		}
 		if round < 3 {
-			time.Sleep(backoff)
+			j := time.Duration(0)
+			if backoff > 0 {
+				j = time.Duration(rand.Int63n(int64(backoff / 4)))
+			}
+			time.Sleep(backoff + j)
 			if backoff < 2*time.Second {
 				backoff *= 2
 			}
@@ -297,7 +302,7 @@ func openUDPChannelOnQUICStream(conn *quic.Conn, stream *quic.Stream, channelID 
 	} else {
 		sconn = &quicStreamOnlyConn{conn: conn, stream: stream}
 	}
-	slot := protocol.TimeSlot()
+	slot := SlotForProtection(prot)
 	bufSize := protocol.BufSizeForConn(slot)
 	r := bufio.NewReaderSize(sconn, bufSize)
 	w := bufio.NewWriterSize(sconn, bufSize)

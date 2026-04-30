@@ -19,6 +19,7 @@ import (
 	"crypto/x509"
 
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/meshstatus"
 	"dev.c0redev.volter/internal/netcfg"
 	"dev.c0redev.volter/internal/probe"
 	"dev.c0redev.volter/internal/protocol"
@@ -287,6 +288,8 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 		QuicTLSRoots:      quicRoots,
 		QuicTraceLog:      cfg.QuicTraceLog,
 		DualTransport:     dual,
+		PathManager:       tunnel.NewPathManagerFromRelay(cfg.Relay),
+		Relay:             cfg.Relay,
 		Ready: func() {
 			s.ready.Store(true)
 		},
@@ -496,6 +499,10 @@ func Ping(server string, timeoutMs int) string {
 		return jsonString(pingResult{RTTMs: 0, Error: err.Error()})
 	}
 	return jsonString(pingResult{RTTMs: d.Milliseconds()})
+}
+
+func MeshStatus() string {
+	return jsonString(meshstatus.Gather())
 }
 
 func QuicDialTargetIPs(server string, quicServer string) string {

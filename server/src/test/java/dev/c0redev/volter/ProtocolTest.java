@@ -8,6 +8,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -60,6 +63,27 @@ class ProtocolTest {
     var c = Protocol.readTcpConnect(in);
     assertArrayEquals(InetAddress.getByAddress(new byte[]{9, 9, 9, 9}).getAddress(), c.ip().getAddress());
     assertEquals(443, c.port());
+  }
+
+  @Test
+  void readHandshakeRelayTcp() throws IOException {
+    byte[] tok = "secret".getBytes();
+    String opts = "{\"relayHop\":1,\"relayMaxHop\":2,\"relayBudgetKbps\":512,\"peerId\":\"p1\",\"relayNonce\":\"n1\",\"relaySig\":\"s1\"}";
+    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+    buf.write(Protocol.MAGIC);
+    buf.write(Protocol.VERSION);
+    buf.write(Protocol.ROLE_RELAY_TCP);
+    buf.write(u16(tok.length));
+    buf.write(tok);
+    buf.write(u16(opts.length()));
+    buf.write(opts.getBytes(StandardCharsets.UTF_8));
+    var in = new BufferedInputStream(new ByteArrayInputStream(buf.toByteArray()));
+    var hr = Protocol.readHandshake(in);
+    assertEquals(Protocol.ROLE_RELAY_TCP, hr.handshake().role());
+    assertTrue(hr.opts().isPresent());
+    assertEquals(1, hr.opts().get().relayHop());
+    assertEquals(2, hr.opts().get().relayMaxHop());
+    assertEquals(512, hr.opts().get().relayBudgetKbps());
   }
 
   @Test
@@ -130,9 +154,27 @@ class ProtocolTest {
 
   @Test
   void clientOptionsParse() {
-    var opt = Protocol.ClientOptions.parse("{\"padS4\":48}");
+    String sig = hmacSig("token", "p1", "n1");
+    var opt = Protocol.ClientOptions.parse("{\"padS4\":48,\"relayHop\":1,\"relayMaxHop\":3,\"relayBudgetKbps\":2048,\"peerId\":\"p1\",\"relayNonce\":\"n1\",\"relaySig\":\"" + sig + "\"}");
     assertTrue(opt.isPresent());
     assertEquals(48, opt.get().padS4());
+    assertEquals(1, opt.get().relayHop());
+    assertEquals(3, opt.get().relayMaxHop());
+    assertEquals(2048, opt.get().relayBudgetKbps());
+    assertEquals("p1", opt.get().peerId());
+  }
+
+  static String hmacSig(String token, String peerId, String nonce) {
+    try {
+      Mac mac = Mac.getInstance("HmacSHA256");
+      mac.init(new SecretKeySpec(token.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+      mac.update(peerId.getBytes(StandardCharsets.UTF_8));
+      mac.update((byte) '|');
+      mac.update(nonce.getBytes(StandardCharsets.UTF_8));
+      return Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal());
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Test
@@ -140,6 +182,8 @@ class ProtocolTest {
     var opt = Protocol.ClientOptions.parse("{}");
     assertTrue(opt.isPresent());
     assertEquals(32, opt.get().padS4());
+    assertEquals(0, opt.get().relayHop());
+    assertEquals(2, opt.get().relayMaxHop());
   }
 
   @Test
@@ -159,12 +203,15 @@ class ProtocolTest {
         Protocol.CAPS_VERSION,
         1,
         Protocol.TRANSPORT_TCP | Protocol.TRANSPORT_QUIC,
-        Protocol.FEAT_IPV6,
+        Protocol.FEAT_IPV6 | Protocol.FEAT_RELAY_SERVER,
         7443,
         8443,
         2,
         new byte[]{9, 8, 7},
-        null);
+        null,
+        2,
+        3,
+        5);
     var out = new ByteArrayOutputStream();
     Protocol.writeServerHelloCaps(out, caps);
     var got = Protocol.readServerHelloCaps(new ByteArrayInputStream(out.toByteArray()));
@@ -174,6 +221,9 @@ class ProtocolTest {
     assertEquals(caps.quicPort(), got.quicPort());
     assertEquals(caps.tcpPortHint(), got.tcpPortHint());
     assertArrayEquals(caps.nonce(), got.nonce());
+    assertEquals(caps.relayClass(), got.relayClass());
+    assertEquals(caps.pathTtl(), got.pathTtl());
+    assertEquals(caps.relayFlags(), got.relayFlags());
     assertNull(got.quicLeafPinSha256());
   }
 
@@ -190,10 +240,23 @@ class ProtocolTest {
         0,
         0,
         new byte[]{1},
-        pin);
+        pin,
+        0,
+        0,
+        0);
     var out = new ByteArrayOutputStream();
     Protocol.writeServerHelloCaps(out, caps);
     var got = Protocol.readServerHelloCaps(new ByteArrayInputStream(out.toByteArray()));
     assertArrayEquals(pin, got.quicLeafPinSha256());
+  }
+
+  @Test
+  void serverHelloCapsUnknownExtensionFails() {
+    byte[] wire = new byte[] {
+        (byte) Protocol.CAPS_VERSION, 0, (byte) Protocol.TRANSPORT_TCP,
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0x7f, 0x01, (byte) 0xaa
+    };
+    assertThrows(IOException.class, () -> Protocol.readServerHelloCaps(new ByteArrayInputStream(wire)));
   }
 }

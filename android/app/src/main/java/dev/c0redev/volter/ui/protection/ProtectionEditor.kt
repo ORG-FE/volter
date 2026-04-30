@@ -23,8 +23,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import dev.c0redev.volter.R
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.ProtectionPresets
 import dev.c0redev.volter.domain.model.SessionRecord
@@ -60,9 +63,9 @@ fun ProtectionEditor(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Быстрые режимы", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.protection_section_quick_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Выбери готовый профиль. Ручные поля ниже ограничены безопасными диапазонами.",
+                    stringResource(R.string.protection_section_quick_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -71,50 +74,66 @@ fun ProtectionEditor(
                         onClick = { applyPreset(ProtectionPresets.balanced()) },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
-                    ) { Text("Баланс") }
+                    ) { Text(stringResource(R.string.protection_preset_balance)) }
                     FilledTonalButton(
                         onClick = { applyPreset(ProtectionPresets.strict()) },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
-                    ) { Text("Сильно") }
+                    ) { Text(stringResource(R.string.protection_preset_strong)) }
                 }
                 FilledTonalButton(
                     onClick = { applyPreset(ProtectionPresets.suggestFromMetrics(metrics)) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                ) { Text("Авто по метрикам") }
+                ) { Text(stringResource(R.string.protection_preset_auto)) }
             }
         }
 
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Основное", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.protection_section_main), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Segmented(
-                    title = "Обфускация",
-                    options = listOf("default" to "Обычная", "enhanced" to "Усиленная"),
+                    title = stringResource(R.string.protection_obfuscation),
+                    options = listOf(
+                        "default" to stringResource(R.string.protection_obfuscation_standard),
+                        "enhanced" to stringResource(R.string.protection_obfuscation_enhanced),
+                    ),
                     selected = draft.obfuscation,
                     onSelect = { set(draft.copy(obfuscation = it)) },
                 )
                 Segmented(
-                    title = "Преамбула",
-                    options = listOf("" to "Нет", "rotate" to "Rotate", "tls_record" to "TLS rec", "tls_ch_shape" to "TLS CH", "smb1_shape" to "SMB", "mc_frame" to "MC"),
+                    title = stringResource(R.string.protection_preamble),
+                    options = listOf(
+                        "" to stringResource(R.string.protection_preamble_none),
+                        "rotate" to stringResource(R.string.protection_preamble_rotate),
+                        "tls_record" to stringResource(R.string.protection_preamble_tls_rec),
+                        "tls_ch_shape" to stringResource(R.string.protection_preamble_tls_ch),
+                        "smb1_shape" to stringResource(R.string.protection_preamble_smb),
+                        "mc_frame" to stringResource(R.string.protection_preamble_mc),
+                    ),
                     selected = draft.preambleProfile,
                     onSelect = { set(draft.copy(preambleProfile = it, preambleRotate = it == "rotate")) },
                 )
                 ToggleRow(
-                    title = "Rotate с enhanced",
+                    title = stringResource(R.string.protection_rotate_with_enhanced),
                     checked = draft.preambleRotate,
                     onCheckedChange = { set(draft.copy(preambleRotate = it)) },
                 )
                 Segmented(
-                    title = "Junk style",
-                    options = listOf("random" to "Random", "tls" to "TLS"),
+                    title = stringResource(R.string.protection_junk_style),
+                    options = listOf(
+                        "random" to stringResource(R.string.protection_junk_random),
+                        "tls" to stringResource(R.string.protection_junk_tls),
+                    ),
                     selected = draft.junkStyle,
                     onSelect = { set(draft.copy(junkStyle = it)) },
                 )
                 Segmented(
-                    title = "Flush",
-                    options = listOf("once" to "Once", "perChunk" to "Per chunk"),
+                    title = stringResource(R.string.protection_flush),
+                    options = listOf(
+                        "once" to stringResource(R.string.protection_flush_once),
+                        "perChunk" to stringResource(R.string.protection_flush_per_chunk),
+                    ),
                     selected = draft.flushPolicy,
                     onSelect = { set(draft.copy(flushPolicy = it)) },
                 )
@@ -123,34 +142,34 @@ fun ProtectionEditor(
 
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Лимиты", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.protection_limits_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 NumberRow(
                     items = listOf(
-                        NumberItem("junkCount", draft.junkCount, 0, 12) { set(draft.copy(junkCount = it)) },
-                        NumberItem("junkMin", draft.junkMin, 64, 1024) { set(draft.copy(junkMin = it)) },
-                        NumberItem("junkMax", draft.junkMax, 64, 2048) { set(draft.copy(junkMax = it)) },
+                        NumberItem(R.string.protection_num_junk_count, draft.junkCount, 0, 12) { set(draft.copy(junkCount = it)) },
+                        NumberItem(R.string.protection_num_junk_min, draft.junkMin, 64, 1024) { set(draft.copy(junkMin = it)) },
+                        NumberItem(R.string.protection_num_junk_max, draft.junkMax, 64, 2048) { set(draft.copy(junkMax = it)) },
                     ),
                 )
                 NumberRow(
                     items = listOf(
-                        NumberItem("padS1", draft.padS1, 0, 64) { set(draft.copy(padS1 = it)) },
-                        NumberItem("padS2", draft.padS2, 0, 64) { set(draft.copy(padS2 = it)) },
+                        NumberItem(R.string.protection_num_pad_s1, draft.padS1, 0, 64) { set(draft.copy(padS1 = it)) },
+                        NumberItem(R.string.protection_num_pad_s2, draft.padS2, 0, 64) { set(draft.copy(padS2 = it)) },
                     ),
                 )
                 NumberRow(
                     items = listOf(
-                        NumberItem("padS3", draft.padS3, 0, 64) { set(draft.copy(padS3 = it)) },
-                        NumberItem("padS4", draft.padS4, 0, 64) { set(draft.copy(padS4 = it)) },
+                        NumberItem(R.string.protection_num_pad_s3, draft.padS3, 0, 64) { set(draft.copy(padS3 = it)) },
+                        NumberItem(R.string.protection_num_pad_s4, draft.padS4, 0, 64) { set(draft.copy(padS4 = it)) },
                     ),
                 )
                 StyledTextField(
                     value = draft.magicSplit,
                     onValueChange = { set(draft.copy(magicSplit = digitsOnly(it).take(3))) },
-                    label = "magicSplit (0 = off)",
+                    label = stringResource(R.string.protection_magic_split_label),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 ToggleRow(
-                    title = "Pre-check",
+                    title = stringResource(R.string.protection_precheck),
                     checked = draft.preCheck,
                     onCheckedChange = { set(draft.copy(preCheck = it)) },
                 )
@@ -160,13 +179,13 @@ fun ProtectionEditor(
                             onClick = { onSave(draft.toOptions()) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(14.dp),
-                        ) { Text("Сохранить") }
+                        ) { Text(stringResource(R.string.protection_save)) }
                         if (onClear != null) {
                             OutlinedButton(
                                 onClick = onClear,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(14.dp),
-                            ) { Text("Очистить") }
+                            ) { Text(stringResource(R.string.protection_clear)) }
                         }
                     }
                 }
@@ -209,7 +228,7 @@ private fun NumberRow(items: List<NumberItem>) {
             StyledTextField(
                 value = item.value.toString(),
                 onValueChange = { item.onChange((it.toIntOrNull() ?: 0).coerceIn(item.min, item.max)) },
-                label = "${item.label} ${item.min}-${item.max}",
+                label = stringResource(R.string.protection_param_fmt, stringResource(item.labelRes), item.min, item.max),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -217,7 +236,7 @@ private fun NumberRow(items: List<NumberItem>) {
 }
 
 private data class NumberItem(
-    val label: String,
+    @StringRes val labelRes: Int,
     val value: Int,
     val min: Int,
     val max: Int,

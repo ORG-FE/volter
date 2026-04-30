@@ -16,7 +16,6 @@ data class ProtectionOptions(
     val magicSplit: String? = null,
     val junkStyle: String? = null,
     val flushPolicy: String? = null,
-    /** tls_record | tls_ch_shape | smb1_shape | mc_frame | rotate */
     val preambleProfile: String? = null,
     val preambleRotate: Boolean = false,
 ) {

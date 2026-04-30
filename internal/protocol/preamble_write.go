@@ -14,7 +14,7 @@ const (
 	PreambleTLSCHShape = "tls_ch_shape"
 	PreambleSMB1Shape  = "smb1_shape"
 	PreambleMcFrame    = "mc_frame"
-	PreambleRotate       = "rotate"
+	PreambleRotate     = "rotate"
 )
 
 func ResolvePreambleKind(junkStyle, preambleProfile string, preambleRotate, obfuscationEnhanced bool, slot int64, token string, probeObfs byte) string {

@@ -15,6 +15,7 @@ var cloudConfigURLs = []string{
 	"https://raw.githubusercontent.com/ORG-FE/volter/refs/heads/main/cloud-config.txt",
 	"https://raw.githubusercontent.com/ORG-FE/volter/refs/heads/master/cloud-config.txt",
 }
+
 const cloudConfigFile = "cloud-config.txt"
 
 const CloudDefaultQUICPort = "4433"

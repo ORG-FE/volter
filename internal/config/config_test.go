@@ -157,10 +157,15 @@ func TestMergeProbeObfsIntoProtection(t *testing.T) {
 	p := &ProtectionOptions{JunkCount: 3}
 	caps := &protocol.ServerHelloCaps{
 		ObfsProfileID: 9,
-		FeatureBits:   protocol.FeaturePolyHandshake,
+		FeatureBits:   protocol.FeaturePolyHandshake | protocol.FeatureRelayServer,
+		PathTTL:       3,
+		RelayFlags:    1,
 	}
 	out := MergeProbeObfsIntoProtection(p, caps)
 	if out.JunkCount != 3 || out.ProbeObfsProfileID != 9 || out.PreambleProfile != protocol.PreambleRotate || !out.PreambleRotate {
+		t.Fatalf("got %+v", out)
+	}
+	if out.RelayHop != 1 || out.RelayMaxHop != 3 || out.RelayBudgetKbps == 0 {
 		t.Fatalf("got %+v", out)
 	}
 	out2 := MergeProbeObfsIntoProtection(nil, caps)
@@ -178,5 +183,8 @@ func TestMergeProbeObfsDoesNotForceRotateWithoutFeature(t *testing.T) {
 	}
 	if out.PreambleProfile != "" || out.PreambleRotate {
 		t.Fatalf("rotate must stay off without poly feature: %+v", out)
+	}
+	if out.RelayHop != 0 || out.RelayMaxHop != 0 {
+		t.Fatalf("relay must stay off without relay feature: %+v", out)
 	}
 }

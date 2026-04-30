@@ -65,6 +65,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
     var systemProxy by remember { mutableStateOf(s.systemProxy) }
     var ipv6Tunnel by remember { mutableStateOf(s.ipv6Tunnel) }
     var dualTun by remember { mutableStateOf(s.dualTun) }
+    var volterMesh by remember { mutableStateOf(s.volterMesh) }
     var transportPref by remember { mutableStateOf(ClientSettings.normalizedTransportPreference(s.transportPreference)) }
 
     LaunchedEffect(s) {
@@ -73,6 +74,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         systemProxy = s.systemProxy
         ipv6Tunnel = s.ipv6Tunnel
         dualTun = s.dualTun
+        volterMesh = s.volterMesh
         transportPref = ClientSettings.normalizedTransportPreference(s.transportPreference)
     }
 
@@ -245,6 +247,35 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             ),
                         )
                     }
+
+                    if (BuildConfig.VOLTER_MESH_DEFAULTS) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.settings_volter_mesh),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_volter_mesh_hint),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = volterMesh,
+                                onCheckedChange = { volterMesh = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                                ),
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -259,6 +290,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                                     proxyListen = proxyListen,
                                     ipv6Tunnel = ipv6Tunnel,
                                     dualTun = dualTun,
+                                    volterMesh = volterMesh,
                                     transportPreference = transportPref,
                                 ),
                             )

@@ -26,6 +26,12 @@ func newDualPathSelector(seed int64) *DualPathSelector {
 	}
 }
 
+func (s *DualPathSelector) QuicGoodnessEWMA() float64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ewma
+}
+
 func (s *DualPathSelector) PreferQUIC() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -6,6 +6,7 @@ import (
 
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/probe"
+	"dev.c0redev.volter/internal/telemetry"
 )
 
 func runWatchdog(ctx context.Context, h *handler, opt Options) {
@@ -26,6 +27,7 @@ func runWatchdog(ctx context.Context, h *handler, opt Options) {
 		case <-t.C:
 			if !watchdogOnce(h, pingTO) {
 				clientlog.Warn("vpn: watchdog: server TCP failed")
+				telemetry.RecordPath(telemetry.SwitchWatchdog, "server tcp ping failed")
 				opt.OnWatchdogFail()
 				return
 			}

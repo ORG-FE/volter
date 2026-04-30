@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"syscall"
@@ -29,13 +30,16 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 	backoff := 200 * time.Millisecond
 	for round := 0; round < 3; round++ {
 		for i := 0; i < len(serverAddrs); i++ {
+			if round == 0 && i == 0 {
+				time.Sleep(time.Duration(rand.Int63n(56)) * time.Millisecond)
+			}
 			addr := serverAddrs[(start+i)%len(serverAddrs)]
 			c, err := dialServer(addr, token)
 			if err != nil {
 				lastErr = err
 				continue
 			}
-			slot := protocol.TimeSlot()
+			slot := SlotForProtection(prot)
 			bufSize := protocol.BufSizeForConn(slot)
 			r := bufio.NewReaderSize(c, bufSize)
 			w := bufio.NewWriterSize(c, bufSize)
@@ -60,6 +64,26 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 		lastErr = fmt.Errorf("tcp dial failed")
 	}
 	return nil, lastErr
+}
+
+func DialSingleTCP(addr string, targetIP net.IP, targetPort uint16, token string, prot *config.ProtectionOptions) (net.Conn, error) {
+	c, err := dialServer(addr, token)
+	if err != nil {
+		return nil, err
+	}
+	slot := SlotForProtection(prot)
+	bufSize := protocol.BufSizeForConn(slot)
+	r := bufio.NewReaderSize(c, bufSize)
+	w := bufio.NewWriterSize(c, bufSize)
+	if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return &tunnelConn{Conn: c, r: r}, nil
 }
 
 func UsesQUICTransport(transport, quicServer string) bool {
@@ -160,7 +184,47 @@ func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipV
 	} else {
 		sconn = &quicStreamOnlyConn{conn: conn, stream: stream}
 	}
-	slot := protocol.TimeSlot()
+	slot := SlotForProtection(prot)
+	w := bufio.NewWriterSize(sconn, protocol.BufSizeForConn(slot))
+	r := bufio.NewReaderSize(sconn, protocol.BufSizeForConn(slot))
+	if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
+		_ = sconn.Close()
+		return nil, err
+	}
+	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
+		_ = sconn.Close()
+		return nil, err
+	}
+	return &tunnelConn{Conn: sconn, r: r}, nil
+}
+
+func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, targetIP net.IP, targetPort uint16, token string, prot *config.ProtectionOptions) (net.Conn, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil, fmt.Errorf("peer quic: empty addr")
+	}
+	conn, closePC, err := dialQUICConn(addr, serverName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots)
+	if err != nil {
+		return nil, err
+	}
+	if quicTraceOn() {
+		clientlog.Trace("quic peer tun-tcp OpenStreamSync")
+	}
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	stream, err := conn.OpenStreamSync(streamCtx)
+	streamCancel()
+	if err != nil {
+		if quicTraceOn() {
+			clientlog.Trace("quic peer OpenStreamSync err=%v", err)
+		}
+		_ = conn.CloseWithError(0, "open stream failed")
+		if closePC != nil {
+			closePC()
+		}
+		return nil, err
+	}
+	sconn := newQUICStreamConn(conn, stream, closePC)
+	slot := SlotForProtection(prot)
 	w := bufio.NewWriterSize(sconn, protocol.BufSizeForConn(slot))
 	r := bufio.NewReaderSize(sconn, protocol.BufSizeForConn(slot))
 	if err := tcpRelayPreamble(w, token, prot, slot); err != nil {

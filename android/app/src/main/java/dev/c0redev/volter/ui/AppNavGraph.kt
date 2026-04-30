@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -46,6 +47,7 @@ import dev.c0redev.volter.R
 import dev.c0redev.volter.ui.screens.ConfigsScreen
 import dev.c0redev.volter.ui.screens.HomeScreen
 import dev.c0redev.volter.ui.screens.LogsScreen
+import dev.c0redev.volter.ui.screens.MeshScreen
 import dev.c0redev.volter.ui.screens.ProtectionScreen
 import dev.c0redev.volter.ui.screens.SettingsScreen
 
@@ -99,6 +101,7 @@ fun AppNavGraph(vm: ConnectionViewModel) {
         NavItem("home", R.string.nav_home) { cd -> Icon(Icons.Outlined.Home, cd) },
         NavItem("configs", R.string.nav_configs) { cd -> Icon(Icons.Outlined.Dns, cd) },
         NavItem("logs", R.string.nav_logs) { cd -> Icon(Icons.AutoMirrored.Outlined.ReceiptLong, cd) },
+        NavItem("mesh", R.string.nav_mesh) { cd -> Icon(Icons.Outlined.Lan, cd) },
         NavItem("protection", R.string.nav_protection) { cd -> Icon(Icons.Outlined.Security, cd) },
         NavItem("settings", R.string.nav_settings) { cd -> Icon(Icons.Outlined.Settings, cd) },
     )
@@ -188,6 +191,7 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                     }
                     composable("configs") { ConfigsScreen(vm, padding) }
                     composable("logs") { LogsScreen(vm, padding) }
+                    composable("mesh") { MeshScreen(vm, padding) }
                     composable("protection") { ProtectionScreen(vm, padding) }
                     composable("settings") { SettingsScreen(vm, padding) }
                 }

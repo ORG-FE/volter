@@ -267,6 +267,8 @@ final class UdpSessions implements AutoCloseable {
             new LinkedBlockingQueue<>();
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final Thread t;
+        private long budgetWindowStartNanos;
+        private long budgetWindowBytes;
 
         UdpChannelWriter(
             int id,
@@ -278,6 +280,7 @@ final class UdpSessions implements AutoCloseable {
             this.opts = opts;
             this.t = new Thread(this::loop, "udp-writer-" + id);
             this.t.setDaemon(true);
+            this.budgetWindowStartNanos = System.nanoTime();
             this.t.start();
         }
 
@@ -295,6 +298,7 @@ final class UdpSessions implements AutoCloseable {
                         int pad = opts != null ? opts.padS4() : 0;
                         int maxPad =
                             pad > 0 && pad <= 64 ? pad : Protocol.MAX_PAD;
+                        applyRelayBudget(f.payload().length);
                         Protocol.writeUdpFrame(out, f, maxPad);
                         out.flush();
                     }
@@ -303,6 +307,27 @@ final class UdpSessions implements AutoCloseable {
                     closed.set(true);
                 }
             }
+        }
+
+        private void applyRelayBudget(int payloadBytes) throws InterruptedException {
+            int kbps = opts != null ? opts.relayBudgetKbps() : 0;
+            if (kbps <= 0) {
+                return;
+            }
+            long now = System.nanoTime();
+            long windowNanos = now - budgetWindowStartNanos;
+            if (windowNanos >= TimeUnit.SECONDS.toNanos(1)) {
+                budgetWindowStartNanos = now;
+                budgetWindowBytes = 0;
+            }
+            long maxBytesPerSec = (long) kbps * 1024 / 8;
+            if (budgetWindowBytes >= maxBytesPerSec) {
+                long sleepMs = Math.max(1, TimeUnit.NANOSECONDS.toMillis(TimeUnit.SECONDS.toNanos(1) - (now - budgetWindowStartNanos)));
+                TimeUnit.MILLISECONDS.sleep(sleepMs);
+                budgetWindowStartNanos = System.nanoTime();
+                budgetWindowBytes = 0;
+            }
+            budgetWindowBytes += Math.max(0, payloadBytes);
         }
 
         @Override

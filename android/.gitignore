@@ -8,6 +8,7 @@ local.properties
 
 key.properties
 keystore.properties
+volter.defaults.properties
 
 
 .idea/

@@ -8,6 +8,7 @@ data class ClientSettings(
     val proxyListen: String = "127.0.0.1:1080",
     val ipv6Tunnel: Boolean = false,
     val dualTun: Boolean = true,
+    val volterMesh: Boolean = true,
     val transportPreference: String = TRANSPORT_AUTO,
 ) {
     fun toJson(): JSONObject {
@@ -17,6 +18,7 @@ data class ClientSettings(
         if (proxyListen.isNotBlank()) j.put("proxyListen", proxyListen)
         j.put("ipv6Tunnel", ipv6Tunnel)
         j.put("dualTun", dualTun)
+        j.put("volterMesh", volterMesh)
         j.put("transportPreference", Companion.normalizedTransportPreference(transportPreference))
         return j
     }
@@ -43,6 +45,7 @@ data class ClientSettings(
                 proxyListen = j.optString("proxyListen", "127.0.0.1:1080"),
                 ipv6Tunnel = j.optBoolean("ipv6Tunnel", false),
                 dualTun = j.optBoolean("dualTun", true),
+                volterMesh = j.optBoolean("volterMesh", true),
                 transportPreference = normalizedTransportPreference(j.optString("transportPreference", TRANSPORT_AUTO)),
             )
         }

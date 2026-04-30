@@ -133,6 +133,17 @@ object CoreBridge {
         return QuicIPsResult(ips = out, error = err)
     }
 
+    fun meshStatus(): String {
+        return try {
+            val c = Class.forName("core.Core")
+            val m = c.getMethod("meshStatus")
+            m.invoke(null) as String
+        } catch (e: Exception) {
+            VolterLog.w("meshStatus: ${e.message}")
+            """{"error":"meshStatus unavailable: rebuild volter-core.aar (gomobile bind) or update native layer","detail":"${e.message}"}"""
+        }
+    }
+
     private fun nullableErr(j: JSONObject, key: String): String? {
         if (!j.has(key) || j.isNull(key)) return null
         val s = j.optString(key, "")

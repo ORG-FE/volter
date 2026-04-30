@@ -54,6 +54,7 @@ type runOpts struct {
 	dualTransport     bool
 	watchdogFail      chan struct{}
 	watchdogMark      *atomic.Bool
+	relay             *config.RelayOptions
 }
 
 func main() {

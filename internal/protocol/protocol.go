@@ -22,6 +22,9 @@ const HelloCapsHeaderLen = 11
 const HelloCapsMaxNonceLen = 32
 
 const helloCapsExtQuicLeafPin byte = 1
+const helloCapsExtRelayClass byte = 2
+const helloCapsExtPathTTL byte = 3
+const helloCapsExtRelayFlags byte = 4
 
 const maxPrefixLen = 64
 
@@ -30,8 +33,9 @@ var magic = []byte{'V', 'O', 'L', 'T', 1}
 const (
 	version = 1
 
-	roleUDP = 1
-	roleTCP = 2
+	roleUDP      = 1
+	roleTCP      = 2
+	roleRelayTCP = 3
 
 	msgUDP = 1
 
@@ -44,6 +48,8 @@ const (
 	TransportQUIC        = 1 << 1
 	FeatureIPv6          = 1
 	FeaturePolyHandshake = 1 << 1
+	FeatureRelayServer   = 1 << 2
+	FeatureRelayPeer     = 1 << 3
 )
 
 type ServerHelloCaps struct {
@@ -56,6 +62,9 @@ type ServerHelloCaps struct {
 	ObfsProfileID     byte
 	Nonce             []byte
 	QuicLeafPinSHA256 []byte
+	RelayClass        byte
+	PathTTL           byte
+	RelayFlags        uint16
 }
 
 type Handshake struct {
@@ -90,6 +99,15 @@ const slotSec = 120
 
 func TimeSlot() int64 {
 	return time.Now().Unix() / slotSec
+}
+
+func EffectiveSlot(churnEpochSec int) int64 {
+	s := TimeSlot()
+	if churnEpochSec <= 0 {
+		return s
+	}
+	c := time.Now().Unix() / int64(churnEpochSec)
+	return s + c*13
 }
 
 func BufSizeForConn(slot int64) int {
@@ -230,8 +248,18 @@ func WriteServerHelloCaps(w io.Writer, caps ServerHelloCaps) error {
 		if len(caps.QuicLeafPinSHA256) != 32 {
 			return fmt.Errorf("caps quic leaf pin must be 32 bytes")
 		}
-		payload = append(payload, helloCapsExtQuicLeafPin)
-		payload = append(payload, caps.QuicLeafPinSHA256...)
+		payload = appendTLV(payload, helloCapsExtQuicLeafPin, caps.QuicLeafPinSHA256)
+	}
+	if caps.RelayClass != 0 {
+		payload = appendTLV(payload, helloCapsExtRelayClass, []byte{caps.RelayClass})
+	}
+	if caps.PathTTL != 0 {
+		payload = appendTLV(payload, helloCapsExtPathTTL, []byte{caps.PathTTL})
+	}
+	if caps.RelayFlags != 0 {
+		var relayFlags [2]byte
+		binary.BigEndian.PutUint16(relayFlags[:], caps.RelayFlags)
+		payload = appendTLV(payload, helloCapsExtRelayFlags, relayFlags[:])
 	}
 	_, err := w.Write(payload)
 	return err
@@ -262,26 +290,54 @@ func ReadServerHelloCaps(r io.Reader) (ServerHelloCaps, error) {
 		ObfsProfileID: buf[9],
 		Nonce:         nonce,
 	}
-	tag := make([]byte, 1)
-	n, err := r.Read(tag)
-	if n == 0 {
-		if err == io.EOF {
-			return caps, nil
-		}
-		if err != nil {
-			return caps, err
-		}
-		return caps, nil
-	}
-	if tag[0] != helloCapsExtQuicLeafPin {
-		return ServerHelloCaps{}, fmt.Errorf("caps unknown extension tag %02x", tag[0])
-	}
-	pin := make([]byte, 32)
-	if _, err := io.ReadFull(r, pin); err != nil {
+	extBuf, err := io.ReadAll(r)
+	if err != nil {
 		return ServerHelloCaps{}, err
 	}
-	caps.QuicLeafPinSHA256 = pin
+	for i := 0; i+2 <= len(extBuf); {
+		tag := extBuf[i]
+		ln := int(extBuf[i+1])
+		i += 2
+		if i+ln > len(extBuf) {
+			return ServerHelloCaps{}, errors.New("caps bad extension len")
+		}
+		val := extBuf[i : i+ln]
+		i += ln
+		switch tag {
+		case helloCapsExtQuicLeafPin:
+			if ln != 32 {
+				return ServerHelloCaps{}, errors.New("caps bad quic pin len")
+			}
+			caps.QuicLeafPinSHA256 = append([]byte(nil), val...)
+		case helloCapsExtRelayClass:
+			if ln != 1 {
+				return ServerHelloCaps{}, errors.New("caps bad relay class len")
+			}
+			caps.RelayClass = val[0]
+		case helloCapsExtPathTTL:
+			if ln != 1 {
+				return ServerHelloCaps{}, errors.New("caps bad path ttl len")
+			}
+			caps.PathTTL = val[0]
+		case helloCapsExtRelayFlags:
+			if ln != 2 {
+				return ServerHelloCaps{}, errors.New("caps bad relay flags len")
+			}
+			caps.RelayFlags = binary.BigEndian.Uint16(val)
+		default:
+			return ServerHelloCaps{}, fmt.Errorf("caps unknown extension tag %02x", tag)
+		}
+	}
 	return caps, nil
+}
+
+func appendTLV(dst []byte, tag byte, val []byte) []byte {
+	if len(val) > 255 {
+		val = val[:255]
+	}
+	dst = append(dst, tag, byte(len(val)))
+	dst = append(dst, val...)
+	return dst
 }
 
 func WriteHandshakeWithPrefix(w *bufio.Writer, role byte, channelID byte, token string, prefixLen int) error {
@@ -435,19 +491,40 @@ func ReadHandshakeAfterSkip(r *bufio.Reader) (Handshake, error) {
 	return hs, nil
 }
 
+func ReadHandshakeAfterSkipWithOpts(r *bufio.Reader) (Handshake, []byte, error) {
+	if err := SkipUntilMagic(r); err != nil {
+		return Handshake{}, nil, err
+	}
+	hs, err := readHandshakeBody(r)
+	if err != nil {
+		return Handshake{}, nil, err
+	}
+	opts, err := readHandshakeOpts(r)
+	if err != nil {
+		return Handshake{}, nil, err
+	}
+	return hs, opts, nil
+}
+
 func discardHandshakeOpts(r *bufio.Reader) error {
+	_, err := readHandshakeOpts(r)
+	return err
+}
+
+func readHandshakeOpts(r *bufio.Reader) ([]byte, error) {
 	n, err := readU16(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if n > maxOptsLen {
-		return errors.New("bad opts len")
+		return nil, errors.New("bad opts len")
 	}
 	if n == 0 {
-		return nil
+		return nil, nil
 	}
-	_, err = io.CopyN(io.Discard, r, int64(n))
-	return err
+	opts := make([]byte, n)
+	_, err = io.ReadFull(r, opts)
+	return opts, err
 }
 
 func readHandshakeBody(r *bufio.Reader) (Handshake, error) {
@@ -651,8 +728,9 @@ func fillUdpPadFast(p []byte) {
 	}
 }
 
-func RoleUDP() byte { return roleUDP }
-func RoleTCP() byte { return roleTCP }
+func RoleUDP() byte      { return roleUDP }
+func RoleTCP() byte      { return roleTCP }
+func RoleRelayTCP() byte { return roleRelayTCP }
 
 func normalizeIP(ip net.IP) (byte, []byte, error) {
 	if v4 := ip.To4(); v4 != nil {

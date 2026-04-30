@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,6 +20,25 @@ fun volterVersionCode(): Int =
         ?: (project.findProperty("ptera.versionCode") as String?)?.toIntOrNull()
         ?: 1
 
+val volterDefaultsFile = rootProject.file("volter.defaults.properties")
+val volterDefaults = Properties().apply {
+    if (volterDefaultsFile.exists()) {
+        volterDefaultsFile.inputStream().use { load(it) }
+    }
+}
+
+fun escVolterBuildString(s: String): String =
+    s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+val volterMeshBootstrapPub = volterDefaults.getProperty("bootstrapPubKey", "").trim()
+val volterMeshDhtSecret = volterDefaults.getProperty("dhtRpcSecret", "").trim()
+val volterMeshRelayPeerId = volterDefaults.getProperty("relayPeerId", "").trim()
+val volterDhtUdpPort = volterDefaults.getProperty("dhtUdpPort", "4001").trim().toIntOrNull() ?: 4001
+val volterDhtFindEnabled =
+    volterDefaults.getProperty("dhtFindEnabled", "true").trim().equals("true", ignoreCase = true)
+
+val volterMeshDefaultsEnabled = volterMeshBootstrapPub.isNotEmpty()
+
 val ciDebugKeystore = file("ci-debug.keystore")
 val ciKeystorePass =
     System.getenv("VOLTER_CI_KEYSTORE_PASS") ?: System.getenv("PTERA_CI_KEYSTORE_PASS")
@@ -36,6 +57,13 @@ android {
 
         versionCode = volterVersionCode()
         versionName = volterVersionName()
+
+        buildConfigField("boolean", "VOLTER_MESH_DEFAULTS", "$volterMeshDefaultsEnabled")
+        buildConfigField("String", "VOLTER_BOOTSTRAP_PUB_KEY", "\"${escVolterBuildString(volterMeshBootstrapPub)}\"")
+        buildConfigField("String", "VOLTER_DHT_RPC_SECRET", "\"${escVolterBuildString(volterMeshDhtSecret)}\"")
+        buildConfigField("String", "VOLTER_RELAY_PEER_ID", "\"${escVolterBuildString(volterMeshRelayPeerId)}\"")
+        buildConfigField("int", "VOLTER_DHT_UDP_PORT", "$volterDhtUdpPort")
+        buildConfigField("boolean", "VOLTER_DHT_FIND_ENABLED", "$volterDhtFindEnabled")
     }
 
     signingConfigs {

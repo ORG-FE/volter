@@ -137,6 +137,8 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 			QuicTLSRoots:      opts.quicTLSRoots,
 			QuicTraceLog:      opts.quicTraceLog,
 			DualTransport:     opts.dualTransport,
+			PathManager:       tunnel.NewPathManagerFromRelay(opts.relay),
+			Relay:             opts.relay,
 			Ready:             func() { close(ready) },
 			Protection:        opts.protection,
 		}
