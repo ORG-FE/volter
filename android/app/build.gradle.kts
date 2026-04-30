@@ -30,9 +30,13 @@ val volterDefaults = Properties().apply {
 fun escVolterBuildString(s: String): String =
     s.replace("\\", "\\\\").replace("\"", "\\\"")
 
-val volterMeshBootstrapPub = volterDefaults.getProperty("bootstrapPubKey", "").trim()
-val volterMeshDhtSecret = volterDefaults.getProperty("dhtRpcSecret", "").trim()
-val volterMeshRelayPeerId = volterDefaults.getProperty("relayPeerId", "").trim()
+private val volterDefaultBootstrapPub = "zcbTuZdKgeSMxm3oLF0tCx5Z09Sn+tijqbwZ7yCo46A"
+private val volterDefaultDhtSecret = "95f9d2b2d02d890239a82e97c9d54f27ac4537a4da19c1d4e0dc3f5b29efaa15"
+private val volterDefaultRelayPeerId = ""
+
+val volterMeshBootstrapPub = volterDefaults.getProperty("bootstrapPubKey", volterDefaultBootstrapPub).trim()
+val volterMeshDhtSecret = volterDefaults.getProperty("dhtRpcSecret", volterDefaultDhtSecret).trim()
+val volterMeshRelayPeerId = volterDefaults.getProperty("relayPeerId", volterDefaultRelayPeerId).trim()
 val volterDhtUdpPort = volterDefaults.getProperty("dhtUdpPort", "4001").trim().toIntOrNull() ?: 4001
 val volterDhtFindEnabled =
     volterDefaults.getProperty("dhtFindEnabled", "true").trim().equals("true", ignoreCase = true)

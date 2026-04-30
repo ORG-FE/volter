@@ -1,0 +1,5 @@
+bootstrapPubKey=zcbTuZdKqeSMxm3oLF0tCx5Z09Sn+tijqbwZ7yCo46A
+dhtRpcSecret=95f9d2b2d02d890239a82e97c9d54f27ac4537a4da19c1d4e0dc3f5b29efaa15
+relayPeerId=vps-d67a4bbdac13
+dhtUdpPort=4001
+dhtFindEnabled=true

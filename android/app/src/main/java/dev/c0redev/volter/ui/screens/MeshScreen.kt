@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
 import dev.c0redev.volter.core.CoreBridge
 import dev.c0redev.volter.domain.model.RelayOptions
+import dev.c0redev.volter.domain.model.VolterMeshDefaults
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.mesh.MeshRelayEditor
 import kotlinx.coroutines.delay
@@ -49,7 +50,8 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
     val item = local.find { it.name == selected }
     var draft by remember { mutableStateOf(RelayOptions()) }
     LaunchedEffect(item) {
-        draft = item?.config?.relay ?: RelayOptions()
+        draft = item?.let { VolterMeshDefaults.relayForEditor(it.config.server, it.config.relay) }
+            ?: RelayOptions()
     }
 
     var body by remember { mutableStateOf("{}") }
