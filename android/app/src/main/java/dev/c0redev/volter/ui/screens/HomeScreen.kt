@@ -1,13 +1,24 @@
 package dev.c0redev.volter.ui.screens
 
+import android.graphics.Paint
+import android.graphics.RuntimeShader
+import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.filled.CheckCircle
@@ -50,19 +62,52 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.BuildConfig
 import dev.c0redev.volter.R
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
+
+private const val ringShaderSrc = """
+uniform float2 resolution;
+uniform float time;
+uniform float4 colorA;
+uniform float4 colorB;
+uniform float4 colorC;
+
+half4 main(float2 fragCoord) {
+    float2 uv = fragCoord / max(resolution, float2(1.0));
+    float2 p = uv - 0.5;
+    float r = length(p);
+    float angle = atan(p.y, p.x);
+    float wave = sin(angle * 6.0 + time * 2.4) * 0.5 + 0.5;
+    float wave2 = cos(angle * 10.0 - time * 1.8) * 0.5 + 0.5;
+    half3 c = mix(colorA.rgb, colorB.rgb, wave);
+    c = mix(c, colorC.rgb, wave2 * 0.45);
+    float glow = smoothstep(0.48, 0.12, abs(r - 0.40));
+    return half4(c * (0.65 + glow * 0.85), glow);
+}
+"""
 
 private data class GuideEntry(
     val title: String,
@@ -171,16 +216,7 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(
-                            imageVector = if (conn.connected) Icons.Default.CheckCircle else Icons.Default.Error,
-                            contentDescription = if (conn.connected) {
-                                stringResource(R.string.home_status_connected_cd)
-                            } else {
-                                stringResource(R.string.home_status_disconnected_cd)
-                            },
-                            tint = if (conn.connected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp),
-                        )
+                        ConnectionGlowIndicator(connected = conn.connected)
                         Text(
                             text = stringResource(R.string.home_status_title),
                             style = MaterialTheme.typography.titleLarge,
@@ -283,6 +319,21 @@ fun HomeScreen(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
+
+                    if (local.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Серверы подключения",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        ServerPillRow(
+                            servers = local,
+                            activeName = activeProfile,
+                            connectingName = connectingName,
+                            onSelect = { name, cfg -> vm.connect(name, cfg) },
+                        )
+                    }
                 }
             }
         }
@@ -328,6 +379,172 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ConnectionGlowIndicator(connected: Boolean, size: Dp = 26.dp) {
+    val inf = rememberInfiniteTransition(label = "connGlow")
+    val angle by inf.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(animation = tween(3600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "connGlowAngle",
+    )
+    val base = if (connected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.onSurfaceVariant
+    val glowAlpha = if (connected) 0.95f else 0.28f
+    val ringWidth = with(LocalDensity.current) { 3.dp.toPx() }
+    Box(
+        modifier = Modifier.size(size),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (connected) {
+            Box(
+                modifier = Modifier
+                    .size(size + 6.dp)
+                    .blur(8.dp)
+                    .background(Color(0xFF8B5CF6).copy(alpha = 0.35f), RoundedCornerShape(999.dp)),
+            )
+        }
+        if (connected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            AgslRing(
+                size = size,
+                ringWidth = ringWidth,
+                angle = angle,
+                alpha = glowAlpha,
+            )
+        } else {
+            androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
+                val sweep = Brush.sweepGradient(
+                    listOf(
+                        Color(0xFF8B5CF6),
+                        Color(0xFF6D28D9),
+                        Color(0xFFEC4899),
+                        Color(0xFF8B5CF6),
+                    ),
+                    center = center,
+                )
+                rotate(angle) {
+                    drawArc(
+                        brush = if (connected) sweep else Brush.linearGradient(listOf(base, base)),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = Stroke(width = ringWidth, cap = StrokeCap.Round),
+                        topLeft = Offset.Zero,
+                        size = this.size,
+                        alpha = glowAlpha,
+                    )
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .size(size - 10.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (connected) Icons.Default.CheckCircle else Icons.Default.Error,
+                contentDescription = null,
+                tint = if (connected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ServerPillRow(
+    servers: List<dev.c0redev.volter.ui.ConfigItemState>,
+    activeName: String?,
+    connectingName: String?,
+    onSelect: (String, dev.c0redev.volter.domain.model.Config) -> Unit,
+) {
+    val scroll = rememberScrollState()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(999.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.54f))
+            .horizontalScroll(scroll)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        servers.forEach { item ->
+            val selected = item.name == activeName || item.name == connectingName
+            Box(
+                modifier = Modifier
+                    .size(width = 122.dp, height = 36.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                    )
+                    .clickable { onSelect(item.name, item.config) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgslRing(size: Dp, ringWidth: Float, angle: Float, alpha: Float) {
+    val c1 = MaterialTheme.colorScheme.primary
+    val c2 = MaterialTheme.colorScheme.tertiary
+    val c3 = MaterialTheme.colorScheme.secondary
+    val shader = remember {
+        runCatching { RuntimeShader(ringShaderSrc) }.getOrNull()
+    }
+    val a1 = c1.toArgb()
+    val a2 = c2.toArgb()
+    val a3 = c3.toArgb()
+    if (shader == null) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
+            val sweep = Brush.sweepGradient(listOf(c1, c2, c3, c1), center = center)
+            rotate(angle) {
+                drawArc(
+                    brush = sweep,
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = Stroke(width = ringWidth, cap = StrokeCap.Round),
+                    topLeft = Offset.Zero,
+                    size = this.size,
+                    alpha = alpha,
+                )
+            }
+        }
+        return
+    }
+    androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
+        shader.setFloatUniform("resolution", this.size.width, this.size.height)
+        shader.setFloatUniform("time", angle / 57.2958f)
+        shader.setFloatUniform("colorA", ((a1 shr 16) and 0xFF) / 255f, ((a1 shr 8) and 0xFF) / 255f, (a1 and 0xFF) / 255f, 1f)
+        shader.setFloatUniform("colorB", ((a2 shr 16) and 0xFF) / 255f, ((a2 shr 8) and 0xFF) / 255f, (a2 and 0xFF) / 255f, 1f)
+        shader.setFloatUniform("colorC", ((a3 shr 16) and 0xFF) / 255f, ((a3 shr 8) and 0xFF) / 255f, (a3 and 0xFF) / 255f, 1f)
+        val p = Paint().apply {
+            isAntiAlias = true
+            style = Paint.Style.STROKE
+            strokeWidth = ringWidth
+            strokeCap = Paint.Cap.ROUND
+            this.alpha = (alpha * 255f).toInt().coerceIn(0, 255)
+            this.shader = shader
+        }
+        val native = drawContext.canvas.nativeCanvas
+        native.save()
+        native.rotate(angle, center.x, center.y)
+        native.drawCircle(center.x, center.y, (this.size.minDimension * 0.5f) - (ringWidth * 0.5f), p)
+        native.restore()
     }
 }
 

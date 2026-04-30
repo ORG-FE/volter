@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -138,6 +139,7 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                 ) {
                     GlassBottomBar {
                         NavigationBar(
+                            modifier = Modifier.height(74.dp),
                             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.08f),
                             tonalElevation = 0.dp,
                             windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
@@ -307,10 +309,11 @@ private fun GlassBottomBar(content: @Composable () -> Unit) {
     tonalElevation = 6.dp,
     shadowElevation = 14.dp,
   ) {
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = Modifier.fillMaxWidth().height(74.dp)) {
       Box(
         modifier = Modifier
-          .fillMaxSize()
+          .fillMaxWidth()
+          .height(74.dp)
           .clip(shape)
           .graphicsLayer {
             shader.setFloatUniform("resolution", size.width, size.height)
