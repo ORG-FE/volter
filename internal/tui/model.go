@@ -33,7 +33,7 @@ const (
 	pingYellow   = "11"
 	pingRed      = "1"
 	probeTimeout = 5 * time.Second
-	tabCount     = 7
+	tabCount     = 8
 )
 
 type tab int
@@ -44,11 +44,12 @@ const (
 	tabCloud
 	tabLogs
 	tabMesh
+	tabCluster
 	tabProtection
 	tabSettings
 )
 
-var tabNames = []string{"Главная", "Конфигурации", "Облако", "Логи", "Mesh", "Защита", "Настройки"}
+var tabNames = []string{"Главная", "Конфигурации", "Облако", "Логи", "Mesh", "Кластер", "Защита", "Настройки"}
 
 type meshRefreshMsg struct{}
 
@@ -161,6 +162,7 @@ type Model struct {
 	cloudFetchErr string
 
 	meshViewport        viewport.Model
+	clusterViewport     viewport.Model
 	protectionViewport  viewport.Model
 	protectionEditing   bool
 	protectionFormFocus int
@@ -257,6 +259,7 @@ func NewModel(opts Opts) *Model {
 		logViewport:        viewport.New(60, 14),
 		logAutoScroll:      true,
 		meshViewport:       viewport.New(60, 14),
+		clusterViewport:    viewport.New(60, 14),
 		protectionViewport: viewport.New(60, 14),
 	}
 	m.clientSettings, _ = config.LoadClientSettings()
@@ -279,6 +282,10 @@ func (m *Model) batchTabSwitch() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.tab == tabMesh {
 		m.setMeshViewportContent()
+		cmds = append(cmds, meshTickCmd())
+	}
+	if m.tab == tabCluster {
+		m.setClusterViewportContent()
 		cmds = append(cmds, meshTickCmd())
 	}
 	if m.tab == tabConfig && len(m.cfgs) > 0 {
@@ -305,6 +312,10 @@ func (m *Model) meshRelayEffectiveTarget() string {
 
 func (m *Model) setMeshViewportContent() {
 	m.meshViewport.SetContent(m.meshFullContent())
+}
+
+func (m *Model) setClusterViewportContent() {
+	m.clusterViewport.SetContent(m.clusterFullContent())
 }
 
 func (m *Model) meshFullContent() string {
@@ -356,6 +367,55 @@ func (m *Model) meshFullContent() string {
 		b.WriteString(emptyState.Render("Не подключено — таблица узлов и srflx после VPN-сессии с relay.") + "\n\n")
 	}
 	b.WriteString(meshstatus.Format(meshstatus.Gather()))
+	return b.String()
+}
+
+func (m *Model) clusterFullContent() string {
+	s := meshstatus.Gather()
+	var b strings.Builder
+	b.WriteString(sectionTitle.Render("Кластер серверов") + "\n\n")
+	if s.ClusterNodeID != "" {
+		b.WriteString("Текущий узел: " + s.ClusterNodeID + "\n")
+	} else {
+		b.WriteString("Текущий узел: —\n")
+	}
+	if len(s.ClusterNodes) == 0 {
+		b.WriteString(emptyState.Render("Кластерные серверы пока не найдены") + "\n")
+	} else {
+		b.WriteString("Серверы:\n")
+		for _, n := range s.ClusterNodes {
+			b.WriteString("  • " + n + "\n")
+		}
+	}
+	if s.ClusterSessionsCount >= 0 {
+		b.WriteString(fmt.Sprintf("\nResume-сессии: %d", s.ClusterSessionsCount))
+		if s.ClusterSessionsNodeID != "" {
+			b.WriteString(" (узел " + s.ClusterSessionsNodeID + ")")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(fmt.Sprintf("Store-forward sent/recv: %d/%d\n", s.StoreForwardSent, s.StoreForwardRecv))
+	b.WriteString("\n")
+	b.WriteString(sectionTitle.Render("Mesh клиенты (DHT nearest)") + "\n")
+	if len(s.Nodes) == 0 {
+		b.WriteString(emptyState.Render("Клиенты пока не собраны") + "\n")
+	} else {
+		show := s.Nodes
+		if len(show) > 48 {
+			show = show[:48]
+		}
+		for _, n := range show {
+			line := "  • " + n.ID
+			if n.Class != "" {
+				line += " [" + n.Class + "]"
+			}
+			if n.Endpoints != "" {
+				line += " ep=" + n.Endpoints
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+	b.WriteString(fmt.Sprintf("\nОбновлено: %s\n", s.CollectedAt.Format(time.RFC3339)))
 	return b.String()
 }
 
@@ -1636,6 +1696,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setMeshViewportContent()
 			return m, meshTickCmd()
 		}
+		if m.tab == tabCluster {
+			m.setClusterViewportContent()
+			return m, meshTickCmd()
+		}
 		return m, nil
 	case disconnectedMsg:
 		m.status = statusDisconnected
@@ -1674,7 +1738,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case meshRefreshMsg:
 		m.setMeshViewportContent()
-		if m.tab == tabMesh {
+		m.setClusterViewportContent()
+		if m.tab == tabMesh || m.tab == tabCluster {
 			return m, meshTickCmd()
 		}
 		return m, nil
@@ -1694,6 +1759,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.meshViewport.Width < 20 {
 			m.meshViewport.Width = 20
+		}
+		m.clusterViewport.Width = msg.Width - 4
+		m.clusterViewport.Height = msg.Height - 14
+		if m.clusterViewport.Height < 5 {
+			m.clusterViewport.Height = 5
+		}
+		if m.clusterViewport.Width < 20 {
+			m.clusterViewport.Width = 20
 		}
 		m.protectionViewport.Width = msg.Width - 4
 		m.protectionViewport.Height = msg.Height - 10
@@ -1816,6 +1889,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.tab == tabMesh && !m.meshEditing {
 		m.meshViewport, cmd = m.meshViewport.Update(msg)
+		return m, cmd
+	}
+	if m.tab == tabCluster {
+		m.clusterViewport, cmd = m.clusterViewport.Update(msg)
 		return m, cmd
 	}
 	if m.tab == tabProtection {
@@ -2224,6 +2301,8 @@ func (m *Model) View() string {
 		content.WriteString(m.logViewport.View())
 	case tabMesh:
 		content.WriteString(m.meshViewport.View())
+	case tabCluster:
+		content.WriteString(m.clusterViewport.View())
 	case tabProtection:
 		content.WriteString(m.protectionView())
 	case tabSettings:
@@ -2285,6 +2364,9 @@ func (m *Model) View() string {
 	}
 	if m.tab == tabMesh {
 		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("K") + hintText.Render(" export ticket  ") + hintKey.Render("I") + hintText.Render(" import ticket(file)  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
+	}
+	if m.tab == tabCluster {
+		footer += hintText.Render("  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabProtection {
 		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" редактировать  ") + hintKey.Render("1/2/3") + hintText.Render(" баланс/усил/авто  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка")

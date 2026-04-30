@@ -4,6 +4,7 @@
 
     <string name="nav_home">Home</string>
     <string name="nav_configs">Profiles</string>
+    <string name="nav_cluster">Cluster</string>
     <string name="nav_logs">Logs</string>
     <string name="nav_mesh">Mesh</string>
     <string name="mesh_title">Mesh / relay</string>

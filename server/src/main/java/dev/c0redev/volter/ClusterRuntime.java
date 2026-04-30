@@ -52,9 +52,36 @@ final class ClusterRuntime {
     if (c == null) return;
     String endpoint = "";
     if (!c.listenPorts().isEmpty()) {
-      endpoint = "http://127.0.0.1:" + c.listenPorts().get(0) + c.clusterMapPath();
+      String host = resolveSelfHost(c);
+      endpoint = "http://" + host.trim() + ":" + c.listenPorts().get(0) + c.clusterMapPath();
     }
     nodes.put(c.clusterNodeId(), new ClusterNode(c.clusterNodeId(), endpoint, System.currentTimeMillis(), true));
+  }
+
+  private String resolveSelfHost(Config c) {
+    String host = c.publicHost();
+    if (host != null && !host.isBlank()) {
+      return host.trim();
+    }
+    String[] endpoints = new String[] {
+        "https://api.ipify.org",
+        "https://checkip.amazonaws.com",
+        "https://ipv4.icanhazip.com",
+    };
+    for (String u : endpoints) {
+      try {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(u))
+            .timeout(Duration.ofSeconds(3))
+            .GET()
+            .build();
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() < 200 || resp.statusCode() >= 300) continue;
+        String ip = resp.body() == null ? "" : resp.body().trim();
+        if (!ip.isBlank()) return ip;
+      } catch (Exception ignored) {
+      }
+    }
+    return "127.0.0.1";
   }
 
   String clusterMapJson() {
@@ -112,19 +139,29 @@ final class ClusterRuntime {
       try {
         HttpRequest req = clusterPeerGet(URI.create(u));
         HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-        if (resp.statusCode() < 200 || resp.statusCode() >= 300) continue;
-        mergeFromJson(resp.body());
+        int sc = resp.statusCode();
+        if (sc < 200 || sc >= 300) {
+          log.warning("cluster pull map non-2xx peer=" + normalizeEndpoint(u) + " status=" + sc);
+          continue;
+        }
+        int before = nodes.size();
+        int merged = mergeFromJson(resp.body());
+        int after = nodes.size();
+        log.info("cluster pull map ok peer=" + normalizeEndpoint(u) + " merged=" + merged + " nodes=" + before + "->" + after);
         String sessUrl = sessionsUrlFromMapUrl(u, c);
         try {
           HttpRequest sreq = clusterPeerGet(URI.create(sessUrl));
           HttpResponse<String> sresp = http.send(sreq, HttpResponse.BodyHandlers.ofString());
           if (sresp.statusCode() >= 200 && sresp.statusCode() < 300) {
             SessionResumeRegistry.get().mergeFromJson(sresp.body());
+          } else {
+            log.warning("cluster pull sessions non-2xx peer=" + normalizeEndpoint(sessUrl) + " status=" + sresp.statusCode());
           }
         } catch (Exception ex) {
-          log.fine("cluster sessions pull: " + ex.getMessage());
+          log.warning("cluster pull sessions failed peer=" + normalizeEndpoint(sessUrl) + " err=" + ex.getMessage());
         }
       } catch (Exception e) {
+        log.warning("cluster pull map failed peer=" + normalizeEndpoint(u) + " err=" + e.getMessage());
         markPeerDown(u);
       }
     }
@@ -231,17 +268,20 @@ final class ClusterRuntime {
     }
   }
 
-  private void mergeFromJson(String raw) {
-    if (raw == null || raw.isBlank()) return;
+  private int mergeFromJson(String raw) {
+    if (raw == null || raw.isBlank()) return 0;
     List<Map<String, String>> parsed = parseNodes(raw);
     long now = System.currentTimeMillis();
+    int merged = 0;
     for (Map<String, String> row : parsed) {
       String id = row.getOrDefault("id", "").trim();
       String endpoint = row.getOrDefault("endpoint", "").trim();
       if (id.isEmpty()) continue;
       if (endpoint.isEmpty()) endpoint = "";
       nodes.put(id, new ClusterNode(id, endpoint, now, true));
+      merged++;
     }
+    return merged;
   }
 
   private static List<Map<String, String>> parseNodes(String json) {
