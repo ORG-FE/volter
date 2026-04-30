@@ -236,17 +236,19 @@ uniform shader background;
 uniform float2 resolution;
 uniform float time;
 uniform float4 tint;
+uniform float4 accent;
 
 half4 main(float2 fragCoord) {
   float2 uv = fragCoord / max(resolution, float2(1.0));
-  float wave = sin((uv.x * 8.0) + time * 0.65) * 0.006;
-  float wave2 = cos((uv.y * 12.0) - time * 0.45) * 0.004;
+  float wave = sin((uv.x * 5.0) + time * 0.35) * 0.0018;
+  float wave2 = cos((uv.y * 7.0) - time * 0.25) * 0.0012;
   float2 p = uv + float2(wave, wave2);
   half4 base = background.eval(p * resolution);
-  float glow = smoothstep(0.0, 1.0, 1.0 - abs(uv.y - 0.18) * 4.0) * 0.18;
-  half4 glass = mix(base, half4(tint.rgb, 1.0), 0.26);
-  glass.rgb += glow;
-  glass.a = 0.78;
+  float edge = smoothstep(0.0, 1.0, 1.0 - abs(uv.y - 0.08) * 8.0) * 0.08;
+  half3 tone = mix(tint.rgb, accent.rgb, 0.12);
+  half4 glass = mix(base, half4(tone, 1.0), 0.18);
+  glass.rgb += edge * 0.6;
+  glass.a = 0.86;
   return glass;
 }
 """
@@ -255,6 +257,7 @@ half4 main(float2 fragCoord) {
 private fun GlassBottomBar(content: @Composable () -> Unit) {
   val shape = RoundedCornerShape(28.dp)
   val tint = MaterialTheme.colorScheme.surfaceContainerHigh
+  val accent = MaterialTheme.colorScheme.primaryContainer
   val outline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
     Surface(
@@ -296,6 +299,7 @@ private fun GlassBottomBar(content: @Composable () -> Unit) {
     label = "glassTime",
   )
   val tintArgb by rememberUpdatedState(tint.toArgb())
+  val accentArgb by rememberUpdatedState(accent.toArgb())
   Surface(
     modifier = Modifier
       .clip(shape)
@@ -309,12 +313,19 @@ private fun GlassBottomBar(content: @Composable () -> Unit) {
           (tintArgb and 0xFF) / 255f,
           ((tintArgb ushr 24) and 0xFF) / 255f,
         )
-        val blur = RenderEffect.createBlurEffect(24f, 24f, android.graphics.Shader.TileMode.CLAMP)
+        shader.setFloatUniform(
+          "accent",
+          ((accentArgb shr 16) and 0xFF) / 255f,
+          ((accentArgb shr 8) and 0xFF) / 255f,
+          (accentArgb and 0xFF) / 255f,
+          ((accentArgb ushr 24) and 0xFF) / 255f,
+        )
+        val blur = RenderEffect.createBlurEffect(10f, 10f, android.graphics.Shader.TileMode.CLAMP)
         val rt = RenderEffect.createRuntimeShaderEffect(shader, "background")
         renderEffect = RenderEffect.createChainEffect(rt, blur).asComposeRenderEffect()
       },
     shape = shape,
-    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
+    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.22f),
     border = BorderStroke(1.dp, outline),
     tonalElevation = 6.dp,
     shadowElevation = 14.dp,
