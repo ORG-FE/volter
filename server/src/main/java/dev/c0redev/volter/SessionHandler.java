@@ -20,7 +20,7 @@ final class SessionHandler {
   private final Runnable onDone;
   private static final int RELAY_HOP_HARD_LIMIT = 2;
   private static final PeerRelayGuard PEER_GUARD = new PeerRelayGuard();
-  private static final RelayRegistry RELAY_REGISTRY = new RelayRegistry();
+  private static volatile RelayRegistry relayRegistry;
 
   SessionHandler(Config cfg, UdpSessions udp, String remote, Runnable onDone) {
     this.cfg = cfg;
@@ -40,6 +40,15 @@ final class SessionHandler {
   ) throws IOException {
     int requestedObfs = hr.opts().map(Protocol.ClientOptions::probeObfsProfileId).orElse(0);
     int agreedObfs = Protocol.normalizeObfsProfile(requestedObfs);
+    if (hr.opts().isPresent()) {
+      Protocol.ClientOptions o = hr.opts().get();
+      if (!o.sessionId().isBlank() && !o.resumeToken().isBlank()) {
+        boolean ok = SessionResumeRegistry.get().accept(o.sessionId(), o.resumeToken(), remote, cfg.clusterNodeId());
+        if (!ok) {
+          throw new IOException("resume token mismatch");
+        }
+      }
+    }
     log.info("Accepted role=" + hs.role() + " from " + remote + " obfsProfile=" + agreedObfs);
     if (hs.role() == Protocol.ROLE_UDP) {
       Runnable r = () -> {
@@ -67,26 +76,31 @@ final class SessionHandler {
       if (!cfg.peerRelayEnabled()) {
         throw new IOException("peer relay disabled by policy");
       }
-      if (!RELAY_REGISTRY.tryAcquire(remote)) {
+      RelayRegistry registry = relayRegistry(cfg);
+      if (!registry.tryAcquire(remote)) {
         throw new IOException("relay capacity exceeded");
       }
       int relayHop = hr.opts().map(Protocol.ClientOptions::relayHop).orElse(0);
       int relayMaxHop = hr.opts().map(Protocol.ClientOptions::relayMaxHop).orElse(RELAY_HOP_HARD_LIMIT);
       int capHop = Math.min(RELAY_HOP_HARD_LIMIT, relayMaxHop);
       if (relayHop >= capHop) {
-        RELAY_REGISTRY.release(remote);
+        registry.release(remote);
         throw new IOException("relay hop limit exceeded");
       }
       Protocol.ClientOptions opt = hr.opts().orElse(null);
+      if (opt != null && opt.relayBudgetKbps() > cfg.relayMaxBudgetKbps()) {
+        registry.release(remote);
+        throw new IOException("relay budget too high");
+      }
       if (!PEER_GUARD.allow(opt, cfg.token())) {
-        RELAY_REGISTRY.release(remote);
+        registry.release(remote);
         throw new IOException("relay identity rejected");
       }
       Protocol.TcpConnect c = Protocol.readTcpConnect(in);
       try {
         tcpHandler.onTcp(c, in);
       } finally {
-        RELAY_REGISTRY.release(remote);
+        registry.release(remote);
       }
       return;
     }
@@ -105,6 +119,17 @@ final class SessionHandler {
       }
     } finally {
       udp.removeWriter(writer);
+    }
+  }
+
+  private static RelayRegistry relayRegistry(Config cfg) {
+    RelayRegistry r = relayRegistry;
+    if (r != null) return r;
+    synchronized (SessionHandler.class) {
+      if (relayRegistry == null) {
+        relayRegistry = new RelayRegistry(cfg.relayMaxPerRemote(), cfg.relayMaxTotal());
+      }
+      return relayRegistry;
     }
   }
 }

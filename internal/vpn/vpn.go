@@ -33,6 +33,15 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip"
 )
 
+func clusterPollHeaderKey(opt Options) string {
+	if opt.Protection != nil {
+		if k := strings.TrimSpace(opt.Protection.ClusterHTTPKey); k != "" {
+			return k
+		}
+	}
+	return strings.TrimSpace(opt.Token)
+}
+
 type Options struct {
 	TunFD             int
 	MTU               int
@@ -62,6 +71,10 @@ func Run(ctx context.Context, opt Options) error {
 	if len(opt.ServerAddrs) == 0 {
 		return errors.New("server addrs empty")
 	}
+	ck := clusterPollHeaderKey(opt)
+	mapPath, sessPath := clusterPollPaths(opt.Protection)
+	go runClusterMapPoll(ctx, opt.ServerAddrs[0], ck, mapPath)
+	go runClusterSessionsPoll(ctx, opt.ServerAddrs[0], ck, sessPath)
 	telemetry.NoteVPNStart()
 	readyCb := opt.Ready
 	tunnel.SetQUICTrace(opt.QuicTraceLog)
@@ -105,6 +118,9 @@ func Run(ctx context.Context, opt Options) error {
 	}
 	if opt.Relay != nil && (len(opt.Relay.GossipPeers) > 0 || len(opt.Relay.DHTFindURLs) > 0) {
 		go runGossipMesh(ctx, opt.Relay)
+	}
+	if opt.Relay != nil && strings.TrimSpace(opt.Relay.PeerID) != "" && len(opt.Relay.DhtRpcSeedPeers) > 0 {
+		go runStoreForwardControlPlane(ctx, opt.Relay)
 	}
 	if opt.Relay != nil && (strings.TrimSpace(opt.Relay.DhtRpcListenUDP) != "" || len(opt.Relay.DhtRpcSeedPeers) > 0) {
 		go runDhtRpcSidecar(ctx, opt.Relay)

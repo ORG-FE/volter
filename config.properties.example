@@ -28,7 +28,23 @@ quicKeyPath=quic/auto.key
 # Peer relay / QUIC retry (см. Config.java)
 peerRelayEnabled=true
 # quicRetryTokens=false
+# relay.maxPerRemote=64
+# relay.maxTotal=2048
+# relay.maxBudgetKbps=10240
 
+# Кластер серверов
+# cluster.nodeId=ru-1
+# cluster.listen=25565
+# cluster.peers=de-1.example.com:25565,de-2.example.com:25565
+# cluster.gossipIntervalMs=5000
+# cluster.mapPath=/volter/cluster-map.json
+# cluster.sessionsPath=/volter/cluster-sessions.json
+# cluster.httpAuth=false
+# cluster.httpSecret=
+# Если httpAuth=true: GET cluster-map и cluster-sessions только с заголовком X-Volter-Cluster-Key.
+# Ожидаемое значение: cluster.httpSecret, иначе равен token сервера.
+# Клиент Go/Android: те же пути и ключ можно задать в JSON protection профиля:
+# clusterMapPath, clusterSessionsPath, clusterHttpKey (см. internal/config ProtectionOptions).
 # Обновления с GitHub (интервал не меньше 15 минут в коде)
 update.enabled=false
 update.repo=ORG-FE/volter

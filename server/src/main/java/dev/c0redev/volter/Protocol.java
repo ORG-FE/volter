@@ -330,7 +330,9 @@ final class Protocol {
       int relayBudgetKbps,
       String peerId,
       String relayNonce,
-      String relaySig) {
+      String relaySig,
+      String sessionId,
+      String resumeToken) {
     static Optional<ClientOptions> parse(String json) {
       try {
         int padS4 = 32;
@@ -341,6 +343,8 @@ final class Protocol {
         String peerId = "";
         String relayNonce = "";
         String relaySig = "";
+        String sessionId = "";
+        String resumeToken = "";
         if (json.contains("\"padS4\"")) {
           int i = json.indexOf("\"padS4\"");
           int start = json.indexOf(":", i) + 1;
@@ -409,6 +413,20 @@ final class Protocol {
           int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
           if (q1 >= 0 && q2 > q1) relaySig = json.substring(q1 + 1, q2).trim();
         }
+        if (json.contains("\"sessionId\"")) {
+          int i = json.indexOf("\"sessionId\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) sessionId = json.substring(q1 + 1, q2).trim();
+        }
+        if (json.contains("\"resumeToken\"")) {
+          int i = json.indexOf("\"resumeToken\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) resumeToken = json.substring(q1 + 1, q2).trim();
+        }
         return Optional.of(new ClientOptions(
             padS4,
             probeObfsProfileId,
@@ -417,7 +435,9 @@ final class Protocol {
             relayBudgetKbps,
             peerId,
             relayNonce,
-            relaySig));
+            relaySig,
+            sessionId,
+            resumeToken));
       } catch (Exception e) {
         return Optional.empty();
       }

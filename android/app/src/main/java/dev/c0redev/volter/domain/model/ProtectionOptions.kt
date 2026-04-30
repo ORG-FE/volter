@@ -18,6 +18,9 @@ data class ProtectionOptions(
     val flushPolicy: String? = null,
     val preambleProfile: String? = null,
     val preambleRotate: Boolean = false,
+    val clusterHttpKey: String? = null,
+    val clusterMapPath: String? = null,
+    val clusterSessionsPath: String? = null,
 ) {
     fun toJson(): JSONObject {
         val j = JSONObject()
@@ -35,6 +38,9 @@ data class ProtectionOptions(
         flushPolicy?.let { j.put("flushPolicy", it) }
         preambleProfile?.let { j.put("preambleProfile", it) }
         if (preambleRotate) j.put("preambleRotate", true)
+        clusterHttpKey?.let { j.put("clusterHttpKey", it) }
+        clusterMapPath?.let { j.put("clusterMapPath", it) }
+        clusterSessionsPath?.let { j.put("clusterSessionsPath", it) }
         return j
     }
 
@@ -54,6 +60,9 @@ data class ProtectionOptions(
             flushPolicy = j.optNullableString("flushPolicy"),
             preambleProfile = j.optNullableString("preambleProfile"),
             preambleRotate = j.optBoolean("preambleRotate", false),
+            clusterHttpKey = j.optNullableString("clusterHttpKey"),
+            clusterMapPath = j.optNullableString("clusterMapPath"),
+            clusterSessionsPath = j.optNullableString("clusterSessionsPath"),
         )
     }
 }

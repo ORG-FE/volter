@@ -6,6 +6,7 @@ import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.MetricsStore
+import dev.c0redev.volter.domain.model.PeerTicket
 import dev.c0redev.volter.domain.model.SessionRecord
 
 data class StoredConfig(
@@ -43,5 +44,9 @@ class LocalConfigRepository(context: Context) {
     fun loadMetrics(): MetricsStore = storage.loadMetrics()
 
     fun appendMetric(r: SessionRecord) = storage.appendMetric(r)
+
+    fun listPeerTickets(): List<PeerTicket> = storage.listPeerTickets()
+
+    fun upsertPeerTicket(ticket: PeerTicket) = storage.upsertPeerTicket(ticket)
 }
 

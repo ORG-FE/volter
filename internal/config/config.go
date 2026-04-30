@@ -106,12 +106,17 @@ type ProtectionOptions struct {
 	PeerID              string `json:"peerId,omitempty"`
 	RelayNonce          string `json:"relayNonce,omitempty"`
 	RelaySig            string `json:"relaySig,omitempty"`
+	SessionID           string `json:"sessionId,omitempty"`
+	ResumeToken         string `json:"resumeToken,omitempty"`
 	ChurnEpochSec       int    `json:"churnEpochSec,omitempty"`
 	FlushJitterMaxMs    int    `json:"flushJitterMaxMs,omitempty"`
 	BurstSmoothingMaxMs int    `json:"burstSmoothingMaxMs,omitempty"`
 	ShapeMaxKbps        int    `json:"shapeMaxKbps,omitempty"`
 	ShapeJitterMaxMs    int    `json:"shapeJitterMaxMs,omitempty"`
 	ShapeExpMeanMs      int    `json:"shapeExpMeanMs,omitempty"`
+	ClusterHTTPKey        string `json:"clusterHttpKey,omitempty"`
+	ClusterMapPath        string `json:"clusterMapPath,omitempty"`
+	ClusterSessionsPath   string `json:"clusterSessionsPath,omitempty"`
 }
 
 func Dir() (string, error) {

@@ -4,7 +4,6 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.InputStreamReader;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.BufferedWriter;
@@ -163,6 +162,20 @@ final class ConnectionHandler implements Runnable {
             } catch (IOException e) {
                 log.fine("gossip nodes http: " + e.getMessage());
             }
+            try {
+                if (tryClusterMapHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster map http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterSessionsHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster sessions http: " + e.getMessage());
+            }
         }
         String host = cfg.camouflageTcpProxyHost();
         int port = cfg.camouflageTcpProxyPort();
@@ -286,6 +299,66 @@ final class ConnectionHandler implements Runnable {
         return true;
     }
 
+    private boolean tryClusterMapHttp(BufferedInputStream rawIn, OutputStream rawOut) throws IOException {
+        String want = cfg.clusterMapPath();
+        if (want == null || want.isBlank()) {
+            return false;
+        }
+        rawIn.mark(65536);
+        String line = readHttpLine(rawIn, 8192);
+        String path = httpRequestPath(line);
+        if (!want.equals(path)) {
+            rawIn.reset();
+            return false;
+        }
+        if (!clusterHttpAuthorize(rawIn, rawOut)) {
+            return true;
+        }
+        byte[] body = (ClusterRuntime.get().clusterMapJson() + "\n").getBytes(StandardCharsets.UTF_8);
+        BufferedWriter w = new BufferedWriter(new OutputStreamWriter(rawOut, StandardCharsets.UTF_8));
+        w.write("HTTP/1.1 200 OK\r\n");
+        w.write("Server: " + cfg.camouflageHttpServerName() + "\r\n");
+        w.write("Content-Type: application/json; charset=utf-8\r\n");
+        w.write("Content-Length: " + body.length + "\r\n");
+        w.write("Connection: close\r\n");
+        w.write("\r\n");
+        w.flush();
+        rawOut.write(body);
+        rawOut.flush();
+        log.fine("served cluster map " + body.length + " bytes");
+        return true;
+    }
+
+    private boolean tryClusterSessionsHttp(BufferedInputStream rawIn, OutputStream rawOut) throws IOException {
+        String want = cfg.clusterSessionsPath();
+        if (want == null || want.isBlank()) {
+            return false;
+        }
+        rawIn.mark(65536);
+        String line = readHttpLine(rawIn, 8192);
+        String path = httpRequestPath(line);
+        if (!want.equals(path)) {
+            rawIn.reset();
+            return false;
+        }
+        if (!clusterHttpAuthorize(rawIn, rawOut)) {
+            return true;
+        }
+        byte[] body = (SessionResumeRegistry.get().exportJson(cfg.clusterNodeId()) + "\n").getBytes(StandardCharsets.UTF_8);
+        BufferedWriter w = new BufferedWriter(new OutputStreamWriter(rawOut, StandardCharsets.UTF_8));
+        w.write("HTTP/1.1 200 OK\r\n");
+        w.write("Server: " + cfg.camouflageHttpServerName() + "\r\n");
+        w.write("Content-Type: application/json; charset=utf-8\r\n");
+        w.write("Content-Length: " + body.length + "\r\n");
+        w.write("Connection: close\r\n");
+        w.write("\r\n");
+        w.flush();
+        rawOut.write(body);
+        rawOut.flush();
+        log.fine("served cluster sessions " + body.length + " bytes");
+        return true;
+    }
+
     private static String readHttpLine(BufferedInputStream in, int maxLen) throws IOException {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < maxLen; i++) {
@@ -310,6 +383,54 @@ final class ConnectionHandler implements Runnable {
                 return;
             }
         }
+    }
+
+    private boolean clusterHttpAuthorize(BufferedInputStream rawIn, OutputStream rawOut) throws IOException {
+        if (!cfg.clusterHttpAuth()) {
+            drainHttpHeaders(rawIn);
+            return true;
+        }
+        String want = cfg.clusterHttpExpectedKey();
+        if (want.isEmpty()) {
+            drainHttpHeaders(rawIn);
+            writeClusterHttpForbidden(rawOut);
+            return false;
+        }
+        String got = null;
+        while (true) {
+            String line = readHttpLine(rawIn, 8192);
+            if (line.isEmpty()) {
+                break;
+            }
+            int c = line.indexOf(':');
+            if (c <= 0) {
+                continue;
+            }
+            if (line.substring(0, c).trim().equalsIgnoreCase("X-Volter-Cluster-Key")) {
+                got = line.substring(c + 1).trim();
+            }
+        }
+        byte[] a = want.getBytes(StandardCharsets.UTF_8);
+        byte[] b = (got != null ? got : "").getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(a, b)) {
+            writeClusterHttpForbidden(rawOut);
+            return false;
+        }
+        return true;
+    }
+
+    private void writeClusterHttpForbidden(OutputStream rawOut) throws IOException {
+        byte[] body = "forbidden\n".getBytes(StandardCharsets.UTF_8);
+        BufferedWriter w = new BufferedWriter(new OutputStreamWriter(rawOut, StandardCharsets.UTF_8));
+        w.write("HTTP/1.1 403 Forbidden\r\n");
+        w.write("Server: " + cfg.camouflageHttpServerName() + "\r\n");
+        w.write("Content-Type: text/plain; charset=utf-8\r\n");
+        w.write("Content-Length: " + body.length + "\r\n");
+        w.write("Connection: close\r\n");
+        w.write("\r\n");
+        w.flush();
+        rawOut.write(body);
+        rawOut.flush();
     }
 
     private static String httpRequestPath(String line) {
@@ -418,9 +539,9 @@ final class ConnectionHandler implements Runnable {
                 obfsProfileId,
                 nonce,
                 QuicServer.getAdvertisedQuicLeafPin(),
+                cfg.peerRelayEnabled() ? 2 : 1,
                 2,
-                2,
-                1
+                cfg.peerRelayEnabled() ? 1 : 0
             ));
         } catch (Throwable ignored) {}
     }

@@ -2,12 +2,15 @@ package tunnel
 
 import (
 	"bufio"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -19,6 +22,8 @@ import (
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/telemetry"
 )
+
+const dualPathCutoverTimeout = 4 * time.Second
 
 func wrapFlushJitter(prot *config.ProtectionOptions, flush func()) func() {
 	if flush == nil {
@@ -142,6 +147,7 @@ func WriteUDPChannelPreambleSlot(w *bufio.Writer, channelID byte, token string, 
 	}
 	var optsJSON []byte
 	if prot != nil {
+		enrichSessionOptions(prot, token)
 		optsJSON, _ = json.Marshal(prot)
 	}
 	if err = protocol.WriteHandshakeWithPrefixAndOptsSlot(w, protocol.RoleUDP(), channelID, token, prefixLen, optsJSON, slot); err != nil {
@@ -188,6 +194,7 @@ func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOpti
 	var optsJSON []byte
 	role := protocol.RoleTCP()
 	if prot != nil {
+		enrichSessionOptions(prot, token)
 		eff := relayOptsForHandshake(prot, token)
 		optsJSON, _ = json.Marshal(eff)
 		if eff.RelayHop > 0 || eff.RelayMaxHop > 0 || eff.PeerID != "" {
@@ -195,6 +202,22 @@ func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOpti
 		}
 	}
 	return protocol.WriteHandshakeWithPrefixAndOptsSlot(w, role, 0, token, prefixLen, optsJSON, slot)
+}
+
+func enrichSessionOptions(prot *config.ProtectionOptions, token string) {
+	if prot == nil {
+		return
+	}
+	if strings.TrimSpace(prot.SessionID) == "" {
+		rb := make([]byte, 12)
+		if _, err := rand.Read(rb); err == nil {
+			prot.SessionID = "s-" + hex.EncodeToString(rb)
+		}
+	}
+	if strings.TrimSpace(prot.ResumeToken) == "" {
+		sum := sha256.Sum256([]byte(strings.TrimSpace(token) + "|" + strings.TrimSpace(prot.SessionID)))
+		prot.ResumeToken = base64.RawStdEncoding.EncodeToString(sum[:16])
+	}
 }
 
 func relayOptsForHandshake(src *config.ProtectionOptions, token string) *config.ProtectionOptions {
@@ -301,6 +324,31 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		if sel != nil {
 			preferTCP = !sel.PreferQUIC()
 		}
+		raceStart := time.Now()
+		c, quicFailed, tcpUsed, err := dialDualRace(addrs, dst, dstPort, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, preferTCP)
+		if err == nil {
+			w := "quic"
+			if tcpUsed {
+				w = "tcp"
+			}
+			telemetry.RecordPath(telemetry.SwitchTransport, fmt.Sprintf("dual race first %s %s:%d in %s", w, dst.String(), dstPort, time.Since(raceStart).Round(time.Millisecond)))
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			telemetry.RecordPath(telemetry.SwitchTransport, fmt.Sprintf("dual race 4s timeout %s:%d", dst.String(), dstPort))
+		}
+		if sel != nil {
+			if tcpUsed {
+				sel.RecordQuicOutcome(false)
+			} else {
+				sel.RecordQuicOutcome(true)
+			}
+			telemetry.SetDpiQuicGoodnessEWMA(sel.QuicGoodnessEWMA())
+		}
+		if pm != nil {
+			pm.Record(dst, err == nil, decision.RelayClass, decision.PathTTL)
+		}
+		if err == nil {
+			return c, quicFailed, tcpUsed, nil
+		}
 	}
 	if preferTCP {
 		if pm != nil && decision.PreferTCP && decision.PeerAddr == "" {
@@ -340,4 +388,64 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		pm.Record(dst, err == nil, decision.RelayClass, decision.PathTTL)
 	}
 	return c, false, false, err
+}
+
+type dualDialRes struct {
+	conn     net.Conn
+	forceTCP bool
+	err      error
+}
+
+func dialDualRace(addrs []string, dst net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, preferTCP bool) (net.Conn, bool, bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), dualPathCutoverTimeout)
+	defer cancel()
+	resCh := make(chan dualDialRes, 2)
+	startDial := func(forceTCP bool, delay time.Duration) {
+		go func() {
+			if delay > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(delay):
+				}
+			}
+			c, err := Dial(addrs, dst, dstPort, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, forceTCP)
+			select {
+			case resCh <- dualDialRes{conn: c, forceTCP: forceTCP, err: err}:
+			case <-ctx.Done():
+				if c != nil {
+					_ = c.Close()
+				}
+			}
+		}()
+	}
+	if preferTCP {
+		startDial(true, 0)
+		startDial(false, 120*time.Millisecond)
+	} else {
+		startDial(false, 0)
+		startDial(true, 120*time.Millisecond)
+	}
+	var firstErr error
+	for i := 0; i < 2; i++ {
+		select {
+		case <-ctx.Done():
+			if firstErr == nil {
+				return nil, true, preferTCP, context.DeadlineExceeded
+			}
+			return nil, true, preferTCP, firstErr
+		case r := <-resCh:
+			if r.err == nil && r.conn != nil {
+				cancel()
+				return r.conn, r.forceTCP, r.forceTCP, nil
+			}
+			if firstErr == nil {
+				firstErr = r.err
+			}
+		}
+	}
+	if firstErr == nil {
+		firstErr = context.DeadlineExceeded
+	}
+	return nil, true, preferTCP, firstErr
 }

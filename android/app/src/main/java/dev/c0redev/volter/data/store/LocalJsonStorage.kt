@@ -4,6 +4,7 @@ import android.content.Context
 import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.domain.model.MetricsStore
+import dev.c0redev.volter.domain.model.PeerTicket
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.SessionRecord
 import java.io.File
@@ -15,6 +16,7 @@ class LocalJsonStorage(private val context: Context) {
     private val configsDir = File(baseDir, "configs")
     private val settingsFile = File(baseDir, "settings.json")
     private val protectionFile = File(baseDir, "protection.json")
+    private val peerTicketsFile = File(baseDir, "peer-tickets.json")
     private val metricsFile = File(baseDir, "metrics.json")
 
     init {
@@ -84,6 +86,36 @@ class LocalJsonStorage(private val context: Context) {
             return
         }
         protectionFile.writeText(p.toJson().toString(2))
+    }
+
+    fun listPeerTickets(): List<PeerTicket> {
+        if (!peerTicketsFile.exists()) return emptyList()
+        val raw = runCatching { JSONObject(peerTicketsFile.readText()) }.getOrNull() ?: return emptyList()
+        val arr = raw.optJSONArray("tickets") ?: return emptyList()
+        val out = ArrayList<PeerTicket>(arr.length())
+        for (i in 0 until arr.length()) {
+            val it = arr.optJSONObject(i) ?: continue
+            runCatching { PeerTicket.fromJson(it) }.getOrNull()?.let { t ->
+                if (!t.isExpired()) out.add(t)
+            }
+        }
+        return out
+    }
+
+    fun savePeerTickets(tickets: List<PeerTicket>) {
+        val arr = org.json.JSONArray()
+        tickets.forEach { arr.put(it.toJson()) }
+        val j = JSONObject()
+        j.put("v", 1)
+        j.put("tickets", arr)
+        peerTicketsFile.writeText(j.toString(2))
+    }
+
+    fun upsertPeerTicket(ticket: PeerTicket) {
+        val all = listPeerTickets().toMutableList()
+        val idx = all.indexOfFirst { it.peerId == ticket.peerId }
+        if (idx >= 0) all[idx] = ticket else all.add(ticket)
+        savePeerTickets(all)
     }
 
     fun loadMetrics(): MetricsStore {

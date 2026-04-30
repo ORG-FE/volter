@@ -25,6 +25,7 @@ import dev.c0redev.volter.data.servergeo.IpWhoLookup
 import dev.c0redev.volter.data.servergeo.ServerGeo
 import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
+import dev.c0redev.volter.domain.model.PeerTicket
 import dev.c0redev.volter.domain.model.VolterMeshDefaults
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.R
@@ -603,6 +604,12 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun importShareUri(raw: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val ticket = PeerTicket.parseUri(raw)
+            if (ticket != null) {
+                localRepo.upsertPeerTicket(ticket)
+                _uiMessages.tryEmit("Peer ticket imported: ${ticket.peerId}")
+                return@launch
+            }
             val protection = Config.parseProtectionUri(raw)
             if (protection != null) {
                 localRepo.saveProtection(protection)

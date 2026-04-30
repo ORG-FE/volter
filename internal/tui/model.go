@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1237,6 +1238,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+		case "k", "K":
+			if m.tab == tabMesh && !m.meshEditing {
+				uri, filePath, err := m.exportPeerTicket()
+				if err != nil {
+					m.err = err.Error()
+					return m, nil
+				}
+				m.err = ""
+				m.logs = append(m.logs, "OK\tPeer ticket saved: "+filePath)
+				m.logs = append(m.logs, "OK\tPeer ticket uri: "+uri)
+				if len(m.logs) > 500 {
+					m.logs = m.logs[len(m.logs)-500:]
+				}
+				return m, nil
+			}
+		case "i", "I":
+			if m.tab == tabMesh && !m.meshEditing {
+				p, err := m.importPeerTicket()
+				if err != nil {
+					m.err = err.Error()
+					return m, nil
+				}
+				m.err = ""
+				m.logs = append(m.logs, "OK\tPeer ticket imported from "+p)
+				if len(m.logs) > 500 {
+					m.logs = m.logs[len(m.logs)-500:]
+				}
+				return m, nil
+			}
 		case "ctrl+left", "ctrl+h":
 			if (m.tab == tabProtection || m.tab == tabMesh) && !m.protectionEditing && !m.meshEditing && len(m.names) > 0 {
 				m.protectionClientIdx--
@@ -2254,7 +2284,7 @@ func (m *Model) View() string {
 		footer += hintText.Render("  ") + hintKey.Render("↑/↓") + hintText.Render(" выбор  ") + hintKey.Render("P") + hintText.Render(" ping  ") + hintKey.Render("T") + hintText.Render(" volter  ") + hintKey.Render("E") + hintText.Render(" ред.  ") + hintKey.Render("R") + hintText.Render(" обновить")
 	}
 	if m.tab == tabMesh {
-		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
+		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("K") + hintText.Render(" export ticket  ") + hintKey.Render("I") + hintText.Render(" import ticket(file)  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabProtection {
 		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" редактировать  ") + hintKey.Render("1/2/3") + hintText.Render(" баланс/усил/авто  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка")
@@ -2264,4 +2294,72 @@ func (m *Model) View() string {
 	}
 	b.WriteString(footerStyle.Render(footer))
 	return b.String()
+}
+
+func (m *Model) exportPeerTicket() (string, string, error) {
+	name := m.meshRelayEffectiveTarget()
+	if name == "" {
+		return "", "", fmt.Errorf("нет локального профиля для ticket")
+	}
+	cfg, err := config.LoadByName(name)
+	if err != nil {
+		return "", "", err
+	}
+	peerID := "peer-" + config.SanitizeName(name)
+	pubKey := "mesh-key"
+	addrs := []string{cfg.Server}
+	if cfg.Relay != nil {
+		if strings.TrimSpace(cfg.Relay.PeerID) != "" {
+			peerID = strings.TrimSpace(cfg.Relay.PeerID)
+		}
+		if strings.TrimSpace(cfg.Relay.BootstrapPubKey) != "" {
+			pubKey = strings.TrimSpace(cfg.Relay.BootstrapPubKey)
+		}
+		if strings.TrimSpace(cfg.Relay.PeerRelayUDPAdvertise) != "" {
+			addrs = append(addrs, strings.TrimSpace(cfg.Relay.PeerRelayUDPAdvertise))
+		}
+		if strings.TrimSpace(cfg.Relay.PeerRelayUDPListen) != "" {
+			addrs = append(addrs, strings.TrimSpace(cfg.Relay.PeerRelayUDPListen))
+		}
+	}
+	t := config.CreatePeerTicket(peerID, pubKey, addrs, 24*time.Hour)
+	if err := config.UpsertPeerTicket(t); err != nil {
+		return "", "", err
+	}
+	uri := config.BuildPeerTicketURI(t)
+	p := peerTicketExchangePath("peer-ticket-export.txt")
+	if err := os.WriteFile(p, []byte(uri+"\n"), 0o600); err != nil {
+		return "", "", err
+	}
+	return uri, p, nil
+}
+
+func (m *Model) importPeerTicket() (string, error) {
+	p := peerTicketExchangePath("peer-ticket-import.txt")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return p, err
+	}
+	raw := strings.TrimSpace(string(data))
+	if raw == "" {
+		return p, fmt.Errorf("файл ticket пуст: %s", p)
+	}
+	t, ok := config.ParsePeerTicketURI(raw)
+	if !ok {
+		return p, fmt.Errorf("некорректный peer ticket")
+	}
+	if err := config.UpsertPeerTicket(t); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+func peerTicketExchangePath(name string) string {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return name
+	}
+	dir := filepath.Join(base, "volter")
+	_ = os.MkdirAll(dir, 0o700)
+	return filepath.Join(dir, name)
 }

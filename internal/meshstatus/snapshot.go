@@ -2,6 +2,7 @@ package meshstatus
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -33,6 +34,13 @@ type Status struct {
 	DhtSelfIDHex      string    `json:"dhtSelfIdHex"`
 	ClientSrflx       string    `json:"clientSrflx,omitempty"`
 	IceSrflxRttEwmaMs float64   `json:"iceSrflxRttEwmaMs"`
+	StoreForwardSent  uint64    `json:"storeForwardSent"`
+	StoreForwardRecv  uint64    `json:"storeForwardRecv"`
+	ClusterNodeID     string    `json:"clusterNodeId,omitempty"`
+	ClusterNodes      []string  `json:"clusterNodes,omitempty"`
+	ClusterSessionsNodeID string `json:"clusterSessionsNodeId,omitempty"`
+	ClusterSessionsCount    int   `json:"clusterSessionsCount"`
+	ClusterSessionsAtMs     int64 `json:"clusterSessionsAtMs,omitempty"`
 	Nodes             []NodeRow `json:"nodes"`
 	PathEvents        []PathEvt `json:"pathEvents"`
 	CollectedAt       time.Time `json:"collectedAt"`
@@ -56,14 +64,28 @@ func GatherNearest(kNearest int) Status {
 	for _, e := range pe {
 		outPe = append(outPe, PathEvt{Ts: e.Ts, Kind: string(e.Kind), Note: e.Note})
 	}
-	return Status{
+	clusterNodeID, clusterNodes := parseClusterMap(vpn.LastClusterMap())
+	csNode, csCnt, csAt, csOk := parseClusterSessions(vpn.LastClusterSessions())
+	sf := vpn.StoreForwardStats()
+	out := Status{
 		DhtSelfIDHex:      hex.EncodeToString(self[:]),
 		ClientSrflx:       vpn.LastClientSrflx(),
 		IceSrflxRttEwmaMs: telemetry.IceSrflxRttEwmaMs(),
+		StoreForwardSent:  sf.Sent,
+		StoreForwardRecv:  sf.Received,
+		ClusterNodeID:     clusterNodeID,
+		ClusterNodes:      clusterNodes,
+		ClusterSessionsCount: -1,
 		Nodes:             rows,
 		PathEvents:        outPe,
 		CollectedAt:       time.Now(),
 	}
+	if csOk {
+		out.ClusterSessionsNodeID = csNode
+		out.ClusterSessionsCount = csCnt
+		out.ClusterSessionsAtMs = csAt
+	}
+	return out
 }
 
 func nodeRowFrom(n discovery.RelayNode) NodeRow {
@@ -88,6 +110,24 @@ func Format(s Status) string {
 		b.WriteString("Клиент srflx: — (ещё не собран или mesh выкл)\n")
 	}
 	b.WriteString(fmt.Sprintf("ICE srflx RTT EWMA: %.1f ms\n\n", s.IceSrflxRttEwmaMs))
+	b.WriteString(fmt.Sprintf("Store-forward sent/recv: %d/%d\n", s.StoreForwardSent, s.StoreForwardRecv))
+	if s.ClusterNodeID != "" {
+		b.WriteString(fmt.Sprintf("Кластер узел: %s\n", s.ClusterNodeID))
+	}
+	if len(s.ClusterNodes) > 0 {
+		b.WriteString("Кластер серверы:\n")
+		for _, n := range s.ClusterNodes {
+			b.WriteString("  • " + n + "\n")
+		}
+	}
+	if s.ClusterSessionsCount >= 0 {
+		line := fmt.Sprintf("Снимок resume кластера: узел %s, сессий %d", strings.TrimSpace(s.ClusterSessionsNodeID), s.ClusterSessionsCount)
+		if s.ClusterSessionsAtMs > 0 {
+			line += fmt.Sprintf(" (сервер ts %s)", time.UnixMilli(s.ClusterSessionsAtMs).Format("15:04:05"))
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString(fmt.Sprintf("Узлы в таблице (nearest, %d):\n", len(s.Nodes)))
 	if len(s.Nodes) == 0 {
@@ -128,4 +168,56 @@ func Format(s Status) string {
 	}
 	b.WriteString(fmt.Sprintf("\nОбновлено: %s\n", s.CollectedAt.Format(time.RFC3339)))
 	return b.String()
+}
+
+func parseClusterMap(raw string) (string, []string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	var doc struct {
+		NodeID string `json:"nodeId"`
+		Nodes  []struct {
+			ID       string `json:"id"`
+			Endpoint string `json:"endpoint"`
+			Alive    bool   `json:"alive"`
+		} `json:"nodes"`
+	}
+	if json.Unmarshal([]byte(raw), &doc) != nil {
+		return "", nil
+	}
+	out := make([]string, 0, len(doc.Nodes))
+	for _, n := range doc.Nodes {
+		id := strings.TrimSpace(n.ID)
+		if id == "" {
+			continue
+		}
+		ep := strings.TrimSpace(n.Endpoint)
+		if ep != "" {
+			id += " (" + ep + ")"
+		}
+		if !n.Alive {
+			id += " [down]"
+		}
+		out = append(out, id)
+	}
+	return strings.TrimSpace(doc.NodeID), out
+}
+
+func parseClusterSessions(raw string) (nodeID string, count int, atMs int64, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", 0, 0, false
+	}
+	var doc struct {
+		NodeID      string `json:"nodeId"`
+		GeneratedAt int64  `json:"generatedAt"`
+		Sessions    []struct {
+			SessionID string `json:"sessionId"`
+		} `json:"sessions"`
+	}
+	if json.Unmarshal([]byte(raw), &doc) != nil {
+		return "", 0, 0, false
+	}
+	return strings.TrimSpace(doc.NodeID), len(doc.Sessions), doc.GeneratedAt, true
 }
