@@ -23,7 +23,7 @@ import (
 	"dev.c0redev.volter/internal/telemetry"
 )
 
-const dualPathCutoverTimeout = 4 * time.Second
+const dualPathCutoverTimeout = 3 * time.Second
 
 func wrapFlushJitter(prot *config.ProtectionOptions, flush func()) func() {
 	if flush == nil {
@@ -255,29 +255,122 @@ func relayOptsForHandshake(src *config.ProtectionOptions, token string) *config.
 	return &cp
 }
 
+func routeModeOf(prot *config.ProtectionOptions) string {
+	if prot == nil {
+		return "auto"
+	}
+	mode := strings.ToLower(strings.TrimSpace(prot.RouteMode))
+	switch mode {
+	case "direct", "peer_relay", "server_relay":
+		return mode
+	default:
+		return "auto"
+	}
+}
+
+func protForDirectRoute(base *config.ProtectionOptions) *config.ProtectionOptions {
+	if base == nil {
+		return nil
+	}
+	cp := *base
+	cp.RelayHop = 0
+	cp.RelayMaxHop = 0
+	cp.PeerID = ""
+	cp.RelayNonce = ""
+	cp.RelaySig = ""
+	return &cp
+}
+
+func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.RelayOptions) *config.ProtectionOptions {
+	if base == nil {
+		base = &config.ProtectionOptions{}
+	}
+	cp := *base
+	cp.PeerID = ""
+	if cp.RelayHop <= 0 {
+		cp.RelayHop = 1
+	}
+	if cp.RelayMaxHop <= 0 {
+		cp.RelayMaxHop = 2
+	}
+	if relay != nil {
+		if relay.BudgetKbps > 0 && cp.RelayBudgetKbps <= 0 {
+			cp.RelayBudgetKbps = relay.BudgetKbps
+		}
+	}
+	return &cp
+}
+
 func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, dual bool, sel *DualPathSelector, pm *PathManager, allowPeerPath bool, relay *config.RelayOptions) (net.Conn, bool, bool, error) {
 	flowStart := time.Now()
 	preferTCP := false
 	decision := PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
+	dialProt := prot
+	mode := routeModeOf(prot)
+	SetRouteTrace(dst.String(), mode, "", "")
 	quicEnabled := UsesQUICTransport(transport, quicServer) && quicShared != nil
-	if pm != nil {
-		decision = pm.Decide(dst, dual, quicEnabled, allowPeerPath)
-		if decision.PreferTCP {
-			preferTCP = true
+	switch mode {
+	case "direct":
+		allowPeerPath = false
+		decision = PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
+		dialProt = protForDirectRoute(prot)
+	case "server_relay":
+		allowPeerPath = false
+		decision = PathDecision{PreferTCP: true, RelayClass: PathClassServer, PathTTL: 2}
+		preferTCP = true
+		dialProt = protForServerRelayRoute(prot, relay)
+	case "peer_relay":
+		allowPeerPath = true
+		if pm != nil {
+			decision = pm.Decide(dst, dual, quicEnabled, true)
+		}
+	default:
+		if pm != nil {
+			decision = pm.Decide(dst, dual, quicEnabled, allowPeerPath)
 		}
 	}
-	if relay != nil && relay.PeerRelayUseQUIC && strings.TrimSpace(decision.PeerQUIC) != "" {
-		protR := RelayProtForPeerHop(prot, relay)
-		sni := strings.TrimSpace(relay.PeerQuicServerName)
-		c, err := DialPeerRelayQUIC(decision.PeerQUIC, sni, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, dst, dstPort, token, protR)
-		if err == nil {
-			if pm != nil {
-				pm.Record(dst, true, decision.RelayClass, decision.PathTTL)
-			}
-			telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("peer quic %s", decision.PeerQUIC))
-			return c, false, false, nil
+	if decision.PreferTCP {
+		preferTCP = true
+	}
+	if prot == nil || !prot.RoutePlannerV2 {
+		if len(decision.PeerQUICCandidates) > 1 {
+			decision.PeerQUICCandidates = decision.PeerQUICCandidates[:1]
 		}
-		clientlog.Warn("vpn: peer quic %s: %v", decision.PeerQUIC, err)
+		if len(decision.PeerUDPCandidates) > 1 {
+			decision.PeerUDPCandidates = decision.PeerUDPCandidates[:1]
+		}
+		if len(decision.PeerTCPCandidates) > 1 {
+			decision.PeerTCPCandidates = decision.PeerTCPCandidates[:1]
+		}
+	}
+	if plan := BuildRoutePlan(dst.String(), decision); len(plan.Hops) > 0 {
+		var parts []string
+		for _, h := range plan.Hops {
+			parts = append(parts, h.Kind+"="+h.Addr)
+		}
+		SetRouteTrace(dst.String(), strings.Join(parts, " -> "), "", "")
+	}
+	if relay != nil && relay.PeerRelayUseQUIC && strings.TrimSpace(decision.PeerQUIC) != "" {
+		quicCands := append([]string(nil), decision.PeerQUICCandidates...)
+		if len(quicCands) == 0 {
+			quicCands = []string{decision.PeerQUIC}
+		}
+		for i, q := range quicCands {
+			protR := RelayProtForPeerHop(dialProt, relay)
+			protR.HopIndex = i + 1
+			sni := strings.TrimSpace(relay.PeerQuicServerName)
+			c, err := DialPeerRelayQUIC(q, sni, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, dst, dstPort, token, protR)
+			if err == nil {
+				SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_quic:%s", q), "")
+				if pm != nil {
+					pm.Record(dst, true, decision.RelayClass, decision.PathTTL)
+				}
+				telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("peer quic %s hop=%d", q, protR.HopIndex))
+				return c, false, false, nil
+			}
+			clientlog.Warn("vpn: peer quic %s: %v", q, err)
+			SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_quic:%s", q), err.Error())
+		}
 		decision.PeerQUIC = ""
 	}
 	if relay != nil && relay.PeerRelayUseUDP {
@@ -287,36 +380,48 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		} else if strings.TrimSpace(decision.PeerUDP) != "" {
 			udpCands = []string{strings.TrimSpace(decision.PeerUDP)}
 		}
-		for _, ua := range udpCands {
+		for i, ua := range udpCands {
 			ua := strings.TrimSpace(ua)
 			if ua == "" {
 				continue
 			}
-			protR := RelayProtForPeerHop(prot, relay)
+			protR := RelayProtForPeerHop(dialProt, relay)
+			protR.HopIndex = i + 1
 			c, err := DialPeerRelayUDP(ua, dst, dstPort, token, protR)
 			if err == nil {
+				SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_udp:%s", ua), "")
 				if pm != nil {
 					pm.Record(dst, true, decision.RelayClass, decision.PathTTL)
 				}
-				telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("peer udp %s", ua))
+				telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("peer udp %s hop=%d", ua, protR.HopIndex))
 				return c, false, true, nil
 			}
 			clientlog.Warn("vpn: peer udp %s: %v", ua, err)
+			SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_udp:%s", ua), err.Error())
 		}
 		decision.PeerUDP = ""
 		decision.PeerUDPCandidates = nil
 	}
 	if decision.PeerAddr != "" && relay != nil {
-		protR := RelayProtForPeerHop(prot, relay)
-		c, err := DialSingleTCP(decision.PeerAddr, dst, dstPort, token, protR)
-		if err == nil {
-			if pm != nil {
-				pm.Record(dst, true, decision.RelayClass, decision.PathTTL)
-			}
-			telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("peer tcp %s", decision.PeerAddr))
-			return c, false, true, nil
+		tcpCands := append([]string(nil), decision.PeerTCPCandidates...)
+		if len(tcpCands) == 0 {
+			tcpCands = []string{decision.PeerAddr}
 		}
-		clientlog.Warn("vpn: peer relay %s: %v", decision.PeerAddr, err)
+		for i, tp := range tcpCands {
+			protR := RelayProtForPeerHop(dialProt, relay)
+			protR.HopIndex = i + 1
+			c, err := DialSingleTCP(tp, dst, dstPort, token, protR)
+			if err == nil {
+				SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_tcp:%s", tp), "")
+				if pm != nil {
+					pm.Record(dst, true, decision.RelayClass, decision.PathTTL)
+				}
+				telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("peer tcp %s hop=%d", tp, protR.HopIndex))
+				return c, false, true, nil
+			}
+			clientlog.Warn("vpn: peer relay %s: %v", tp, err)
+			SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_tcp:%s", tp), err.Error())
+		}
 		decision.RelayClass = PathClassDirect
 		decision.PeerAddr = ""
 	}
@@ -325,7 +430,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 			preferTCP = !sel.PreferQUIC()
 		}
 		raceStart := time.Now()
-		c, quicFailed, tcpUsed, err := dialDualRace(addrs, dst, dstPort, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, preferTCP)
+		c, quicFailed, tcpUsed, err := dialDualRace(addrs, dst, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, preferTCP)
 		if err == nil {
 			w := "quic"
 			if tcpUsed {
@@ -354,13 +459,13 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		if pm != nil && decision.PreferTCP && decision.PeerAddr == "" {
 			clientlog.Info("vpn: path manager prefers TCP for %s", dst.String())
 		}
-		c, err := Dial(addrs, dst, dstPort, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
+		c, err := Dial(addrs, dst, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
 		if pm != nil {
 			pm.Record(dst, err == nil, decision.RelayClass, decision.PathTTL)
 		}
 		return c, false, true, err
 	}
-	c, err := Dial(addrs, dst, dstPort, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, false)
+	c, err := Dial(addrs, dst, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, false)
 	if err != nil && dual && quicShared != nil {
 		if sel != nil {
 			sel.RecordQuicOutcome(false)
@@ -374,7 +479,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		telemetry.NoteFailoverLatency(time.Since(flowStart))
 		telemetry.NoteTransportFallback()
 		telemetry.RecordPath(telemetry.SwitchTransport, fmt.Sprintf("quic fallback tcp %s:%d %v", dst.String(), dstPort, quicErr))
-		c, err = Dial(addrs, dst, dstPort, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
+		c, err = Dial(addrs, dst, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
 		if pm != nil {
 			pm.Record(dst, err == nil, decision.RelayClass, decision.PathTTL)
 		}

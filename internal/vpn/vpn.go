@@ -42,6 +42,31 @@ func clusterPollHeaderKey(opt Options) string {
 	return strings.TrimSpace(opt.Token)
 }
 
+func orderedServerAddrs(addrs []string, prot *config.ProtectionOptions) []string {
+	if len(addrs) <= 1 || prot == nil {
+		return addrs
+	}
+	want := strings.TrimSpace(prot.ClusterPreferredServer)
+	if want == "" {
+		return addrs
+	}
+	match := -1
+	for i, a := range addrs {
+		if strings.EqualFold(strings.TrimSpace(a), want) {
+			match = i
+			break
+		}
+	}
+	if match <= 0 {
+		return addrs
+	}
+	out := make([]string, 0, len(addrs))
+	out = append(out, addrs[match])
+	out = append(out, addrs[:match]...)
+	out = append(out, addrs[match+1:]...)
+	return out
+}
+
 type Options struct {
 	TunFD             int
 	MTU               int
@@ -71,11 +96,18 @@ func Run(ctx context.Context, opt Options) error {
 	if len(opt.ServerAddrs) == 0 {
 		return errors.New("server addrs empty")
 	}
+	opt.ServerAddrs = orderedServerAddrs(opt.ServerAddrs, opt.Protection)
 	ck := clusterPollHeaderKey(opt)
 	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)
-	go runClusterMapPoll(ctx, opt.ServerAddrs[0], ck, mapPath)
-	go runClusterSessionsPoll(ctx, opt.ServerAddrs[0], ck, sessPath)
-	go runClusterClientsPoll(ctx, opt.ServerAddrs[0], ck, clientsPath)
+	for _, addr := range opt.ServerAddrs {
+		a := strings.TrimSpace(addr)
+		if a == "" {
+			continue
+		}
+		go runClusterMapPoll(ctx, a, ck, mapPath)
+		go runClusterSessionsPoll(ctx, a, ck, sessPath)
+		go runClusterClientsPoll(ctx, a, ck, clientsPath)
+	}
 	telemetry.NoteVPNStart()
 	readyCb := opt.Ready
 	tunnel.SetQUICTrace(opt.QuicTraceLog)
@@ -533,6 +565,14 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 	var err error
 	var fellBackTCP, tcpOnly bool
 	allowPeerPath := h.opt.Relay != nil && h.opt.Relay.PeerPathFromDiscovery && !emergencyPeerRelayBlocked()
+	switch strings.ToLower(strings.TrimSpace(h.opt.Protection.RouteMode)) {
+	case "direct":
+		allowPeerPath = false
+	case "server_relay":
+		allowPeerPath = false
+	case "peer_relay":
+		allowPeerPath = true
+	}
 	sconn, fellBackTCP, tcpOnly, err = tunnel.DialTunFlow(h.opt.ServerAddrs, dstIP, dstPort, h.opt.Token, h.opt.Protection, h.opt.Transport, h.opt.QuicServer, h.opt.QuicServerName, h.opt.QuicSkipVerify, h.opt.QuicCertPinSHA256, h.opt.QuicTLSRoots, shared, h.opt.DualTransport, h.dualSel, h.pathMgr, allowPeerPath, h.opt.Relay)
 	if h.opt.DualTransport && shared != nil {
 		if fellBackTCP || tcpOnly {

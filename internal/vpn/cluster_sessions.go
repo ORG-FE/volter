@@ -29,8 +29,8 @@ func runClusterSessionsPoll(ctx context.Context, serverAddr, headerKey, httpPath
 		path = defaultClusterSessionsPath
 	}
 	u := "http://" + serverAddr + path
-	cl := &http.Client{Timeout: 4 * time.Second}
-	tk := time.NewTicker(10 * time.Second)
+	cl := &http.Client{Timeout: 6 * time.Second}
+	tk := time.NewTicker(5 * time.Second)
 	defer tk.Stop()
 	fetch := func() {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

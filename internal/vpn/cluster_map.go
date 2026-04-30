@@ -29,8 +29,8 @@ func runClusterMapPoll(ctx context.Context, serverAddr, headerKey, httpPath stri
 		path = defaultClusterMapPath
 	}
 	u := "http://" + serverAddr + path
-	cl := &http.Client{Timeout: 4 * time.Second}
-	tk := time.NewTicker(8 * time.Second)
+	cl := &http.Client{Timeout: 5 * time.Second}
+	tk := time.NewTicker(4 * time.Second)
 	defer tk.Stop()
 	fetch := func() {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

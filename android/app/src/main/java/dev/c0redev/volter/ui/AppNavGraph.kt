@@ -301,34 +301,42 @@ private fun GlassBottomBar(content: @Composable () -> Unit) {
   val tintArgb by rememberUpdatedState(tint.toArgb())
   val accentArgb by rememberUpdatedState(accent.toArgb())
   Surface(
-    modifier = Modifier
-      .clip(shape)
-      .graphicsLayer {
-        shader.setFloatUniform("resolution", size.width, size.height)
-        shader.setFloatUniform("time", t)
-        shader.setFloatUniform(
-          "tint",
-          ((tintArgb shr 16) and 0xFF) / 255f,
-          ((tintArgb shr 8) and 0xFF) / 255f,
-          (tintArgb and 0xFF) / 255f,
-          ((tintArgb ushr 24) and 0xFF) / 255f,
-        )
-        shader.setFloatUniform(
-          "accent",
-          ((accentArgb shr 16) and 0xFF) / 255f,
-          ((accentArgb shr 8) and 0xFF) / 255f,
-          (accentArgb and 0xFF) / 255f,
-          ((accentArgb ushr 24) and 0xFF) / 255f,
-        )
-        val blur = RenderEffect.createBlurEffect(10f, 10f, android.graphics.Shader.TileMode.CLAMP)
-        val rt = RenderEffect.createRuntimeShaderEffect(shader, "background")
-        renderEffect = RenderEffect.createChainEffect(rt, blur).asComposeRenderEffect()
-      },
     shape = shape,
     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.22f),
     border = BorderStroke(1.dp, outline),
     tonalElevation = 6.dp,
     shadowElevation = 14.dp,
-    content = { content() },
-  )
+  ) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .clip(shape)
+          .graphicsLayer {
+            shader.setFloatUniform("resolution", size.width, size.height)
+            shader.setFloatUniform("time", t)
+            shader.setFloatUniform(
+              "tint",
+              ((tintArgb shr 16) and 0xFF) / 255f,
+              ((tintArgb shr 8) and 0xFF) / 255f,
+              (tintArgb and 0xFF) / 255f,
+              ((tintArgb ushr 24) and 0xFF) / 255f,
+            )
+            shader.setFloatUniform(
+              "accent",
+              ((accentArgb shr 16) and 0xFF) / 255f,
+              ((accentArgb shr 8) and 0xFF) / 255f,
+              (accentArgb and 0xFF) / 255f,
+              ((accentArgb ushr 24) and 0xFF) / 255f,
+            )
+            val blur = RenderEffect.createBlurEffect(8f, 8f, android.graphics.Shader.TileMode.CLAMP)
+            val rt = RenderEffect.createRuntimeShaderEffect(shader, "background")
+            renderEffect = RenderEffect.createChainEffect(rt, blur).asComposeRenderEffect()
+          },
+      )
+      Box(modifier = Modifier.fillMaxWidth()) {
+        content()
+      }
+    }
+  }
 }

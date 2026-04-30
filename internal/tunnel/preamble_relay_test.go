@@ -44,3 +44,40 @@ func TestTcpRelayPreambleUsesTcpRoleWithoutRelay(t *testing.T) {
 		t.Fatalf("want tcp role, got %d", hs.Role)
 	}
 }
+
+func TestProtForDirectRouteClearsRelayFields(t *testing.T) {
+	src := &config.ProtectionOptions{
+		RouteMode:   "direct",
+		RelayHop:    2,
+		RelayMaxHop: 3,
+		PeerID:      "peer-a",
+		RelayNonce:  "n",
+		RelaySig:    "s",
+	}
+	got := protForDirectRoute(src)
+	if got == nil {
+		t.Fatal("expected non nil")
+	}
+	if got.RelayHop != 0 || got.RelayMaxHop != 0 {
+		t.Fatalf("expected relay hop cleared, got %d/%d", got.RelayHop, got.RelayMaxHop)
+	}
+	if got.PeerID != "" || got.RelayNonce != "" || got.RelaySig != "" {
+		t.Fatalf("expected peer relay fields cleared, got peer=%q nonce=%q sig=%q", got.PeerID, got.RelayNonce, got.RelaySig)
+	}
+}
+
+func TestProtForServerRelayRouteEnforcesRelayHop(t *testing.T) {
+	got := protForServerRelayRoute(&config.ProtectionOptions{RouteMode: "server_relay"}, &config.RelayOptions{BudgetKbps: 256})
+	if got == nil {
+		t.Fatal("expected non nil")
+	}
+	if got.RelayHop < 1 {
+		t.Fatalf("expected relay hop >=1, got %d", got.RelayHop)
+	}
+	if got.RelayMaxHop != 2 {
+		t.Fatalf("expected default relay max hop, got %d", got.RelayMaxHop)
+	}
+	if got.RelayBudgetKbps != 256 {
+		t.Fatalf("expected relay budget from relay opts, got %d", got.RelayBudgetKbps)
+	}
+}

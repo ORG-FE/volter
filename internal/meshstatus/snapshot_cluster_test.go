@@ -7,7 +7,10 @@ import (
 
 func TestParseClusterMap(t *testing.T) {
 	raw := `{"v":1,"nodeId":"ru-1","nodes":[{"id":"ru-1","endpoint":"http://ru:25565/volter/cluster-map.json","alive":true},{"id":"de-1","endpoint":"http://de:25565/volter/cluster-map.json","alive":false}]}`
-	nodeID, nodes := parseClusterMap(raw)
+	nodeID, nodes, _, ok := parseClusterMap(raw)
+	if !ok {
+		t.Fatal("expected ok")
+	}
 	if nodeID != "ru-1" {
 		t.Fatalf("node id: got %q", nodeID)
 	}

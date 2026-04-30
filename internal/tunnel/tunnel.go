@@ -18,6 +18,8 @@ import (
 	"dev.c0redev.volter/internal/sockprotect"
 )
 
+const routeHandshakeTimeout = 3 * time.Second
+
 func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, tunPreferTCP bool) (net.Conn, error) {
 	if !tunPreferTCP && UsesQUICTransport(transport, quicServer) {
 		return dialQUIC(serverAddrs, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, targetIP, targetPort, token, prot, quicShared)
@@ -39,6 +41,7 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 				lastErr = err
 				continue
 			}
+			_ = c.SetDeadline(time.Now().Add(routeHandshakeTimeout))
 			slot := SlotForProtection(prot)
 			bufSize := protocol.BufSizeForConn(slot)
 			r := bufio.NewReaderSize(c, bufSize)
@@ -53,6 +56,21 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 				lastErr = err
 				continue
 			}
+			if needHopAck(prot) {
+				ack, err := protocol.ReadHopAck(r)
+				if err != nil {
+					_ = c.Close()
+					lastErr = err
+					continue
+				}
+				if ack.Status == 0 {
+					_ = c.Close()
+					lastErr = fmt.Errorf("hop ack rejected: %s", ack.Reason)
+					SetRouteTrace(targetIP.String(), strings.TrimSpace(prot.RouteMode), "", ack.Reason)
+					continue
+				}
+			}
+			_ = c.SetDeadline(time.Time{})
 			return &tunnelConn{Conn: c, r: r}, nil
 		}
 		time.Sleep(backoff)
@@ -71,6 +89,7 @@ func DialSingleTCP(addr string, targetIP net.IP, targetPort uint16, token string
 	if err != nil {
 		return nil, err
 	}
+	_ = c.SetDeadline(time.Now().Add(routeHandshakeTimeout))
 	slot := SlotForProtection(prot)
 	bufSize := protocol.BufSizeForConn(slot)
 	r := bufio.NewReaderSize(c, bufSize)
@@ -83,6 +102,18 @@ func DialSingleTCP(addr string, targetIP net.IP, targetPort uint16, token string
 		_ = c.Close()
 		return nil, err
 	}
+	if needHopAck(prot) {
+		ack, err := protocol.ReadHopAck(r)
+		if err != nil {
+			_ = c.Close()
+			return nil, err
+		}
+		if ack.Status == 0 {
+			_ = c.Close()
+			return nil, fmt.Errorf("hop ack rejected: %s", ack.Reason)
+		}
+	}
+	_ = c.SetDeadline(time.Time{})
 	return &tunnelConn{Conn: c, r: r}, nil
 }
 
@@ -120,7 +151,7 @@ func (c *tunnelConn) Read(p []byte) (n int, err error) {
 }
 
 func dialServer(addr, token string) (net.Conn, error) {
-	d := net.Dialer{Timeout: 22 * time.Second, KeepAlive: 30 * time.Second}
+	d := net.Dialer{Timeout: routeHandshakeTimeout, KeepAlive: 30 * time.Second}
 	if p := sockprotect.Protect; p != nil {
 		d.Control = func(network, address string, c syscall.RawConn) error {
 			var err error
@@ -163,7 +194,7 @@ func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipV
 	if quicTraceOn() {
 		clientlog.Trace("quic tun-tcp OpenStreamSync")
 	}
-	streamCtx, streamCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), routeHandshakeTimeout)
 	stream, err := conn.OpenStreamSync(streamCtx)
 	streamCancel()
 	if err != nil {
@@ -195,6 +226,17 @@ func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipV
 		_ = sconn.Close()
 		return nil, err
 	}
+	if needHopAck(prot) {
+		ack, err := protocol.ReadHopAck(r)
+		if err != nil {
+			_ = sconn.Close()
+			return nil, err
+		}
+		if ack.Status == 0 {
+			_ = sconn.Close()
+			return nil, fmt.Errorf("hop ack rejected: %s", ack.Reason)
+		}
+	}
 	return &tunnelConn{Conn: sconn, r: r}, nil
 }
 
@@ -210,7 +252,7 @@ func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPin
 	if quicTraceOn() {
 		clientlog.Trace("quic peer tun-tcp OpenStreamSync")
 	}
-	streamCtx, streamCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), routeHandshakeTimeout)
 	stream, err := conn.OpenStreamSync(streamCtx)
 	streamCancel()
 	if err != nil {
@@ -224,6 +266,7 @@ func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPin
 		return nil, err
 	}
 	sconn := newQUICStreamConn(conn, stream, closePC)
+	_ = sconn.SetDeadline(time.Now().Add(routeHandshakeTimeout))
 	slot := SlotForProtection(prot)
 	w := bufio.NewWriterSize(sconn, protocol.BufSizeForConn(slot))
 	r := bufio.NewReaderSize(sconn, protocol.BufSizeForConn(slot))
@@ -235,7 +278,30 @@ func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPin
 		_ = sconn.Close()
 		return nil, err
 	}
+	if needHopAck(prot) {
+		ack, err := protocol.ReadHopAck(r)
+		if err != nil {
+			_ = sconn.Close()
+			return nil, err
+		}
+		if ack.Status == 0 {
+			_ = sconn.Close()
+			return nil, fmt.Errorf("hop ack rejected: %s", ack.Reason)
+		}
+	}
+	_ = sconn.SetDeadline(time.Time{})
 	return &tunnelConn{Conn: sconn, r: r}, nil
+}
+
+func needHopAck(prot *config.ProtectionOptions) bool {
+	if prot == nil {
+		return false
+	}
+	if prot.RelayHop > 0 {
+		return true
+	}
+	mode := strings.TrimSpace(strings.ToLower(prot.RouteMode))
+	return mode == "server_relay" || mode == "peer_relay"
 }
 
 func pickAddr(addrs []string, ip net.IP, port uint16) string {

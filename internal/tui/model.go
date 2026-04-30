@@ -170,9 +170,10 @@ type Model struct {
 	protectionTarget    string
 	protectionClientIdx int
 
-	meshEditing   bool
-	meshFormFocus int
-	meshInputs    []textinput.Model
+	meshEditing      bool
+	meshFormFocus    int
+	meshInputs       []textinput.Model
+	clusterServerIdx int
 
 	clientSettings    config.ClientSettings
 	settingsEditing   bool
@@ -394,7 +395,15 @@ func (m *Model) clusterFullContent() string {
 		}
 		b.WriteString("\n")
 	}
+	if s.ClusterMapAgeMs > 0 || s.ClusterSessionsAgeMs > 0 || s.ClusterClientsAgeMs > 0 {
+		b.WriteString(fmt.Sprintf("Sync age ms (map/sessions/clients): %d/%d/%d\n", s.ClusterMapAgeMs, s.ClusterSessionsAgeMs, s.ClusterClientsAgeMs))
+	}
 	b.WriteString(fmt.Sprintf("Store-forward sent/recv: %d/%d\n", s.StoreForwardSent, s.StoreForwardRecv))
+	if s.ClientsSource != "" {
+		b.WriteString("Clients source: " + s.ClientsSource + "\n")
+	}
+	b.WriteString("Route mode hotkeys: 1=auto 2=direct 3=peer_relay 4=server_relay\n")
+	b.WriteString("Preferred server: S (cycle)\n")
 	b.WriteString("\n")
 	b.WriteString(sectionTitle.Render("Mesh клиенты (DHT nearest)") + "\n")
 	if s.ClusterClientsCount > 0 && len(s.ClusterClients) > 0 {
@@ -427,6 +436,55 @@ func (m *Model) clusterFullContent() string {
 	}
 	b.WriteString(fmt.Sprintf("\nОбновлено: %s\n", s.CollectedAt.Format(time.RFC3339)))
 	return b.String()
+}
+
+func (m *Model) setClusterRouteMode(mode string) {
+	name := m.meshRelayEffectiveTarget()
+	if name == "" {
+		return
+	}
+	cfg, err := config.LoadByName(name)
+	if err != nil {
+		return
+	}
+	opts := config.ProtectionOptions{}
+	if cfg.Protection != nil {
+		opts = *cfg.Protection
+	}
+	opts.RouteMode = strings.TrimSpace(mode)
+	cfg.Protection = &opts
+	_ = config.Save(name, cfg)
+}
+
+func (m *Model) cycleClusterPreferredServer() {
+	name := m.meshRelayEffectiveTarget()
+	if name == "" {
+		return
+	}
+	s := meshstatus.Gather()
+	if len(s.ClusterNodes) == 0 {
+		return
+	}
+	m.clusterServerIdx = (m.clusterServerIdx + 1) % len(s.ClusterNodes)
+	raw := strings.TrimSpace(s.ClusterNodes[m.clusterServerIdx])
+	server := raw
+	if strings.Contains(raw, "(") && strings.Contains(raw, ")") {
+		server = strings.TrimSpace(raw[strings.Index(raw, "(")+1 : strings.LastIndex(raw, ")")])
+	}
+	if server == "" {
+		return
+	}
+	cfg, err := config.LoadByName(name)
+	if err != nil {
+		return
+	}
+	opts := config.ProtectionOptions{}
+	if cfg.Protection != nil {
+		opts = *cfg.Protection
+	}
+	opts.ClusterPreferredServer = server
+	cfg.Protection = &opts
+	_ = config.Save(name, cfg)
 }
 
 func (m *Model) configSnapshotForActive() (config.Config, bool) {
@@ -1216,6 +1274,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, runPingAll(m.cfgs, m.names)
 			}
 		case "1", "2", "3":
+			if m.tab == tabCluster {
+				mode := "auto"
+				switch msg.String() {
+				case "1":
+					mode = "auto"
+				case "2":
+					mode = "direct"
+				case "3":
+					mode = "peer_relay"
+				}
+				m.setClusterRouteMode(mode)
+				m.setClusterViewportContent()
+				return m, nil
+			}
 			if m.tab == tabProtection && !m.protectionEditing {
 				var preset config.ProtectionOptions
 				switch msg.String() {
@@ -1239,6 +1311,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						_ = config.Save(m.protectionTarget, cfg)
 					}
 				}
+				return m, nil
+			}
+		case "4":
+			if m.tab == tabCluster {
+				m.setClusterRouteMode("server_relay")
+				m.setClusterViewportContent()
+				return m, nil
+			}
+		case "s", "S":
+			if m.tab == tabCluster {
+				m.cycleClusterPreferredServer()
+				m.setClusterViewportContent()
 				return m, nil
 			}
 		case "e", "E":

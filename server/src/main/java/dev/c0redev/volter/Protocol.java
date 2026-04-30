@@ -31,6 +31,9 @@ final class Protocol {
   static final int FEAT_POLY_HANDSHAKE = 1 << 1;
   static final int FEAT_RELAY_SERVER = 1 << 2;
   static final int FEAT_RELAY_PEER = 1 << 3;
+  static final int FEAT_ROUTE_HOP_ACK = 1 << 4;
+  static final int HOP_ACK_MAGIC = 0xA7;
+  static final int HOP_ACK_V1 = 1;
   static final int OBFS_PROFILE_MIN = 1;
   static final int OBFS_PROFILE_MAX = 4;
 
@@ -96,6 +99,26 @@ final class Protocol {
 
   static TcpConnect readTcpConnect(InputStream in) throws IOException {
     return readTcpConnectBody(in);
+  }
+
+  static void writeHopAck(OutputStream out, HopAck ack) throws IOException {
+    out.write(HOP_ACK_MAGIC);
+    out.write(HOP_ACK_V1);
+    out.write(ack.status() & 0xff);
+    out.write(ack.hopIdx() & 0xff);
+    writeStr16(out, ack.routeId());
+    writeStr16(out, ack.nodeId());
+    writeStr16(out, ack.reason());
+    long ts = ack.tsMs();
+    out.write((int) ((ts >>> 56) & 0xff));
+    out.write((int) ((ts >>> 48) & 0xff));
+    out.write((int) ((ts >>> 40) & 0xff));
+    out.write((int) ((ts >>> 32) & 0xff));
+    out.write((int) ((ts >>> 24) & 0xff));
+    out.write((int) ((ts >>> 16) & 0xff));
+    out.write((int) ((ts >>> 8) & 0xff));
+    out.write((int) (ts & 0xff));
+    out.flush();
   }
 
   static TcpConnect readTcpConnectBody(InputStream in) throws IOException {
@@ -200,6 +223,18 @@ final class Protocol {
   static void writeU16(OutputStream out, int v) throws IOException {
     out.write((v >>> 8) & 0xff);
     out.write(v & 0xff);
+  }
+
+  static void writeStr16(OutputStream out, String s) throws IOException {
+    if (s == null) s = "";
+    byte[] b = s.getBytes(StandardCharsets.UTF_8);
+    if (b.length > 65535) {
+      byte[] cut = new byte[65535];
+      System.arraycopy(b, 0, cut, 0, cut.length);
+      b = cut;
+    }
+    writeU16(out, b.length);
+    if (b.length > 0) out.write(b);
   }
 
   static void writeU32(OutputStream out, int v) throws IOException {
@@ -321,6 +356,7 @@ final class Protocol {
       int relayClass,
       int pathTtl,
       int relayFlags) {}
+  record HopAck(String routeId, int hopIdx, String nodeId, int status, String reason, long tsMs) {}
 
   record ClientOptions(
       int padS4,
@@ -332,7 +368,9 @@ final class Protocol {
       String relayNonce,
       String relaySig,
       String sessionId,
-      String resumeToken) {
+      String resumeToken,
+      String routeId,
+      int hopIndex) {
     static Optional<ClientOptions> parse(String json) {
       try {
         int padS4 = 32;
@@ -345,6 +383,8 @@ final class Protocol {
         String relaySig = "";
         String sessionId = "";
         String resumeToken = "";
+        String routeId = "";
+        int hopIndex = 0;
         if (json.contains("\"padS4\"")) {
           int i = json.indexOf("\"padS4\"");
           int start = json.indexOf(":", i) + 1;
@@ -427,6 +467,23 @@ final class Protocol {
           int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
           if (q1 >= 0 && q2 > q1) resumeToken = json.substring(q1 + 1, q2).trim();
         }
+        if (json.contains("\"routeId\"")) {
+          int i = json.indexOf("\"routeId\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) routeId = json.substring(q1 + 1, q2).trim();
+        }
+        if (json.contains("\"hopIndex\"")) {
+          int i = json.indexOf("\"hopIndex\"");
+          int start = json.indexOf(":", i) + 1;
+          int end = json.indexOf(",", start);
+          if (end < 0) end = json.indexOf("}", start);
+          if (end < 0) end = json.length();
+          hopIndex = Integer.parseInt(json.substring(start, end).trim());
+          if (hopIndex < 0) hopIndex = 0;
+          if (hopIndex > 16) hopIndex = 16;
+        }
         return Optional.of(new ClientOptions(
             padS4,
             probeObfsProfileId,
@@ -437,7 +494,9 @@ final class Protocol {
             relayNonce,
             relaySig,
             sessionId,
-            resumeToken));
+            resumeToken,
+            routeId,
+            hopIndex));
       } catch (Exception e) {
         return Optional.empty();
       }

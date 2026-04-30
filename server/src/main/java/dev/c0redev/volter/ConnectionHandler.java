@@ -562,6 +562,7 @@ final class ConnectionHandler implements Runnable {
             if (cfg.quicEnabled()) transportMask |= Protocol.TRANSPORT_QUIC;
             int featureBits = legacyIpv6 == 1 ? Protocol.FEAT_IPV6 : 0;
             featureBits |= Protocol.FEAT_POLY_HANDSHAKE;
+            featureBits |= Protocol.FEAT_ROUTE_HOP_ACK;
             int obfsProfileId = Protocol.pickObfsProfileId();
             int tcpPortHint = cfg.listenPorts().isEmpty() ? 0 : cfg.listenPorts().get(0);
             byte[] nonce = new byte[8];

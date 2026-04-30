@@ -61,7 +61,7 @@ func dialPeerUDP(addr string) (*net.UDPConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := net.Dialer{Timeout: 22 * time.Second}
+	d := net.Dialer{Timeout: routeHandshakeTimeout}
 	if p := sockprotect.Protect; p != nil {
 		d.Control = func(network, address string, c syscall.RawConn) error {
 			var err error
@@ -91,6 +91,7 @@ func DialPeerRelayUDP(addr string, targetIP net.IP, targetPort uint16, token str
 	if err != nil {
 		return nil, err
 	}
+	_ = uc.SetDeadline(time.Now().Add(routeHandshakeTimeout))
 	slot := SlotForProtection(prot)
 	bufSize := protocol.BufSizeForConn(slot)
 	var raw bytes.Buffer
@@ -111,7 +112,14 @@ func DialPeerRelayUDP(addr string, targetIP net.IP, targetPort uint16, token str
 		_ = uc.Close()
 		return nil, err
 	}
+	_ = uc.SetDeadline(time.Time{})
 	base := &udpPeerConn{c: uc, pktBuf: make([]byte, 65536)}
 	r := bufio.NewReaderSize(base, bufSize)
+	if needHopAck(prot) {
+		if _, err := protocol.ReadHopAck(r); err != nil {
+			_ = uc.Close()
+			return nil, err
+		}
+	}
 	return &tunnelConn{Conn: base, r: r}, nil
 }

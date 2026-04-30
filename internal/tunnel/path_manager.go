@@ -18,13 +18,61 @@ const (
 )
 
 type PathDecision struct {
-	PreferTCP         bool
-	RelayClass        byte
-	PathTTL           byte
-	PeerAddr          string
-	PeerQUIC          string
-	PeerUDP           string
-	PeerUDPCandidates []string
+	PreferTCP          bool
+	RelayClass         byte
+	PathTTL            byte
+	PeerAddr           string
+	PeerQUIC           string
+	PeerUDP            string
+	PeerUDPCandidates  []string
+	PeerTCPCandidates  []string
+	PeerQUICCandidates []string
+	MaxPeerHops        int
+}
+
+type RouteHop struct {
+	Kind string
+	Addr string
+}
+
+type RoutePlan struct {
+	Target string
+	Hops   []RouteHop
+}
+
+func BuildRoutePlan(target string, decision PathDecision) RoutePlan {
+	out := RoutePlan{Target: strings.TrimSpace(target)}
+	appendHop := func(kind, addr string) {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			return
+		}
+		out.Hops = append(out.Hops, RouteHop{Kind: kind, Addr: addr})
+	}
+	for _, q := range decision.PeerQUICCandidates {
+		appendHop("peer_quic", q)
+	}
+	for _, u := range decision.PeerUDPCandidates {
+		appendHop("peer_udp", u)
+	}
+	for _, t := range decision.PeerTCPCandidates {
+		appendHop("peer_tcp", t)
+	}
+	if len(out.Hops) == 0 {
+		if decision.RelayClass == PathClassServer {
+			appendHop("server_relay", target)
+		} else {
+			appendHop("direct_server", target)
+		}
+	}
+	maxHops := decision.MaxPeerHops
+	if maxHops <= 0 {
+		maxHops = 1
+	}
+	if len(out.Hops) > maxHops {
+		out.Hops = out.Hops[:maxHops]
+	}
+	return out
 }
 
 type PathManager struct {
@@ -107,7 +155,7 @@ func dedupeEndpoints(list []string) []string {
 	return out
 }
 
-func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) string, useUDP bool) (tcpAddr, quicAddr, udpAddr string, udpEnds []string) {
+func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) string, useUDP bool, limit int) (tcpAddr, quicAddr, udpAddr string, udpEnds []string, tcpCands []string, quicCands []string) {
 	resolveUDPEnds := func(id string) []string {
 		if epEndpoints != nil {
 			return dedupeEndpoints(epEndpoints(id))
@@ -120,7 +168,22 @@ func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) st
 		}
 		return nil
 	}
-	nodes := dht.DefaultTable().Nearest(32)
+	if limit <= 0 {
+		limit = 1
+	}
+	nodes := dht.DefaultTable().Nearest(48)
+	addTCP := func(v string) {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			tcpCands = append(tcpCands, v)
+		}
+	}
+	addQUIC := func(v string) {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			quicCands = append(quicCands, v)
+		}
+	}
 	for _, n := range nodes {
 		if !strings.EqualFold(strings.TrimSpace(n.Class), "peer") {
 			continue
@@ -138,6 +201,8 @@ func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) st
 			}
 		}
 		quic := strings.TrimSpace(n.Quic)
+		addTCP(tcp)
+		addQUIC(quic)
 		if useUDP {
 			var cand []string
 			if tcp != "" {
@@ -149,11 +214,32 @@ func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) st
 				udpAddr = udpEnds[0]
 			}
 		}
-		if tcp != "" || quic != "" || udpAddr != "" {
-			return tcp, quic, udpAddr, udpEnds
+		if len(tcpCands)+len(quicCands)+len(udpEnds) >= limit {
+			break
 		}
 	}
-	return "", "", "", nil
+	tcpCands = dedupeEndpoints(tcpCands)
+	quicCands = dedupeEndpoints(quicCands)
+	udpEnds = dedupeEndpoints(udpEnds)
+	if len(tcpCands) > 0 {
+		tcpAddr = tcpCands[0]
+	}
+	if len(quicCands) > 0 {
+		quicAddr = quicCands[0]
+	}
+	if len(udpEnds) > 0 {
+		udpAddr = udpEnds[0]
+	}
+	if len(tcpCands) > limit {
+		tcpCands = tcpCands[:limit]
+	}
+	if len(quicCands) > limit {
+		quicCands = quicCands[:limit]
+	}
+	if len(udpEnds) > limit {
+		udpEnds = udpEnds[:limit]
+	}
+	return tcpAddr, quicAddr, udpAddr, udpEnds, tcpCands, quicCands
 }
 func (m *PathManager) SetGlobalCandidate(k ice.CandidateKind) {
 	if m == nil {
@@ -230,7 +316,13 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		resolver := m.peerUDPResolver
 		useUDP := m.peerRelayUseUDP
 		m.mu.Unlock()
-		tcpAddr, quicAddr, udpAddr, udpEnds := pickPeerRoutes(epSnap, resolver, useUDP)
+		peerLimit := 1
+		if st.failStreak >= 3 {
+			peerLimit = 3
+		} else if st.failStreak >= 1 {
+			peerLimit = 2
+		}
+		tcpAddr, quicAddr, udpAddr, udpEnds, tcpCands, quicCands := pickPeerRoutes(epSnap, resolver, useUDP, peerLimit)
 		m.mu.Lock()
 		if tcpAddr == "" && quicAddr == "" && udpAddr == "" {
 			return PathDecision{}, false
@@ -245,11 +337,25 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		} else {
 			peerUDPExtras = udpEnds
 		}
+		if !m.peerRelayUseQuic {
+			quicCands = nil
+		}
 		prefTCP := true
 		if m.peerRelayUseQuic && quicAddr != "" {
 			prefTCP = false
 		}
-		return PathDecision{PreferTCP: prefTCP, RelayClass: PathClassPeer, PathTTL: 2, PeerAddr: tcpAddr, PeerQUIC: quicAddr, PeerUDP: udpAddr, PeerUDPCandidates: peerUDPExtras}, true
+		return PathDecision{
+			PreferTCP:          prefTCP,
+			RelayClass:         PathClassPeer,
+			PathTTL:            byte(peerLimit),
+			PeerAddr:           tcpAddr,
+			PeerQUIC:           quicAddr,
+			PeerUDP:            udpAddr,
+			PeerUDPCandidates:  peerUDPExtras,
+			PeerTCPCandidates:  tcpCands,
+			PeerQUICCandidates: quicCands,
+			MaxPeerHops:        peerLimit,
+		}, true
 	}
 
 	dec := PathDecision{RelayClass: PathClassDirect, PathTTL: 1}

@@ -38,6 +38,8 @@ final class SessionHandler {
       TcpHandler tcpHandler,
       ExecutorService udpOffloadExecutor
   ) throws IOException {
+    String routeId = hr.opts().map(Protocol.ClientOptions::routeId).orElse("");
+    int hopIndex = hr.opts().map(Protocol.ClientOptions::hopIndex).orElse(0);
     int requestedObfs = hr.opts().map(Protocol.ClientOptions::probeObfsProfileId).orElse(0);
     int agreedObfs = Protocol.normalizeObfsProfile(requestedObfs);
     if (hr.opts().isPresent()) {
@@ -76,10 +78,12 @@ final class SessionHandler {
     }
     if (hs.role() == Protocol.ROLE_RELAY_TCP) {
       if (!cfg.peerRelayEnabled()) {
+        sendHopAck(out, routeId, hopIndex, 0, "peer relay disabled by policy");
         throw new IOException("peer relay disabled by policy");
       }
       RelayRegistry registry = relayRegistry(cfg);
       if (!registry.tryAcquire(remote)) {
+        sendHopAck(out, routeId, hopIndex, 0, "relay capacity exceeded");
         throw new IOException("relay capacity exceeded");
       }
       int relayHop = hr.opts().map(Protocol.ClientOptions::relayHop).orElse(0);
@@ -87,18 +91,22 @@ final class SessionHandler {
       int capHop = Math.min(RELAY_HOP_HARD_LIMIT, relayMaxHop);
       if (relayHop >= capHop) {
         registry.release(remote);
+        sendHopAck(out, routeId, hopIndex, 0, "relay hop limit exceeded");
         throw new IOException("relay hop limit exceeded");
       }
       Protocol.ClientOptions opt = hr.opts().orElse(null);
       if (opt != null && opt.relayBudgetKbps() > cfg.relayMaxBudgetKbps()) {
         registry.release(remote);
+        sendHopAck(out, routeId, hopIndex, 0, "relay budget too high");
         throw new IOException("relay budget too high");
       }
       if (!PEER_GUARD.allow(opt, cfg.token())) {
         registry.release(remote);
+        sendHopAck(out, routeId, hopIndex, 0, "relay identity rejected");
         throw new IOException("relay identity rejected");
       }
       Protocol.TcpConnect c = Protocol.readTcpConnect(in);
+      sendHopAck(out, routeId, hopIndex, 1, "");
       try {
         tcpHandler.onTcp(c, in);
       } finally {
@@ -107,6 +115,19 @@ final class SessionHandler {
       return;
     }
     throw new IOException("bad role");
+  }
+
+  private void sendHopAck(OutputStream out, String routeId, int hopIndex, int status, String reason) {
+    try {
+      Protocol.writeHopAck(out, new Protocol.HopAck(
+          routeId == null ? "" : routeId,
+          Math.max(0, Math.min(hopIndex, 255)),
+          cfg.clusterNodeId() == null ? "" : cfg.clusterNodeId(),
+          status,
+          reason == null ? "" : reason,
+          System.currentTimeMillis()
+      ));
+    } catch (IOException ignored) {}
   }
 
   private void handleUdp(int channelId, InputStream in, OutputStream out, Optional<Protocol.ClientOptions> opts)

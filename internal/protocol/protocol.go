@@ -50,7 +50,22 @@ const (
 	FeaturePolyHandshake = 1 << 1
 	FeatureRelayServer   = 1 << 2
 	FeatureRelayPeer     = 1 << 3
+	FeatureRouteHopAck   = 1 << 4
 )
+
+const (
+	hopAckMagic byte = 0xA7
+	hopAckV1    byte = 1
+)
+
+type HopAck struct {
+	RouteID string
+	HopIdx  byte
+	NodeID  string
+	Status  byte
+	Reason  string
+	TsMs    int64
+}
 
 type ServerHelloCaps struct {
 	Version           byte
@@ -597,6 +612,115 @@ func ReadTcpConnect(r *bufio.Reader) (TcpConnect, error) {
 		return TcpConnect{}, err
 	}
 	return TcpConnect{AddrType: at, IP: net.IP(ipb), Port: p}, nil
+}
+
+func WriteHopAck(w *bufio.Writer, ack HopAck) error {
+	if err := w.WriteByte(hopAckMagic); err != nil {
+		return err
+	}
+	if err := w.WriteByte(hopAckV1); err != nil {
+		return err
+	}
+	if err := w.WriteByte(ack.Status); err != nil {
+		return err
+	}
+	if err := w.WriteByte(ack.HopIdx); err != nil {
+		return err
+	}
+	if err := writeU16(w, uint16(len(ack.RouteID))); err != nil {
+		return err
+	}
+	if len(ack.RouteID) > 0 {
+		if _, err := w.WriteString(ack.RouteID); err != nil {
+			return err
+		}
+	}
+	if err := writeU16(w, uint16(len(ack.NodeID))); err != nil {
+		return err
+	}
+	if len(ack.NodeID) > 0 {
+		if _, err := w.WriteString(ack.NodeID); err != nil {
+			return err
+		}
+	}
+	if err := writeU16(w, uint16(len(ack.Reason))); err != nil {
+		return err
+	}
+	if len(ack.Reason) > 0 {
+		if _, err := w.WriteString(ack.Reason); err != nil {
+			return err
+		}
+	}
+	var b8 [8]byte
+	binary.BigEndian.PutUint64(b8[:], uint64(ack.TsMs))
+	if _, err := w.Write(b8[:]); err != nil {
+		return err
+	}
+	return w.Flush()
+}
+
+func ReadHopAck(r *bufio.Reader) (HopAck, error) {
+	m, err := r.ReadByte()
+	if err != nil {
+		return HopAck{}, err
+	}
+	if m != hopAckMagic {
+		return HopAck{}, errors.New("bad hop ack magic")
+	}
+	v, err := r.ReadByte()
+	if err != nil {
+		return HopAck{}, err
+	}
+	if v != hopAckV1 {
+		return HopAck{}, errors.New("bad hop ack version")
+	}
+	st, err := r.ReadByte()
+	if err != nil {
+		return HopAck{}, err
+	}
+	hopIdx, err := r.ReadByte()
+	if err != nil {
+		return HopAck{}, err
+	}
+	routeID, err := readSizedString(r)
+	if err != nil {
+		return HopAck{}, err
+	}
+	nodeID, err := readSizedString(r)
+	if err != nil {
+		return HopAck{}, err
+	}
+	reason, err := readSizedString(r)
+	if err != nil {
+		return HopAck{}, err
+	}
+	var b8 [8]byte
+	if _, err := io.ReadFull(r, b8[:]); err != nil {
+		return HopAck{}, err
+	}
+	return HopAck{
+		RouteID: routeID,
+		HopIdx:  hopIdx,
+		NodeID:  nodeID,
+		Status:  st,
+		Reason:  reason,
+		TsMs:    int64(binary.BigEndian.Uint64(b8[:])),
+	}, nil
+}
+
+func readSizedString(r *bufio.Reader) (string, error) {
+	n, err := readU16(r)
+	if err != nil {
+		return "", err
+	}
+	if n == 0 {
+		return "", nil
+	}
+	b := make([]byte, int(n))
+	if _, err := io.ReadFull(r, b); err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 type UDPFrame struct {

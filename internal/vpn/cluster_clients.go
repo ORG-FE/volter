@@ -30,7 +30,7 @@ func runClusterClientsPoll(ctx context.Context, serverAddr, headerKey, httpPath 
 	}
 	u := "http://" + serverAddr + path
 	cl := &http.Client{Timeout: 6 * time.Second}
-	tk := time.NewTicker(10 * time.Second)
+	tk := time.NewTicker(5 * time.Second)
 	defer tk.Stop()
 	fetch := func() {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

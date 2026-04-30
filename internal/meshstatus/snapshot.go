@@ -10,6 +10,7 @@ import (
 	"dev.c0redev.volter/internal/dht"
 	"dev.c0redev.volter/internal/discovery"
 	"dev.c0redev.volter/internal/telemetry"
+	"dev.c0redev.volter/internal/tunnel"
 	"dev.c0redev.volter/internal/vpn"
 )
 
@@ -31,22 +32,32 @@ type PathEvt struct {
 }
 
 type Status struct {
-	DhtSelfIDHex      string    `json:"dhtSelfIdHex"`
-	ClientSrflx       string    `json:"clientSrflx,omitempty"`
-	IceSrflxRttEwmaMs float64   `json:"iceSrflxRttEwmaMs"`
-	StoreForwardSent  uint64    `json:"storeForwardSent"`
-	StoreForwardRecv  uint64    `json:"storeForwardRecv"`
-	ClusterNodeID     string    `json:"clusterNodeId,omitempty"`
-	ClusterNodes      []string  `json:"clusterNodes,omitempty"`
-	ClusterSessionsNodeID string `json:"clusterSessionsNodeId,omitempty"`
-	ClusterSessionsCount    int   `json:"clusterSessionsCount"`
-	ClusterSessionsAtMs     int64 `json:"clusterSessionsAtMs,omitempty"`
-	ClusterClientsNodeID string   `json:"clusterClientsNodeId,omitempty"`
-	ClusterClientsCount  int      `json:"clusterClientsCount"`
-	ClusterClients       []string `json:"clusterClients,omitempty"`
-	Nodes             []NodeRow `json:"nodes"`
-	PathEvents        []PathEvt `json:"pathEvents"`
-	CollectedAt       time.Time `json:"collectedAt"`
+	DhtSelfIDHex          string    `json:"dhtSelfIdHex"`
+	ClientSrflx           string    `json:"clientSrflx,omitempty"`
+	IceSrflxRttEwmaMs     float64   `json:"iceSrflxRttEwmaMs"`
+	StoreForwardSent      uint64    `json:"storeForwardSent"`
+	StoreForwardRecv      uint64    `json:"storeForwardRecv"`
+	ClusterNodeID         string    `json:"clusterNodeId,omitempty"`
+	ClusterNodes          []string  `json:"clusterNodes,omitempty"`
+	ClusterMapAtMs        int64     `json:"clusterMapAtMs,omitempty"`
+	ClusterMapAgeMs       int64     `json:"clusterMapAgeMs,omitempty"`
+	ClusterSessionsNodeID string    `json:"clusterSessionsNodeId,omitempty"`
+	ClusterSessionsCount  int       `json:"clusterSessionsCount"`
+	ClusterSessionsAtMs   int64     `json:"clusterSessionsAtMs,omitempty"`
+	ClusterSessionsAgeMs  int64     `json:"clusterSessionsAgeMs,omitempty"`
+	ClusterClientsNodeID  string    `json:"clusterClientsNodeId,omitempty"`
+	ClusterClientsCount   int       `json:"clusterClientsCount"`
+	ClusterClients        []string  `json:"clusterClients,omitempty"`
+	ClusterClientsAtMs    int64     `json:"clusterClientsAtMs,omitempty"`
+	ClusterClientsAgeMs   int64     `json:"clusterClientsAgeMs,omitempty"`
+	ClientsSource         string    `json:"clientsSource,omitempty"`
+	RouteTarget           string    `json:"routeTarget,omitempty"`
+	RoutePlan             string    `json:"routePlan,omitempty"`
+	ActiveHop             string    `json:"activeHop,omitempty"`
+	LastHopReason         string    `json:"lastHopReason,omitempty"`
+	Nodes                 []NodeRow `json:"nodes"`
+	PathEvents            []PathEvt `json:"pathEvents"`
+	CollectedAt           time.Time `json:"collectedAt"`
 }
 
 func Gather() Status { return GatherNearest(48) }
@@ -67,33 +78,58 @@ func GatherNearest(kNearest int) Status {
 	for _, e := range pe {
 		outPe = append(outPe, PathEvt{Ts: e.Ts, Kind: string(e.Kind), Note: e.Note})
 	}
-	clusterNodeID, clusterNodes := parseClusterMap(vpn.LastClusterMap())
+	now := time.Now()
+	clusterNodeID, clusterNodes, mapAt, mapOk := parseClusterMap(vpn.LastClusterMap())
 	csNode, csCnt, csAt, csOk := parseClusterSessions(vpn.LastClusterSessions())
-	ccNode, ccList, ccOk := parseClusterClients(vpn.LastClusterClients())
+	ccNode, ccList, ccAt, ccOk := parseClusterClients(vpn.LastClusterClients())
 	sf := vpn.StoreForwardStats()
 	out := Status{
-		DhtSelfIDHex:      hex.EncodeToString(self[:]),
-		ClientSrflx:       vpn.LastClientSrflx(),
-		IceSrflxRttEwmaMs: telemetry.IceSrflxRttEwmaMs(),
-		StoreForwardSent:  sf.Sent,
-		StoreForwardRecv:  sf.Received,
-		ClusterNodeID:     clusterNodeID,
-		ClusterNodes:      clusterNodes,
+		DhtSelfIDHex:         hex.EncodeToString(self[:]),
+		ClientSrflx:          vpn.LastClientSrflx(),
+		IceSrflxRttEwmaMs:    telemetry.IceSrflxRttEwmaMs(),
+		StoreForwardSent:     sf.Sent,
+		StoreForwardRecv:     sf.Received,
+		ClusterNodeID:        clusterNodeID,
+		ClusterNodes:         clusterNodes,
 		ClusterSessionsCount: -1,
-		ClusterClientsCount: -1,
-		Nodes:             rows,
-		PathEvents:        outPe,
-		CollectedAt:       time.Now(),
+		ClusterClientsCount:  -1,
+		Nodes:                rows,
+		PathEvents:           outPe,
+		CollectedAt:          now,
+	}
+	rt, rp, rh, rr := tunnel.LastRouteTrace()
+	out.RouteTarget = rt
+	out.RoutePlan = rp
+	out.ActiveHop = rh
+	out.LastHopReason = rr
+	if mapOk && mapAt > 0 {
+		out.ClusterMapAtMs = mapAt
+		out.ClusterMapAgeMs = maxAgeMs(now, mapAt)
 	}
 	if csOk {
 		out.ClusterSessionsNodeID = csNode
 		out.ClusterSessionsCount = csCnt
 		out.ClusterSessionsAtMs = csAt
+		out.ClusterSessionsAgeMs = maxAgeMs(now, csAt)
 	}
-	if ccOk {
+	if ccOk && len(ccList) > 0 {
 		out.ClusterClientsNodeID = ccNode
 		out.ClusterClients = ccList
 		out.ClusterClientsCount = len(ccList)
+		out.ClusterClientsAtMs = ccAt
+		out.ClusterClientsAgeMs = maxAgeMs(now, ccAt)
+		out.ClientsSource = "cluster"
+	} else {
+		out.ClientsSource = "dht_fallback"
+		fb := make([]string, 0, len(rows))
+		for _, r := range rows {
+			if strings.TrimSpace(r.ID) == "" {
+				continue
+			}
+			fb = append(fb, r.ID)
+		}
+		out.ClusterClients = fb
+		out.ClusterClientsCount = len(fb)
 	}
 	return out
 }
@@ -130,16 +166,37 @@ func Format(s Status) string {
 			b.WriteString("  • " + n + "\n")
 		}
 	}
+	if s.ClusterMapAtMs > 0 {
+		b.WriteString(fmt.Sprintf("Снимок map: age=%d ms\n", s.ClusterMapAgeMs))
+	}
 	if s.ClusterSessionsCount >= 0 {
 		line := fmt.Sprintf("Снимок resume кластера: узел %s, сессий %d", strings.TrimSpace(s.ClusterSessionsNodeID), s.ClusterSessionsCount)
 		if s.ClusterSessionsAtMs > 0 {
 			line += fmt.Sprintf(" (сервер ts %s)", time.UnixMilli(s.ClusterSessionsAtMs).Format("15:04:05"))
 		}
+		if s.ClusterSessionsAgeMs > 0 {
+			line += fmt.Sprintf(", age=%d ms", s.ClusterSessionsAgeMs)
+		}
 		b.WriteString(line + "\n")
 	}
 	if s.ClusterClientsCount >= 0 {
 		line := fmt.Sprintf("Снимок клиентов кластера: узел %s, клиентов %d", strings.TrimSpace(s.ClusterClientsNodeID), s.ClusterClientsCount)
+		if s.ClusterClientsAgeMs > 0 {
+			line += fmt.Sprintf(", age=%d ms", s.ClusterClientsAgeMs)
+		}
+		if s.ClientsSource != "" {
+			line += " source=" + s.ClientsSource
+		}
 		b.WriteString(line + "\n")
+	}
+	if strings.TrimSpace(s.RouteTarget) != "" || strings.TrimSpace(s.RoutePlan) != "" {
+		b.WriteString(fmt.Sprintf("Route: target=%s plan=%s", strings.TrimSpace(s.RouteTarget), strings.TrimSpace(s.RoutePlan)) + "\n")
+		if strings.TrimSpace(s.ActiveHop) != "" {
+			b.WriteString("Active hop: " + strings.TrimSpace(s.ActiveHop) + "\n")
+		}
+		if strings.TrimSpace(s.LastHopReason) != "" {
+			b.WriteString("Last hop reason: " + strings.TrimSpace(s.LastHopReason) + "\n")
+		}
 	}
 	b.WriteString("\n")
 
@@ -184,21 +241,22 @@ func Format(s Status) string {
 	return b.String()
 }
 
-func parseClusterMap(raw string) (string, []string) {
+func parseClusterMap(raw string) (string, []string, int64, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", nil
+		return "", nil, 0, false
 	}
 	var doc struct {
-		NodeID string `json:"nodeId"`
-		Nodes  []struct {
+		NodeID      string `json:"nodeId"`
+		GeneratedAt int64  `json:"generatedAt"`
+		Nodes       []struct {
 			ID       string `json:"id"`
 			Endpoint string `json:"endpoint"`
 			Alive    bool   `json:"alive"`
 		} `json:"nodes"`
 	}
 	if json.Unmarshal([]byte(raw), &doc) != nil {
-		return "", nil
+		return "", nil, 0, false
 	}
 	out := make([]string, 0, len(doc.Nodes))
 	for _, n := range doc.Nodes {
@@ -215,7 +273,7 @@ func parseClusterMap(raw string) (string, []string) {
 		}
 		out = append(out, id)
 	}
-	return strings.TrimSpace(doc.NodeID), out
+	return strings.TrimSpace(doc.NodeID), out, doc.GeneratedAt, true
 }
 
 func parseClusterSessions(raw string) (nodeID string, count int, atMs int64, ok bool) {
@@ -236,14 +294,15 @@ func parseClusterSessions(raw string) (nodeID string, count int, atMs int64, ok 
 	return strings.TrimSpace(doc.NodeID), len(doc.Sessions), doc.GeneratedAt, true
 }
 
-func parseClusterClients(raw string) (nodeID string, clients []string, ok bool) {
+func parseClusterClients(raw string) (nodeID string, clients []string, atMs int64, ok bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", nil, false
+		return "", nil, 0, false
 	}
 	var doc struct {
-		NodeID  string `json:"nodeId"`
-		Clients []struct {
+		NodeID      string `json:"nodeId"`
+		GeneratedAt int64  `json:"generatedAt"`
+		Clients     []struct {
 			ID     string `json:"id"`
 			PeerID string `json:"peerId"`
 			Remote string `json:"remote"`
@@ -251,7 +310,7 @@ func parseClusterClients(raw string) (nodeID string, clients []string, ok bool) 
 		} `json:"clients"`
 	}
 	if json.Unmarshal([]byte(raw), &doc) != nil {
-		return "", nil, false
+		return "", nil, 0, false
 	}
 	out := make([]string, 0, len(doc.Clients))
 	for _, c := range doc.Clients {
@@ -274,5 +333,16 @@ func parseClusterClients(raw string) (nodeID string, clients []string, ok bool) 
 		}
 		out = append(out, line)
 	}
-	return strings.TrimSpace(doc.NodeID), out, true
+	return strings.TrimSpace(doc.NodeID), out, doc.GeneratedAt, true
+}
+
+func maxAgeMs(now time.Time, atMs int64) int64 {
+	if atMs <= 0 {
+		return 0
+	}
+	age := now.UnixMilli() - atMs
+	if age < 0 {
+		return 0
+	}
+	return age
 }

@@ -22,6 +22,9 @@ data class ProtectionOptions(
     val clusterMapPath: String? = null,
     val clusterSessionsPath: String? = null,
     val clusterClientsPath: String? = null,
+    val clusterPreferredServer: String? = null,
+    val routeMode: String? = null,
+    val routePlannerV2: Boolean = false,
 ) {
     fun toJson(): JSONObject {
         val j = JSONObject()
@@ -43,6 +46,9 @@ data class ProtectionOptions(
         clusterMapPath?.let { j.put("clusterMapPath", it) }
         clusterSessionsPath?.let { j.put("clusterSessionsPath", it) }
         clusterClientsPath?.let { j.put("clusterClientsPath", it) }
+        clusterPreferredServer?.let { j.put("clusterPreferredServer", it) }
+        routeMode?.let { j.put("routeMode", it) }
+        if (routePlannerV2) j.put("routePlannerV2", true)
         return j
     }
 
@@ -66,6 +72,9 @@ data class ProtectionOptions(
             clusterMapPath = j.optNullableString("clusterMapPath"),
             clusterSessionsPath = j.optNullableString("clusterSessionsPath"),
             clusterClientsPath = j.optNullableString("clusterClientsPath"),
+            clusterPreferredServer = j.optNullableString("clusterPreferredServer"),
+            routeMode = j.optNullableString("routeMode"),
+            routePlannerV2 = j.optBoolean("routePlannerV2", false),
         )
     }
 }
