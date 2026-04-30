@@ -22,7 +22,7 @@ final class ClusterRuntime {
     return INSTANCE;
   }
 
-  private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+  private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
   private final Map<String, ClusterNode> nodes = new ConcurrentHashMap<>();
   private volatile Config cfg;
   private volatile boolean running;
@@ -170,7 +170,7 @@ final class ClusterRuntime {
 
   private HttpRequest clusterPeerGet(URI uri) {
     HttpRequest.Builder b = HttpRequest.newBuilder(uri)
-        .timeout(Duration.ofSeconds(2))
+        .timeout(Duration.ofSeconds(10))
         .header("Accept", "application/json");
     Config c = cfg;
     if (c != null && c.clusterHttpAuth()) {
