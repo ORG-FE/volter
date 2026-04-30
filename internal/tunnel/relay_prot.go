@@ -1,9 +1,7 @@
 package tunnel
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
 	"dev.c0redev.volter/internal/config"
 )
@@ -30,11 +28,10 @@ func RelayProtForPeerHop(base *config.ProtectionOptions, relay *config.RelayOpti
 	if cp.RelayMaxHop <= 0 {
 		cp.RelayMaxHop = 3
 	}
-	if strings.TrimSpace(cp.RouteID) == "" {
-		cp.RouteID = fmt.Sprintf("r-%d", time.Now().UnixNano())
-	}
-	if cp.HopIndex <= 0 {
-		cp.HopIndex = cp.RelayHop
+	if cp.RoutePlannerV2 {
+		if cp.HopIndex <= 0 {
+			cp.HopIndex = cp.RelayHop
+		}
 	}
 	return &cp
 }

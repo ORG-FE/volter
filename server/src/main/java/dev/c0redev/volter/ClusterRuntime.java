@@ -100,6 +100,7 @@ final class ClusterRuntime {
       ClusterNode n = copy.get(i);
       if (i > 0) sb.append(',');
       sb.append("{\"id\":\"").append(json(n.nodeId)).append("\",");
+      sb.append("\"region\":\"").append(json(regionFromNodeId(n.nodeId))).append("\",");
       sb.append("\"endpoint\":\"").append(json(n.endpoint)).append("\",");
       sb.append("\"ts\":").append(n.lastSeenMs).append(",");
       sb.append("\"alive\":").append(n.alive).append("}");
@@ -349,6 +350,17 @@ final class ClusterRuntime {
   private static String json(String s) {
     if (s == null) return "";
     return s.replace("\\", "\\\\").replace("\"", "\\\"");
+  }
+
+  private static String regionFromNodeId(String nodeId) {
+    if (nodeId == null) return "";
+    String s = nodeId.trim().toLowerCase();
+    if (s.isEmpty()) return "";
+    int dash = s.indexOf('-');
+    if (dash > 0) return s.substring(0, dash);
+    int under = s.indexOf('_');
+    if (under > 0) return s.substring(0, under);
+    return s;
   }
 
   private static final class ClusterNode {

@@ -210,7 +210,7 @@ private fun parseClusterState(raw: String): ClusterViewState {
             nodeId = nodeId,
             servers = servers,
             clients = clients,
-            summary = "srflx: $srflx | store-forward: $sfSent/$sfRecv | mapAge=${j.optLong("clusterMapAgeMs", -1)}ms | sessAge=${j.optLong("clusterSessionsAgeMs", -1)}ms | clientsAge=${j.optLong("clusterClientsAgeMs", -1)}ms",
+            summary = "srflx: $srflx | store-forward: $sfSent/$sfRecv | mapAge=${j.optLong("clusterMapAgeMs", -1)}ms | sessAge=${j.optLong("clusterSessionsAgeMs", -1)}ms | clientsAge=${j.optLong("clusterClientsAgeMs", -1)}ms | target=${j.optString("routeTarget", "-")} | plan=${j.optString("routePlan", "-")} | hop=${j.optString("activeHop", "-")} | reason=${j.optString("lastHopReason", "-")}",
             clientsSource = j.optString("clientsSource", "unknown"),
         )
     } catch (_: Exception) {

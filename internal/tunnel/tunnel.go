@@ -297,11 +297,13 @@ func needHopAck(prot *config.ProtectionOptions) bool {
 	if prot == nil {
 		return false
 	}
-	if prot.RelayHop > 0 {
+	if prot.RoutePlannerV2 {
 		return true
 	}
-	mode := strings.TrimSpace(strings.ToLower(prot.RouteMode))
-	return mode == "server_relay" || mode == "peer_relay"
+	if strings.TrimSpace(prot.RouteID) != "" {
+		return true
+	}
+	return false
 }
 
 func pickAddr(addrs []string, ip net.IP, port uint16) string {
