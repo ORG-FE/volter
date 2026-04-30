@@ -6,9 +6,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
@@ -25,12 +27,14 @@ final class ClusterRuntime {
   private volatile Config cfg;
   private volatile boolean running;
   private volatile Thread worker;
+  private volatile String lastStateDigest = "";
 
   private ClusterRuntime() {}
 
   void start(Config cfg) {
     this.cfg = cfg;
     registerSelf();
+    log.info("cluster start: node=" + cfg.clusterNodeId() + ", listen=" + cfg.clusterListen() + ", peers=" + cfg.clusterPeers());
     if (running || cfg.clusterPeers().isEmpty()) return;
     running = true;
     worker = new Thread(this::loop, "cluster-runtime");
@@ -124,6 +128,7 @@ final class ClusterRuntime {
         markPeerDown(u);
       }
     }
+    logClusterState(c);
   }
 
   private HttpRequest clusterPeerGet(URI uri) {
@@ -157,6 +162,72 @@ final class ClusterRuntime {
       if (!e.getValue().endpoint.equals(endpoint)) continue;
       ClusterNode n = e.getValue();
       nodes.put(e.getKey(), new ClusterNode(n.nodeId, n.endpoint, System.currentTimeMillis(), false));
+    }
+  }
+
+  private void logClusterState(Config c) {
+    List<ClusterNode> copy = new ArrayList<>(nodes.values());
+    List<String> online = new ArrayList<>();
+    for (ClusterNode n : copy) {
+      if (!n.alive) continue;
+      String ep = normalizeEndpoint(n.endpoint);
+      if (ep.isBlank()) {
+        online.add(n.nodeId);
+      } else {
+        online.add(n.nodeId + "(" + ep + ")");
+      }
+    }
+    online.sort(String::compareTo);
+
+    Set<String> onlineEndpoints = new HashSet<>();
+    for (ClusterNode n : copy) {
+      if (!n.alive) continue;
+      String ep = normalizeEndpoint(n.endpoint);
+      if (!ep.isBlank()) onlineEndpoints.add(ep);
+    }
+
+    List<String> waiting = new ArrayList<>();
+    for (String raw : c.clusterPeers()) {
+      String ep = normalizeEndpoint(raw);
+      if (ep.isBlank()) continue;
+      if (!onlineEndpoints.contains(ep)) waiting.add(ep);
+    }
+    waiting.sort(String::compareTo);
+
+    int total = 1 + c.clusterPeers().size();
+    int connected = total - waiting.size();
+    String digest = "connected=" + connected + "/" + total + "|online=" + online + "|waiting=" + waiting;
+    if (digest.equals(lastStateDigest)) return;
+    lastStateDigest = digest;
+
+    if (waiting.isEmpty()) {
+      log.info("cluster ready: connected " + connected + "/" + total + ", online " + online);
+      return;
+    }
+    log.info("cluster sync: connected " + connected + "/" + total + ", online " + online + ", waiting " + waiting);
+  }
+
+  private static String normalizeEndpoint(String raw) {
+    if (raw == null) return "";
+    String s = raw.trim();
+    if (s.isEmpty()) return "";
+    try {
+      String u = s;
+      if (!u.startsWith("http://") && !u.startsWith("https://")) {
+        u = "http://" + u;
+      }
+      URI uri = URI.create(u);
+      String host = uri.getHost();
+      int port = uri.getPort();
+      if (host == null || host.isBlank()) {
+        return s;
+      }
+      if (port <= 0) {
+        return host;
+      }
+      return host + ":" + port;
+    } catch (Exception ignored) {
+      return s;
     }
   }
 
