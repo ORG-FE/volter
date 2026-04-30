@@ -397,22 +397,32 @@ func (m *Model) clusterFullContent() string {
 	b.WriteString(fmt.Sprintf("Store-forward sent/recv: %d/%d\n", s.StoreForwardSent, s.StoreForwardRecv))
 	b.WriteString("\n")
 	b.WriteString(sectionTitle.Render("Mesh клиенты (DHT nearest)") + "\n")
-	if len(s.Nodes) == 0 {
-		b.WriteString(emptyState.Render("Клиенты пока не собраны") + "\n")
-	} else {
-		show := s.Nodes
-		if len(show) > 48 {
-			show = show[:48]
+	if s.ClusterClientsCount > 0 && len(s.ClusterClients) > 0 {
+		show := s.ClusterClients
+		if len(show) > 64 {
+			show = show[:64]
 		}
 		for _, n := range show {
-			line := "  • " + n.ID
-			if n.Class != "" {
-				line += " [" + n.Class + "]"
+			b.WriteString("  • " + n + "\n")
+		}
+	} else {
+		if len(s.Nodes) == 0 {
+			b.WriteString(emptyState.Render("Клиенты пока не собраны") + "\n")
+		} else {
+			show := s.Nodes
+			if len(show) > 48 {
+				show = show[:48]
 			}
-			if n.Endpoints != "" {
-				line += " ep=" + n.Endpoints
+			for _, n := range show {
+				line := "  • " + n.ID
+				if n.Class != "" {
+					line += " [" + n.Class + "]"
+				}
+				if n.Endpoints != "" {
+					line += " ep=" + n.Endpoints
+				}
+				b.WriteString(line + "\n")
 			}
-			b.WriteString(line + "\n")
 		}
 	}
 	b.WriteString(fmt.Sprintf("\nОбновлено: %s\n", s.CollectedAt.Format(time.RFC3339)))

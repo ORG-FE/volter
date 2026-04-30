@@ -49,8 +49,8 @@ object VolterMeshDefaults {
             peerRelayUseUdp = true,
             dhtRpcSeedPeers = seeds,
             dhtFindUrls = dhtFindUrls,
-            dhtPublishSrflx = false,
-            symmetricNatHolePunch = false,
+            dhtPublishSrflx = true,
+            symmetricNatHolePunch = true,
             stunServers = listOf("stun4.l.google.com:19302", "stun.sipnet.net:3478"),
         )
     }

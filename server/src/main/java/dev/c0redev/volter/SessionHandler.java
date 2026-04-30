@@ -50,6 +50,8 @@ final class SessionHandler {
       }
     }
     log.info("Accepted role=" + hs.role() + " from " + remote + " obfsProfile=" + agreedObfs);
+    String pid = hr.opts().map(Protocol.ClientOptions::peerId).orElse("");
+    ClusterClientRegistry.get().touch(cfg.clusterNodeId(), remote, pid, hs.role());
     if (hs.role() == Protocol.ROLE_UDP) {
       Runnable r = () -> {
         try {

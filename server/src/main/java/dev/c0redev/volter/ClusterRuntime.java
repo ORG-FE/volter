@@ -149,6 +149,7 @@ final class ClusterRuntime {
         int after = nodes.size();
         log.info("cluster pull map ok peer=" + normalizeEndpoint(u) + " merged=" + merged + " nodes=" + before + "->" + after);
         String sessUrl = sessionsUrlFromMapUrl(u, c);
+        String clientsUrl = clientsUrlFromMapUrl(u, c);
         try {
           HttpRequest sreq = clusterPeerGet(URI.create(sessUrl));
           HttpResponse<String> sresp = http.send(sreq, HttpResponse.BodyHandlers.ofString());
@@ -159,6 +160,17 @@ final class ClusterRuntime {
           }
         } catch (Exception ex) {
           log.warning("cluster pull sessions failed peer=" + normalizeEndpoint(sessUrl) + " err=" + ex.getMessage());
+        }
+        try {
+          HttpRequest creq = clusterPeerGet(URI.create(clientsUrl));
+          HttpResponse<String> cresp = http.send(creq, HttpResponse.BodyHandlers.ofString());
+          if (cresp.statusCode() >= 200 && cresp.statusCode() < 300) {
+            ClusterClientRegistry.get().mergeFromJson(cresp.body());
+          } else {
+            log.warning("cluster pull clients non-2xx peer=" + normalizeEndpoint(clientsUrl) + " status=" + cresp.statusCode());
+          }
+        } catch (Exception ex) {
+          log.warning("cluster pull clients failed peer=" + normalizeEndpoint(clientsUrl) + " err=" + ex.getMessage());
         }
       } catch (Exception e) {
         log.warning("cluster pull map failed peer=" + normalizeEndpoint(u) + " err=" + e.getMessage());
@@ -192,6 +204,18 @@ final class ClusterRuntime {
       base = base.substring(0, base.length() - 1);
     }
     return base + c.clusterSessionsPath();
+  }
+
+  private static String clientsUrlFromMapUrl(String mapUrl, Config c) {
+    String base = mapUrl;
+    String mp = c.clusterMapPath();
+    if (base.endsWith(mp)) {
+      base = base.substring(0, base.length() - mp.length());
+    }
+    while (base.endsWith("/")) {
+      base = base.substring(0, base.length() - 1);
+    }
+    return base + c.clusterClientsPath();
   }
 
   private void markPeerDown(String endpoint) {

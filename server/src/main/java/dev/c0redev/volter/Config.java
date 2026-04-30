@@ -58,6 +58,7 @@ final class Config {
   private final int clusterGossipIntervalMs;
   private final String clusterMapPath;
   private final String clusterSessionsPath;
+  private final String clusterClientsPath;
   private final boolean clusterHttpAuth;
   private final String clusterHttpSecret;
 
@@ -72,7 +73,7 @@ final class Config {
                  String relayIndexFile, String relayIndexPath, String opsHintsPath,
                  String gossipIndexFile, String gossipIndexPath, String dhtFindPath,
                  String clusterNodeId, int clusterListen, List<String> clusterPeers, int clusterGossipIntervalMs, String clusterMapPath,
-                 String clusterSessionsPath, boolean clusterHttpAuth, String clusterHttpSecret) {
+                 String clusterSessionsPath, String clusterClientsPath, boolean clusterHttpAuth, String clusterHttpSecret) {
     this.listenPorts = listenPorts;
     this.token = token;
     this.udpChannels = udpChannels;
@@ -116,6 +117,7 @@ final class Config {
     this.clusterGossipIntervalMs = Math.max(1_000, clusterGossipIntervalMs);
     this.clusterMapPath = clusterMapPath != null && !clusterMapPath.isBlank() ? clusterMapPath.trim() : "/volter/cluster-map.json";
     this.clusterSessionsPath = clusterSessionsPath != null && !clusterSessionsPath.isBlank() ? clusterSessionsPath.trim() : "/volter/cluster-sessions.json";
+    this.clusterClientsPath = clusterClientsPath != null && !clusterClientsPath.isBlank() ? clusterClientsPath.trim() : "/volter/cluster-clients.json";
     this.clusterHttpAuth = clusterHttpAuth;
     this.clusterHttpSecret = clusterHttpSecret != null ? clusterHttpSecret.trim() : "";
   }
@@ -202,6 +204,10 @@ final class Config {
 
   String clusterSessionsPath() {
     return clusterSessionsPath;
+  }
+
+  String clusterClientsPath() {
+    return clusterClientsPath;
   }
 
   boolean clusterHttpAuth() {
@@ -331,6 +337,10 @@ final class Config {
     if (clusterSessionsPath.isEmpty()) {
       clusterSessionsPath = "/volter/cluster-sessions.json";
     }
+    String clusterClientsPath = p.getProperty("cluster.clientsPath", "/volter/cluster-clients.json").trim();
+    if (clusterClientsPath.isEmpty()) {
+      clusterClientsPath = "/volter/cluster-clients.json";
+    }
     boolean clusterHttpAuth = "true".equalsIgnoreCase(p.getProperty("cluster.httpAuth", "false").trim());
     String clusterHttpSecret = p.getProperty("cluster.httpSecret", "").trim();
     if (serverMode.equals("quic-only") || serverMode.equals("both")) {
@@ -357,6 +367,7 @@ final class Config {
         clusterGossipIntervalMs,
         clusterMapPath,
         clusterSessionsPath,
+        clusterClientsPath,
         clusterHttpAuth,
         clusterHttpSecret);
   }

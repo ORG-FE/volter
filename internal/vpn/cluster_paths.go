@@ -9,13 +9,15 @@ import (
 const (
 	defaultClusterMapPath        = "/volter/cluster-map.json"
 	defaultClusterSessionsPath   = "/volter/cluster-sessions.json"
+	defaultClusterClientsPath    = "/volter/cluster-clients.json"
 )
 
-func clusterPollPaths(prot *config.ProtectionOptions) (mapPath, sessionsPath string) {
+func clusterPollPaths(prot *config.ProtectionOptions) (mapPath, sessionsPath, clientsPath string) {
 	mapPath = defaultClusterMapPath
 	sessionsPath = defaultClusterSessionsPath
+	clientsPath = defaultClusterClientsPath
 	if prot == nil {
-		return mapPath, sessionsPath
+		return mapPath, sessionsPath, clientsPath
 	}
 	if p := strings.TrimSpace(prot.ClusterMapPath); p != "" {
 		mapPath = normalizeClusterHTTPPath(p)
@@ -23,7 +25,10 @@ func clusterPollPaths(prot *config.ProtectionOptions) (mapPath, sessionsPath str
 	if p := strings.TrimSpace(prot.ClusterSessionsPath); p != "" {
 		sessionsPath = normalizeClusterHTTPPath(p)
 	}
-	return mapPath, sessionsPath
+	if p := strings.TrimSpace(prot.ClusterClientsPath); p != "" {
+		clientsPath = normalizeClusterHTTPPath(p)
+	}
+	return mapPath, sessionsPath, clientsPath
 }
 
 func normalizeClusterHTTPPath(p string) string {

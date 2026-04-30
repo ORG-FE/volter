@@ -176,6 +176,13 @@ final class ConnectionHandler implements Runnable {
             } catch (IOException e) {
                 log.fine("cluster sessions http: " + e.getMessage());
             }
+            try {
+                if (tryClusterClientsHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster clients http: " + e.getMessage());
+            }
         }
         String host = cfg.camouflageTcpProxyHost();
         int port = cfg.camouflageTcpProxyPort();
@@ -356,6 +363,36 @@ final class ConnectionHandler implements Runnable {
         rawOut.write(body);
         rawOut.flush();
         log.fine("served cluster sessions " + body.length + " bytes");
+        return true;
+    }
+
+    private boolean tryClusterClientsHttp(BufferedInputStream rawIn, OutputStream rawOut) throws IOException {
+        String want = cfg.clusterClientsPath();
+        if (want == null || want.isBlank()) {
+            return false;
+        }
+        rawIn.mark(65536);
+        String line = readHttpLine(rawIn, 8192);
+        String path = httpRequestPath(line);
+        if (!want.equals(path)) {
+            rawIn.reset();
+            return false;
+        }
+        if (!clusterHttpAuthorize(rawIn, rawOut)) {
+            return true;
+        }
+        byte[] body = (ClusterClientRegistry.get().exportJson(cfg.clusterNodeId()) + "\n").getBytes(StandardCharsets.UTF_8);
+        BufferedWriter w = new BufferedWriter(new OutputStreamWriter(rawOut, StandardCharsets.UTF_8));
+        w.write("HTTP/1.1 200 OK\r\n");
+        w.write("Server: " + cfg.camouflageHttpServerName() + "\r\n");
+        w.write("Content-Type: application/json; charset=utf-8\r\n");
+        w.write("Content-Length: " + body.length + "\r\n");
+        w.write("Connection: close\r\n");
+        w.write("\r\n");
+        w.flush();
+        rawOut.write(body);
+        rawOut.flush();
+        log.fine("served cluster clients " + body.length + " bytes");
         return true;
     }
 

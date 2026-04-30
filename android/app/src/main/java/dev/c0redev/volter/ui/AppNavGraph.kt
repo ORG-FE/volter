@@ -1,8 +1,17 @@
 package dev.c0redev.volter.ui
 
 import android.app.Activity
+import android.graphics.RenderEffect
+import android.graphics.RuntimeShader
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,7 +49,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -122,13 +136,7 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.72f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
-                        tonalElevation = 6.dp,
-                        shadowElevation = 14.dp,
-                    ) {
+                    GlassBottomBar {
                         NavigationBar(
                             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.08f),
                             tonalElevation = 0.dp,
@@ -221,4 +229,95 @@ fun AppNavGraph(vm: ConnectionViewModel) {
             }
         }
     }
+}
+
+private const val glassShaderSrc = """
+uniform shader background;
+uniform float2 resolution;
+uniform float time;
+uniform float4 tint;
+
+half4 main(float2 fragCoord) {
+  float2 uv = fragCoord / max(resolution, float2(1.0));
+  float wave = sin((uv.x * 8.0) + time * 0.65) * 0.006;
+  float wave2 = cos((uv.y * 12.0) - time * 0.45) * 0.004;
+  float2 p = uv + float2(wave, wave2);
+  half4 base = background.eval(p * resolution);
+  float glow = smoothstep(0.0, 1.0, 1.0 - abs(uv.y - 0.18) * 4.0) * 0.18;
+  half4 glass = mix(base, half4(tint.rgb, 1.0), 0.26);
+  glass.rgb += glow;
+  glass.a = 0.78;
+  return glass;
+}
+"""
+
+@Composable
+private fun GlassBottomBar(content: @Composable () -> Unit) {
+  val shape = RoundedCornerShape(28.dp)
+  val tint = MaterialTheme.colorScheme.surfaceContainerHigh
+  val outline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+    Surface(
+      shape = shape,
+      color = tint.copy(alpha = 0.78f),
+      border = BorderStroke(1.dp, outline),
+      tonalElevation = 6.dp,
+      shadowElevation = 14.dp,
+      content = { content() },
+    )
+    return
+  }
+  val shader = remember {
+    try {
+      RuntimeShader(glassShaderSrc)
+    } catch (_: Throwable) {
+      null
+    }
+  }
+  if (shader == null) {
+    Surface(
+      shape = shape,
+      color = tint.copy(alpha = 0.78f),
+      border = BorderStroke(1.dp, outline),
+      tonalElevation = 6.dp,
+      shadowElevation = 14.dp,
+      content = { content() },
+    )
+    return
+  }
+  val inf = rememberInfiniteTransition(label = "glassBar")
+  val t by inf.animateFloat(
+    initialValue = 0f,
+    targetValue = 1000f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(22_000, easing = LinearEasing),
+      repeatMode = RepeatMode.Restart,
+    ),
+    label = "glassTime",
+  )
+  val tintArgb by rememberUpdatedState(tint.toArgb())
+  Surface(
+    modifier = Modifier
+      .clip(shape)
+      .graphicsLayer {
+        shader.setFloatUniform("resolution", size.width, size.height)
+        shader.setFloatUniform("time", t)
+        shader.setFloatUniform(
+          "tint",
+          ((tintArgb shr 16) and 0xFF) / 255f,
+          ((tintArgb shr 8) and 0xFF) / 255f,
+          (tintArgb and 0xFF) / 255f,
+          ((tintArgb ushr 24) and 0xFF) / 255f,
+        )
+        val blur = RenderEffect.createBlurEffect(24f, 24f, android.graphics.Shader.TileMode.CLAMP)
+        val rt = RenderEffect.createRuntimeShaderEffect(shader, "background")
+        renderEffect = RenderEffect.createChainEffect(rt, blur).asComposeRenderEffect()
+      },
+    shape = shape,
+    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.10f),
+    border = BorderStroke(1.dp, outline),
+    tonalElevation = 6.dp,
+    shadowElevation = 14.dp,
+    content = { content() },
+  )
 }

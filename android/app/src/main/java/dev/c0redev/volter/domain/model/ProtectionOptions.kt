@@ -21,6 +21,7 @@ data class ProtectionOptions(
     val clusterHttpKey: String? = null,
     val clusterMapPath: String? = null,
     val clusterSessionsPath: String? = null,
+    val clusterClientsPath: String? = null,
 ) {
     fun toJson(): JSONObject {
         val j = JSONObject()
@@ -41,6 +42,7 @@ data class ProtectionOptions(
         clusterHttpKey?.let { j.put("clusterHttpKey", it) }
         clusterMapPath?.let { j.put("clusterMapPath", it) }
         clusterSessionsPath?.let { j.put("clusterSessionsPath", it) }
+        clusterClientsPath?.let { j.put("clusterClientsPath", it) }
         return j
     }
 
@@ -63,6 +65,7 @@ data class ProtectionOptions(
             clusterHttpKey = j.optNullableString("clusterHttpKey"),
             clusterMapPath = j.optNullableString("clusterMapPath"),
             clusterSessionsPath = j.optNullableString("clusterSessionsPath"),
+            clusterClientsPath = j.optNullableString("clusterClientsPath"),
         )
     }
 }

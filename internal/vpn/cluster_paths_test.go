@@ -7,9 +7,9 @@ import (
 )
 
 func TestClusterPollPaths_defaults(t *testing.T) {
-	m, s := clusterPollPaths(nil)
-	if m != defaultClusterMapPath || s != defaultClusterSessionsPath {
-		t.Fatalf("defaults: %q %q", m, s)
+	m, s, c := clusterPollPaths(nil)
+	if m != defaultClusterMapPath || s != defaultClusterSessionsPath || c != defaultClusterClientsPath {
+		t.Fatalf("defaults: %q %q %q", m, s, c)
 	}
 }
 
@@ -17,13 +17,17 @@ func TestClusterPollPaths_custom(t *testing.T) {
 	p := &config.ProtectionOptions{
 		ClusterMapPath:      "custom/map.json",
 		ClusterSessionsPath: "/x/sess.json",
+		ClusterClientsPath:  "api/clients",
 	}
-	m, s := clusterPollPaths(p)
+	m, s, c := clusterPollPaths(p)
 	if m != "/custom/map.json" {
 		t.Fatalf("map: %q", m)
 	}
 	if s != "/x/sess.json" {
 		t.Fatalf("sess: %q", s)
+	}
+	if c != "/api/clients" {
+		t.Fatalf("clients: %q", c)
 	}
 }
 

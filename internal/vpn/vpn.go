@@ -72,9 +72,10 @@ func Run(ctx context.Context, opt Options) error {
 		return errors.New("server addrs empty")
 	}
 	ck := clusterPollHeaderKey(opt)
-	mapPath, sessPath := clusterPollPaths(opt.Protection)
+	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)
 	go runClusterMapPoll(ctx, opt.ServerAddrs[0], ck, mapPath)
 	go runClusterSessionsPoll(ctx, opt.ServerAddrs[0], ck, sessPath)
+	go runClusterClientsPoll(ctx, opt.ServerAddrs[0], ck, clientsPath)
 	telemetry.NoteVPNStart()
 	readyCb := opt.Ready
 	tunnel.SetQUICTrace(opt.QuicTraceLog)

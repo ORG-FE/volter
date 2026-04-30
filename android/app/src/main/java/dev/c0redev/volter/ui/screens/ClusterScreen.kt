@@ -138,6 +138,14 @@ private fun parseClusterState(raw: String): ClusterViewState {
             }
         }
         val clients = buildList {
+            val carr = j.optJSONArray("clusterClients")
+            if (carr != null) {
+                for (i in 0 until carr.length()) {
+                    val v = carr.optString(i, "").trim()
+                    if (v.isNotBlank()) add(v)
+                }
+                if (isNotEmpty()) return@buildList
+            }
             val arr = j.optJSONArray("nodes")
             if (arr != null) {
                 for (i in 0 until arr.length()) {

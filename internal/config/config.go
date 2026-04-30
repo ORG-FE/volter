@@ -117,6 +117,7 @@ type ProtectionOptions struct {
 	ClusterHTTPKey        string `json:"clusterHttpKey,omitempty"`
 	ClusterMapPath        string `json:"clusterMapPath,omitempty"`
 	ClusterSessionsPath   string `json:"clusterSessionsPath,omitempty"`
+	ClusterClientsPath    string `json:"clusterClientsPath,omitempty"`
 }
 
 func Dir() (string, error) {
