@@ -370,7 +370,9 @@ final class Protocol {
       String sessionId,
       String resumeToken,
       String routeId,
-      int hopIndex) {
+      int hopIndex,
+      String tlsProfileId,
+      String ja3TargetHash) {
     static Optional<ClientOptions> parse(String json) {
       try {
         int padS4 = 32;
@@ -484,6 +486,24 @@ final class Protocol {
           if (hopIndex < 0) hopIndex = 0;
           if (hopIndex > 16) hopIndex = 16;
         }
+        String tlsProfileId = "";
+        String ja3TargetHash = "";
+        if (json.contains("\"tlsProfileId\"")) {
+          int i = json.indexOf("\"tlsProfileId\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) tlsProfileId = json.substring(q1 + 1, q2).trim();
+        }
+        if (json.contains("\"ja3TargetHash\"")) {
+          int i = json.indexOf("\"ja3TargetHash\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) ja3TargetHash = json.substring(q1 + 1, q2).trim();
+        }
+        if (tlsProfileId.length() > 128) tlsProfileId = tlsProfileId.substring(0, 128);
+        if (ja3TargetHash.length() > 128) ja3TargetHash = ja3TargetHash.substring(0, 128);
         return Optional.of(new ClientOptions(
             padS4,
             probeObfsProfileId,
@@ -496,7 +516,9 @@ final class Protocol {
             sessionId,
             resumeToken,
             routeId,
-            hopIndex));
+            hopIndex,
+            tlsProfileId,
+            ja3TargetHash));
       } catch (Exception e) {
         return Optional.empty();
       }

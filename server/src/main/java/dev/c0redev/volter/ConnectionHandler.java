@@ -11,17 +11,30 @@ import java.io.OutputStreamWriter;
 import java.net.SocketTimeoutException;
 import java.net.Socket;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.logging.Logger;
+
+import org.json.JSONObject;
 
 final class ConnectionHandler implements Runnable {
 
     private static final Logger log = Log.logger(ConnectionHandler.class);
+    private static final HttpClient CLUSTER_FWD = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(5))
+        .build();
     private static final int HANDSHAKE_TIMEOUT_MS = 5_000;
     private static final SecureRandom HELLO_RND = new SecureRandom();
     
@@ -182,6 +195,20 @@ final class ConnectionHandler implements Runnable {
                 }
             } catch (IOException e) {
                 log.fine("cluster clients http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterInviteHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster invite http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterPeerHandshakeHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster peer handshake http: " + e.getMessage());
             }
         }
         String host = cfg.camouflageTcpProxyHost();
@@ -394,6 +421,311 @@ final class ConnectionHandler implements Runnable {
         rawOut.flush();
         log.fine("served cluster clients " + body.length + " bytes");
         return true;
+    }
+
+    private boolean tryClusterInviteHttp(BufferedInputStream rawIn, OutputStream rawOut) throws IOException {
+        String want = cfg.clusterInvitePath();
+        if (want == null || want.isBlank()) {
+            return false;
+        }
+        rawIn.mark(96 * 1024);
+        String line = readHttpLine(rawIn, 8192);
+        String path = httpRequestPathAny(line);
+        if (!want.equals(path) || !isHttpMethod(line, "POST")) {
+            rawIn.reset();
+            return false;
+        }
+        Map<String, String> headers = readHttpHeadersToMap(rawIn);
+        if (!clusterPostKeyOk(headers, rawOut)) {
+            return true;
+        }
+        int cl = contentLengthFromHeaders(headers);
+        if (cl <= 0 || cl > 64 * 1024) {
+            writeJsonStatus(rawOut, 400, "bad_request", "content-length");
+            return true;
+        }
+        byte[] body = readBodyExact(rawIn, cl);
+        JSONObject o;
+        try {
+            o = new JSONObject(new String(body, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            writeJsonStatus(rawOut, 400, "bad_request", "json");
+            return true;
+        }
+        String target = o.optString("targetNodeId", "").trim();
+        if (target.isEmpty()) {
+            writeJsonStatus(rawOut, 400, "bad_request", "targetNodeId");
+            return true;
+        }
+        if (!target.equals(cfg.clusterNodeId())) {
+            var hp = ClusterRuntime.get().resolveVolterHttpHostPort(target);
+            if (hp.isEmpty()) {
+                writeJsonNodeResponse(rawOut, 200, "unknown_target", "peer_not_in_map", null);
+                return true;
+            }
+            String ck = headers.getOrDefault("x-volter-cluster-key", "");
+            return clusterForwardPost(cfg.clusterInvitePath(), body, ck, hp.get(), rawOut);
+        }
+        long deadline = o.optLong("deadlineMs", 0L);
+        if (deadline > 0 && System.currentTimeMillis() > deadline) {
+            writeJsonNodeResponse(rawOut, 200, "rejected", "deadline", null);
+            return true;
+        }
+        String corr = o.optString("correlationId", "").trim();
+        ClusterRoutingRegistry reg = ClusterRoutingRegistry.get();
+        if (!corr.isEmpty() && reg.isCorrelationFresh(corr)) {
+            writeJsonNodeResponse(rawOut, 200, "accepted", "", redirectHostPortHint());
+            return true;
+        }
+        long ttlMs = o.optLong("ttlMs", 5_000L);
+        if (!corr.isEmpty()) {
+            reg.touchCorrelation(corr, ttlMs);
+        }
+        writeJsonNodeResponse(rawOut, 200, "accepted", "", redirectHostPortHint());
+        log.fine("cluster invite accepted correlationId=" + corr);
+        return true;
+    }
+
+    private boolean tryClusterPeerHandshakeHttp(BufferedInputStream rawIn, OutputStream rawOut) throws IOException {
+        String want = cfg.clusterPeerHandshakePath();
+        if (want == null || want.isBlank()) {
+            return false;
+        }
+        rawIn.mark(96 * 1024);
+        String line = readHttpLine(rawIn, 8192);
+        String path = httpRequestPathAny(line);
+        if (!want.equals(path) || !isHttpMethod(line, "POST")) {
+            rawIn.reset();
+            return false;
+        }
+        Map<String, String> headers = readHttpHeadersToMap(rawIn);
+        if (!clusterPostKeyOk(headers, rawOut)) {
+            return true;
+        }
+        int cl = contentLengthFromHeaders(headers);
+        if (cl <= 0 || cl > 64 * 1024) {
+            writeJsonStatus(rawOut, 400, "bad_request", "content-length");
+            return true;
+        }
+        byte[] body = readBodyExact(rawIn, cl);
+        JSONObject o;
+        try {
+            o = new JSONObject(new String(body, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            writeJsonStatus(rawOut, 400, "bad_request", "json");
+            return true;
+        }
+        String target = o.optString("targetNodeId", "").trim();
+        if (target.isEmpty()) {
+            writeJsonStatus(rawOut, 400, "bad_request", "targetNodeId");
+            return true;
+        }
+        if (!target.equals(cfg.clusterNodeId())) {
+            var hp = ClusterRuntime.get().resolveVolterHttpHostPort(target);
+            if (hp.isEmpty()) {
+                writeJsonNodeResponse(rawOut, 200, "unknown_target", "peer_not_in_map", null);
+                return true;
+            }
+            String ck = headers.getOrDefault("x-volter-cluster-key", "");
+            return clusterForwardPost(cfg.clusterPeerHandshakePath(), body, ck, hp.get(), rawOut);
+        }
+        long deadline = o.optLong("deadlineMs", 0L);
+        if (deadline > 0 && System.currentTimeMillis() > deadline) {
+            writeJsonNodeResponse(rawOut, 200, "reject", "deadline", null);
+            return true;
+        }
+        String corr = o.optString("correlationId", "").trim();
+        long ttlMs = o.optLong("ttlMs", 5_000L);
+        if (!corr.isEmpty()) {
+            ClusterRoutingRegistry.get().touchCorrelation(corr, ttlMs);
+        }
+        writeJsonNodeResponse(rawOut, 200, "accepted", "", redirectHostPortHint());
+        log.fine("cluster peer handshake accepted correlationId=" + corr);
+        return true;
+    }
+
+    private boolean clusterForwardPost(String path, byte[] body, String clusterKey, String hostPort, OutputStream rawOut)
+        throws IOException {
+        try {
+            String url = "http://" + hostPort + path;
+            HttpRequest.Builder rb = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(5))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+            rb.header("Content-Type", "application/json; charset=utf-8");
+            if (clusterKey != null && !clusterKey.isBlank()) {
+                rb.header("X-Volter-Cluster-Key", clusterKey);
+            }
+            HttpResponse<byte[]> resp = CLUSTER_FWD.send(rb.build(), HttpResponse.BodyHandlers.ofByteArray());
+            String ct = resp.headers().firstValue("Content-Type").orElse("application/json; charset=utf-8");
+            writeRawForwardResponse(rawOut, resp.statusCode(), resp.body(), ct);
+            return true;
+        } catch (Exception e) {
+            log.warning("cluster forward: " + e.getMessage());
+            writeJsonStatus(rawOut, 502, "forward_failed", "upstream");
+            return true;
+        }
+    }
+
+    private void writeRawForwardResponse(OutputStream rawOut, int status, byte[] body, String contentType) throws IOException {
+        String hr = switch (status) {
+            case 200 -> "OK";
+            case 400 -> "Bad Request";
+            case 403 -> "Forbidden";
+            case 502 -> "Bad Gateway";
+            default -> "Error";
+        };
+        BufferedWriter w = new BufferedWriter(new OutputStreamWriter(rawOut, StandardCharsets.UTF_8));
+        w.write("HTTP/1.1 " + status + " " + hr + "\r\n");
+        w.write("Server: " + cfg.camouflageHttpServerName() + "\r\n");
+        w.write("Content-Type: " + (contentType != null && !contentType.isBlank() ? contentType : "application/json; charset=utf-8") + "\r\n");
+        w.write("Content-Length: " + body.length + "\r\n");
+        w.write("Connection: close\r\n");
+        w.write("\r\n");
+        w.flush();
+        rawOut.write(body);
+        rawOut.flush();
+    }
+
+    private String redirectHostPortHint() {
+        String host = cfg.publicHost().trim();
+        if (host.isEmpty()) {
+            host = "127.0.0.1";
+        }
+        int p = cfg.listenPorts().isEmpty() ? 443 : cfg.listenPorts().get(0);
+        return host + ":" + p;
+    }
+
+    private static boolean isHttpMethod(String requestLine, String method) {
+        if (requestLine == null) {
+            return false;
+        }
+        String u = requestLine.trim().toUpperCase(Locale.ROOT);
+        return u.startsWith(method.toUpperCase(Locale.ROOT) + " ");
+    }
+
+    private static Map<String, String> readHttpHeadersToMap(BufferedInputStream rawIn) throws IOException {
+        Map<String, String> m = new HashMap<>();
+        while (true) {
+            String line = readHttpLine(rawIn, 8192);
+            if (line.isEmpty()) {
+                break;
+            }
+            int c = line.indexOf(':');
+            if (c <= 0) {
+                continue;
+            }
+            String k = line.substring(0, c).trim().toLowerCase(Locale.ROOT);
+            m.put(k, line.substring(c + 1).trim());
+        }
+        return m;
+    }
+
+    private static int contentLengthFromHeaders(Map<String, String> headers) {
+        String cl = headers.get("content-length");
+        if (cl == null) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(cl.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static byte[] readBodyExact(BufferedInputStream rawIn, int n) throws IOException {
+        byte[] b = new byte[n];
+        int off = 0;
+        while (off < n) {
+            int r = rawIn.read(b, off, n - off);
+            if (r < 0) {
+                throw new EOFException();
+            }
+            off += r;
+        }
+        return b;
+    }
+
+    private boolean clusterPostKeyOk(Map<String, String> headers, OutputStream rawOut) throws IOException {
+        if (!cfg.clusterHttpAuth()) {
+            return true;
+        }
+        String want = cfg.clusterHttpExpectedKey();
+        if (want.isEmpty()) {
+            writeJsonStatus(rawOut, 403, "forbidden", "no_cluster_key_config");
+            return false;
+        }
+        String got = headers.getOrDefault("x-volter-cluster-key", "");
+        byte[] a = want.getBytes(StandardCharsets.UTF_8);
+        byte[] b = got.getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(a, b)) {
+            writeJsonStatus(rawOut, 403, "forbidden", "header");
+            return false;
+        }
+        return true;
+    }
+
+    private void writeJsonStatus(OutputStream rawOut, int httpCode, String status, String reason) throws IOException {
+        JSONObject o = new JSONObject();
+        o.put("status", status);
+        if (!reason.isEmpty()) {
+            o.put("reason", reason);
+        }
+        byte[] body = (o.toString() + "\n").getBytes(StandardCharsets.UTF_8);
+        String hs = httpCode == 200 ? "200 OK" : httpCode == 403 ? "403 Forbidden" : httpCode == 400 ? "400 Bad Request" : "500 Internal Server Error";
+        BufferedWriter w = new BufferedWriter(new OutputStreamWriter(rawOut, StandardCharsets.UTF_8));
+        w.write("HTTP/1.1 " + hs + "\r\n");
+        w.write("Server: " + cfg.camouflageHttpServerName() + "\r\n");
+        w.write("Content-Type: application/json; charset=utf-8\r\n");
+        w.write("Content-Length: " + body.length + "\r\n");
+        w.write("Connection: close\r\n");
+        w.write("\r\n");
+        w.flush();
+        rawOut.write(body);
+        rawOut.flush();
+    }
+
+    private void writeJsonNodeResponse(OutputStream rawOut, int httpCode, String status, String reason, String redirectHostPort)
+        throws IOException {
+        JSONObject o = new JSONObject();
+        o.put("status", status);
+        if (!reason.isEmpty()) {
+            o.put("reason", reason);
+        }
+        if (redirectHostPort != null && !redirectHostPort.isBlank()) {
+            o.put("redirectHostPort", redirectHostPort.trim());
+        }
+        byte[] body = (o.toString() + "\n").getBytes(StandardCharsets.UTF_8);
+        String hs = httpCode == 200 ? "200 OK" : "403 Forbidden";
+        BufferedWriter wr = new BufferedWriter(new OutputStreamWriter(rawOut, StandardCharsets.UTF_8));
+        wr.write("HTTP/1.1 " + hs + "\r\n");
+        wr.write("Server: " + cfg.camouflageHttpServerName() + "\r\n");
+        wr.write("Content-Type: application/json; charset=utf-8\r\n");
+        wr.write("Content-Length: " + body.length + "\r\n");
+        wr.write("Connection: close\r\n");
+        wr.write("\r\n");
+        wr.flush();
+        rawOut.write(body);
+        rawOut.flush();
+    }
+
+    private static String httpRequestPathAny(String line) {
+        if (line == null || line.isBlank()) {
+            return "";
+        }
+        int sp1 = line.indexOf(' ');
+        if (sp1 < 0) {
+            return "";
+        }
+        int sp2 = line.indexOf(' ', sp1 + 1);
+        if (sp2 < 0) {
+            return "";
+        }
+        String path = line.substring(sp1 + 1, sp2);
+        int q = path.indexOf('?');
+        if (q >= 0) {
+            path = path.substring(0, q);
+        }
+        return path;
     }
 
     private static String readHttpLine(BufferedInputStream in, int maxLen) throws IOException {

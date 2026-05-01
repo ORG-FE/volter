@@ -104,6 +104,16 @@ object CoreBridge {
         return StartResult(handle = handle, error = err)
     }
 
+    fun startStandaloneDpi(cfgJson: String, configDir: String): StartResult {
+        VolterLog.i("Core.startStandaloneDpi cfgBytes=${cfgJson.length} configDir=$configDir")
+        val raw = Core.startStandaloneDpi(cfgJson, configDir)
+        val j = JSONObject(raw)
+        val handle = j.optLong("handle", 0L)
+        val err = nullableErr(j, "error")
+        VolterLog.i("Core.startStandaloneDpi -> handle=$handle err=${err ?: "null"}")
+        return StartResult(handle = handle, error = err)
+    }
+
     fun probeVolter(server: String, token: String, timeoutMs: Long): ProbeResult {
         VolterLog.i("probeVolter server=$server tokenLen=${token.length} timeout=$timeoutMs")
         val raw = Core.probeVolter(server, token, timeoutMs)

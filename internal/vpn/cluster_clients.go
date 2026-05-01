@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"dev.c0redev.volter/internal/tunnel"
 )
 
 var lastClusterClients atomic.Value
@@ -49,7 +51,9 @@ func runClusterClientsPoll(ctx context.Context, serverAddr, headerKey, httpPath 
 		if err != nil || len(b) == 0 {
 			return
 		}
-		lastClusterClients.Store(string(b))
+		s := string(b)
+		lastClusterClients.Store(s)
+		tunnel.SetGlobalClusterPeerTCPHints(peerHintsFromClusterRaw(s))
 	}
 	fetch()
 	for {

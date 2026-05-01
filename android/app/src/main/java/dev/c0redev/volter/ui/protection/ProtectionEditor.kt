@@ -54,11 +54,12 @@ fun ProtectionEditor(
 
     fun set(next: ProtectionDraft) {
         draft = next.clean()
-        onChange?.invoke(draft.toOptions())
+        onChange?.invoke(draft.toOptions(value))
     }
 
     fun applyPreset(p: ProtectionOptions) {
-        set(ProtectionDraft.from(p))
+        val base = value ?: ProtectionOptions()
+        set(ProtectionDraft.from(mergeQuickPreset(base, p)))
     }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
@@ -174,10 +175,27 @@ fun ProtectionEditor(
                     checked = draft.preCheck,
                     onCheckedChange = { set(draft.copy(preCheck = it)) },
                 )
+                Text(stringResource(R.string.protection_antidpi_section_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    stringResource(R.string.protection_antidpi_section_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ToggleRow(
+                    title = stringResource(R.string.protection_standalone_dpi_only),
+                    checked = draft.standaloneDpiOnly,
+                    onCheckedChange = { set(draft.copy(standaloneDpiOnly = it)) },
+                )
+                StyledTextField(
+                    value = draft.dpiLocalPreset,
+                    onValueChange = { set(draft.copy(dpiLocalPreset = it)) },
+                    label = stringResource(R.string.protection_dpi_local_preset_label),
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 if (showActions) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(
-                            onClick = { onSave(draft.toOptions()) },
+                            onClick = { onSave(draft.toOptions(value)) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) { Text(stringResource(R.string.protection_save)) }
@@ -260,6 +278,8 @@ private data class ProtectionDraft(
     val flushPolicy: String = "once",
     val preambleProfile: String = "",
     val preambleRotate: Boolean = false,
+    val standaloneDpiOnly: Boolean = false,
+    val dpiLocalPreset: String = "",
 ) {
     fun clean(): ProtectionDraft {
         val jc = junkCount.coerceIn(0, 12)
@@ -283,22 +303,26 @@ private data class ProtectionDraft(
         )
     }
 
-    fun toOptions(): ProtectionOptions = clean().let {
-        ProtectionOptions(
-            obfuscation = it.obfuscation,
-            junkCount = it.junkCount,
-            junkMin = it.junkMin,
-            junkMax = it.junkMax,
-            padS1 = it.padS1,
-            padS2 = it.padS2,
-            padS3 = it.padS3,
-            padS4 = it.padS4,
-            preCheck = it.preCheck,
-            magicSplit = it.magicSplit.takeIf { s -> s.isNotBlank() && s != "0" },
-            junkStyle = it.junkStyle,
-            flushPolicy = it.flushPolicy,
-            preambleProfile = it.preambleProfile.takeIf { s -> s.isNotBlank() },
-            preambleRotate = it.preambleRotate,
+    fun toOptions(base: ProtectionOptions?): ProtectionOptions {
+        val b = base ?: ProtectionOptions()
+        val d = clean()
+        return b.copy(
+            obfuscation = d.obfuscation,
+            junkCount = d.junkCount,
+            junkMin = d.junkMin,
+            junkMax = d.junkMax,
+            padS1 = d.padS1,
+            padS2 = d.padS2,
+            padS3 = d.padS3,
+            padS4 = d.padS4,
+            preCheck = d.preCheck,
+            magicSplit = d.magicSplit.takeIf { s -> s.isNotBlank() && s != "0" },
+            junkStyle = d.junkStyle,
+            flushPolicy = d.flushPolicy,
+            preambleProfile = d.preambleProfile.takeIf { s -> s.isNotBlank() },
+            preambleRotate = d.preambleRotate,
+            standaloneDpiOnly = d.standaloneDpiOnly,
+            dpiLocalPreset = d.dpiLocalPreset.trim().takeIf { it.isNotEmpty() },
         )
     }
 
@@ -318,8 +342,30 @@ private data class ProtectionDraft(
             flushPolicy = p?.flushPolicy ?: "once",
             preambleProfile = p?.preambleProfile ?: "",
             preambleRotate = p?.preambleRotate ?: false,
+            standaloneDpiOnly = p?.standaloneDpiOnly ?: false,
+            dpiLocalPreset = p?.dpiLocalPreset ?: "",
         ).clean()
     }
+}
+
+private fun mergeQuickPreset(base: ProtectionOptions, p: ProtectionOptions): ProtectionOptions {
+    val strictLike = p.obfuscation == "enhanced"
+    return base.copy(
+        obfuscation = p.obfuscation ?: base.obfuscation,
+        junkCount = p.junkCount,
+        junkMin = p.junkMin,
+        junkMax = p.junkMax,
+        padS1 = p.padS1,
+        padS2 = p.padS2,
+        padS3 = p.padS3,
+        padS4 = p.padS4,
+        preCheck = p.preCheck,
+        magicSplit = p.magicSplit ?: base.magicSplit,
+        junkStyle = p.junkStyle ?: base.junkStyle,
+        flushPolicy = p.flushPolicy ?: base.flushPolicy,
+        preambleProfile = if (strictLike) p.preambleProfile else (p.preambleProfile ?: base.preambleProfile),
+        preambleRotate = if (strictLike) p.preambleRotate else base.preambleRotate,
+    )
 }
 
 private fun digitsOnly(v: String): String {

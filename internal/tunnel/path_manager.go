@@ -156,6 +156,7 @@ func dedupeEndpoints(list []string) []string {
 }
 
 func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) string, useUDP bool, limit int) (tcpAddr, quicAddr, udpAddr string, udpEnds []string, tcpCands []string, quicCands []string) {
+	extraTCP := snapshotClusterPeerTCPHints()
 	resolveUDPEnds := func(id string) []string {
 		if epEndpoints != nil {
 			return dedupeEndpoints(epEndpoints(id))
@@ -177,6 +178,9 @@ func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) st
 		if v != "" {
 			tcpCands = append(tcpCands, v)
 		}
+	}
+	for _, x := range extraTCP {
+		addTCP(x)
 	}
 	addQUIC := func(v string) {
 		v = strings.TrimSpace(v)

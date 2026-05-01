@@ -1,6 +1,7 @@
 package dev.c0redev.volter.domain.model
 
 import dev.c0redev.volter.json.optNullableString
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class ProtectionOptions(
@@ -23,6 +24,16 @@ data class ProtectionOptions(
     val clusterSessionsPath: String? = null,
     val clusterClientsPath: String? = null,
     val clusterPreferredServer: String? = null,
+    val clusterInvitePath: String? = null,
+    val clusterPeerHandshakePath: String? = null,
+    val tlsProfileId: String? = null,
+    val ja3TargetHash: String? = null,
+    val standaloneDpiOnly: Boolean = false,
+    val dpiLocalPreset: String? = null,
+    val dpiVolunteer: Boolean = false,
+    val dpiVolterTransportObfuscate: Boolean = false,
+    val dpiProbeUrls: List<String> = emptyList(),
+    val antiDpiWithVpn: Boolean = false,
     val routeMode: String? = null,
     val routePlannerV2: Boolean = false,
 ) {
@@ -47,6 +58,22 @@ data class ProtectionOptions(
         clusterSessionsPath?.let { j.put("clusterSessionsPath", it) }
         clusterClientsPath?.let { j.put("clusterClientsPath", it) }
         clusterPreferredServer?.let { j.put("clusterPreferredServer", it) }
+        clusterInvitePath?.let { j.put("clusterInvitePath", it) }
+        clusterPeerHandshakePath?.let { j.put("clusterPeerHandshakePath", it) }
+        tlsProfileId?.let { j.put("tlsProfileId", it) }
+        ja3TargetHash?.let { j.put("ja3TargetHash", it) }
+        if (standaloneDpiOnly) j.put("standaloneDpiOnly", true)
+        dpiLocalPreset?.let { j.put("dpiLocalPreset", it) }
+        if (dpiVolunteer) j.put("dpiVolunteer", true)
+        if (dpiVolterTransportObfuscate) j.put("dpiVolterTransportObfuscate", true)
+        if (dpiProbeUrls.isNotEmpty()) {
+            val a = JSONArray()
+            for (u in dpiProbeUrls) {
+                a.put(u)
+            }
+            j.put("dpiProbeUrls", a)
+        }
+        if (antiDpiWithVpn) j.put("antiDpiWithVpn", true)
         routeMode?.let { j.put("routeMode", it) }
         if (routePlannerV2) j.put("routePlannerV2", true)
         return j
@@ -73,6 +100,23 @@ data class ProtectionOptions(
             clusterSessionsPath = j.optNullableString("clusterSessionsPath"),
             clusterClientsPath = j.optNullableString("clusterClientsPath"),
             clusterPreferredServer = j.optNullableString("clusterPreferredServer"),
+            clusterInvitePath = j.optNullableString("clusterInvitePath"),
+            clusterPeerHandshakePath = j.optNullableString("clusterPeerHandshakePath"),
+            tlsProfileId = j.optNullableString("tlsProfileId"),
+            ja3TargetHash = j.optNullableString("ja3TargetHash"),
+            standaloneDpiOnly = j.optBoolean("standaloneDpiOnly", false),
+            dpiLocalPreset = j.optNullableString("dpiLocalPreset"),
+            dpiVolunteer = j.optBoolean("dpiVolunteer", false),
+            dpiVolterTransportObfuscate = j.optBoolean("dpiVolterTransportObfuscate", false),
+            dpiProbeUrls = run {
+                val arr = j.optJSONArray("dpiProbeUrls") ?: return@run emptyList()
+                buildList(arr.length()) {
+                    for (i in 0 until arr.length()) {
+                        add(arr.getString(i))
+                    }
+                }
+            },
+            antiDpiWithVpn = j.optBoolean("antiDpiWithVpn", false),
             routeMode = j.optNullableString("routeMode"),
             routePlannerV2 = j.optBoolean("routePlannerV2", false),
         )

@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -84,6 +85,31 @@ final class ClusterRuntime {
       }
     }
     return "127.0.0.1";
+  }
+
+  Optional<String> resolveVolterHttpHostPort(String nodeId) {
+    if (nodeId == null || nodeId.isBlank()) {
+      return Optional.empty();
+    }
+    ClusterNode n = nodes.get(nodeId.trim());
+    if (n == null || n.endpoint == null || n.endpoint.isBlank()) {
+      return Optional.empty();
+    }
+    try {
+      URI u = URI.create(n.endpoint.trim());
+      String host = u.getHost();
+      if (host == null || host.isBlank()) {
+        return Optional.empty();
+      }
+      int port = u.getPort();
+      if (port <= 0) {
+        String sch = u.getScheme();
+        port = "https".equalsIgnoreCase(sch) ? 443 : 80;
+      }
+      return Optional.of(host + ":" + port);
+    } catch (Exception e) {
+      return Optional.empty();
+    }
   }
 
   String clusterMapJson() {

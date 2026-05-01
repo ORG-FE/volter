@@ -289,6 +289,10 @@
     <string name="protection_limits_title">Limits</string>
     <string name="protection_magic_split_label">magicSplit (0 = off)</string>
     <string name="protection_precheck">Pre-check connection</string>
+    <string name="protection_antidpi_section_title">Anti-DPI (local)</string>
+    <string name="protection_antidpi_section_hint">Without Volter VPN: local SOCKS via ciadpi/byedpi. Put binary in app config dir or PATH; optional preset overrides default flags.</string>
+    <string name="protection_standalone_dpi_only">Standalone anti-DPI only (no tunnel)</string>
+    <string name="protection_dpi_local_preset_label">byedpi preset (CLI args, listen injected)</string>
     <string name="protection_save">Save</string>
     <string name="protection_clear">Clear</string>
     <string name="protection_param_fmt">%1$s · %2$d–%3$d</string>

@@ -369,7 +369,8 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             effective = mergeEffectiveConfig(effective)
             beginMetric(name, effective, reconnectCount = 0)
             fillMetricBasics(effective)
-            if (settings.mode != "proxy") {
+            val standaloneDpi = effective.protection?.standaloneDpiOnly == true
+            if (settings.mode != "proxy" && !standaloneDpi) {
                 val prep = VpnService.prepare(appCtx)
                 if (prep != null) {
                     pendingConnectCfg = effective
@@ -516,6 +517,11 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun fillMetricBasics(cfg: Config) {
         val draft = pendingMetric ?: return
+        if (cfg.protection?.standaloneDpiOnly == true) {
+            val dns = checkDnsOk()
+            pendingMetric = draft.copy(dnsOkBefore = dns, rttBeforeNs = null, probeOk = true)
+            return
+        }
         val dns = checkDnsOk()
         val ping = CoreBridge.ping(cfg.server, PING_TIMEOUT_MS)
         val probe = probeWithRetry(cfg.server, cfg.token)

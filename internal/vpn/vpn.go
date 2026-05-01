@@ -18,10 +18,12 @@ import (
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
+	"dev.c0redev.volter/internal/clusteraddr"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/ice"
 	"dev.c0redev.volter/internal/obfuscate"
 	"dev.c0redev.volter/internal/protocol"
+	"dev.c0redev.volter/internal/routeorch"
 	"dev.c0redev.volter/internal/sockprotect"
 	"dev.c0redev.volter/internal/telemetry"
 	"dev.c0redev.volter/internal/tunnel"
@@ -50,11 +52,13 @@ func orderedServerAddrs(addrs []string, prot *config.ProtectionOptions) []string
 	if want == "" {
 		return addrs
 	}
-	match := -1
-	for i, a := range addrs {
-		if strings.EqualFold(strings.TrimSpace(a), want) {
-			match = i
-			break
+	match := clusteraddr.MatchPreferred(addrs, want)
+	if match < 0 {
+		for i, a := range addrs {
+			if strings.EqualFold(strings.TrimSpace(a), want) {
+				match = i
+				break
+			}
 		}
 	}
 	if match <= 0 {
@@ -576,7 +580,7 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 	case "peer_relay":
 		allowPeerPath = true
 	}
-	sconn, fellBackTCP, tcpOnly, err = tunnel.DialTunFlow(h.opt.ServerAddrs, dstIP, dstPort, h.opt.Token, h.opt.Protection, h.opt.Transport, h.opt.QuicServer, h.opt.QuicServerName, h.opt.QuicSkipVerify, h.opt.QuicCertPinSHA256, h.opt.QuicTLSRoots, shared, h.opt.DualTransport, h.dualSel, h.pathMgr, allowPeerPath, h.opt.Relay)
+	sconn, fellBackTCP, tcpOnly, err = tunnel.DialTunFlow(dialServerAddrs(h.opt.ServerAddrs, h.opt.Protection), dstIP, dstPort, h.opt.Token, h.opt.Protection, h.opt.Transport, h.opt.QuicServer, h.opt.QuicServerName, h.opt.QuicSkipVerify, h.opt.QuicCertPinSHA256, h.opt.QuicTLSRoots, shared, h.opt.DualTransport, h.dualSel, h.pathMgr, allowPeerPath, h.opt.Relay)
 	if h.opt.DualTransport && shared != nil {
 		if fellBackTCP || tcpOnly {
 			tag = "TCP"
@@ -658,7 +662,7 @@ func dialTCP(addr string, token string) (net.Conn, error) {
 }
 
 func (h *handler) isServerAddr(dstIP net.IP, dstPort uint16) bool {
-	for _, a := range h.opt.ServerAddrs {
+	for _, a := range dialServerAddrs(h.opt.ServerAddrs, h.opt.Protection) {
 		host, port, err := net.SplitHostPort(a)
 		if err != nil || port != strconv.Itoa(int(dstPort)) {
 			continue
@@ -724,7 +728,7 @@ func probeICEForRelay(pm *tunnel.PathManager, relay *config.RelayOptions) {
 	if pm == nil || relay == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), routeorch.StunGatherBudget())
 	defer cancel()
 
 	needStun := relay.GossipEnabled || len(relay.StunServers) > 0 || relay.PeerPathFromDiscovery ||

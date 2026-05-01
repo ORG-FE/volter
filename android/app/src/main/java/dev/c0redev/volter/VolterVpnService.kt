@@ -83,9 +83,11 @@ class VolterVpnService : VpnService() {
         thread(name = "volter-thread") {
             runCatching {
                 VolterLog.i("worker start mode=${settings.mode}")
-                val effective = configAfterTcpOnlyProbe(cfg)
-                when (settings.mode) {
-                    "proxy" -> startProxyInternal(effective, settings, configDir)
+                val standaloneDpi = cfg.protection?.standaloneDpiOnly == true
+                val effective = if (standaloneDpi) cfg else configAfterTcpOnlyProbe(cfg)
+                when {
+                    standaloneDpi -> startStandaloneDpiInternal(effective, configDir)
+                    settings.mode == "proxy" -> startProxyInternal(effective, settings, configDir)
                     else -> startTunInternal(effective, settings, configDir)
                 }
             }.onFailure { e ->
@@ -189,6 +191,28 @@ class VolterVpnService : VpnService() {
         }
     }
 
+    private fun startStandaloneDpiInternal(cfg: Config, configDir: String) {
+        CoreSocketProtect.install(this)
+        val cfgJson = cfg.toJson().toString()
+        VolterLog.i("startStandaloneDpi")
+        val res = CoreBridge.startStandaloneDpi(cfgJson, configDir)
+        if (res.error != null) throw IllegalStateException(res.error)
+        coreHandle = res.handle
+        if (sessionAbort.get()) {
+            VolterLog.i("startStandaloneDpi aborted after handle=$coreHandle")
+            runCatching { CoreBridge.stop(coreHandle) }
+            coreHandle = -1
+            stopForeground(STOP_FOREGROUND_DETACH)
+            stopSelf()
+            return
+        }
+        VolterLog.i("startStandaloneDpi ok handle=$coreHandle")
+        trafficWallStartMs = System.currentTimeMillis()
+        activeVpnMode = "dpi_standalone"
+        broadcastSession(coreHandle, "dpi_standalone")
+        ensureForeground("dpi_standalone")
+    }
+
     private fun startProxyInternal(cfg: Config, settings: ClientSettings, configDir: String) {
         CoreSocketProtect.install(this)
         val cfgJson = cfg.toJson().toString()
@@ -273,7 +297,6 @@ class VolterVpnService : VpnService() {
             builder.excludeRoute(IpPrefix(ip, pfx))
         }
 
-        // bypass mesh infra hosts as well, if protect fails on some devices this still keeps control plane reachable
         val relayHosts = collectRelayBypassHosts(cfg)
         for (h in relayHosts) {
             runCatching { resolveHostIPsPreferV4(h) }

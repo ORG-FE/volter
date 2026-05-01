@@ -39,3 +39,16 @@ func TestNormalizeClusterHTTPPath(t *testing.T) {
 		t.Fatal()
 	}
 }
+
+func TestClusterInvitePaths(t *testing.T) {
+	if ClusterInviteHTTPPath(nil) != "" {
+		t.Fatal()
+	}
+	p := &config.ProtectionOptions{ClusterInvitePath: "invite/x", ClusterPeerHandshakePath: "/peer/y"}
+	if ClusterInviteHTTPPath(p) != "/invite/x" {
+		t.Fatal()
+	}
+	if ClusterPeerHandshakeHTTPPath(p) != "/peer/y" {
+		t.Fatal()
+	}
+}

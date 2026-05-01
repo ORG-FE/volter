@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/dht"
 	"dev.c0redev.volter/internal/discovery"
 	"dev.c0redev.volter/internal/telemetry"
@@ -50,6 +51,8 @@ type Status struct {
 	ClusterClients        []string  `json:"clusterClients,omitempty"`
 	ClusterClientsAtMs    int64     `json:"clusterClientsAtMs,omitempty"`
 	ClusterClientsAgeMs   int64     `json:"clusterClientsAgeMs,omitempty"`
+	ClusterPeerTCPHints   int       `json:"clusterPeerTcpHints,omitempty"`
+	ProtectionDpiNote     string    `json:"protectionDpiNote,omitempty"`
 	ClientsSource         string    `json:"clientsSource,omitempty"`
 	RouteTarget           string    `json:"routeTarget,omitempty"`
 	RoutePlan             string    `json:"routePlan,omitempty"`
@@ -93,6 +96,7 @@ func GatherNearest(kNearest int) Status {
 		ClusterNodes:         clusterNodes,
 		ClusterSessionsCount: -1,
 		ClusterClientsCount:  -1,
+		ClusterPeerTCPHints:  tunnel.GlobalClusterPeerTCPHintCount(),
 		Nodes:                rows,
 		PathEvents:           outPe,
 		CollectedAt:          now,
@@ -102,6 +106,22 @@ func GatherNearest(kNearest int) Status {
 	out.RoutePlan = rp
 	out.ActiveHop = rh
 	out.LastHopReason = rr
+	if po, err := config.LoadProtection(); err == nil {
+		var parts []string
+		if po.StandaloneDpiOnly {
+			parts = append(parts, "standaloneDpi")
+		}
+		if po.AntiDpiWithVpn {
+			parts = append(parts, "antiDpiWithVpn")
+		}
+		if po.DpiVolunteer {
+			parts = append(parts, "dpiVolunteer")
+		}
+		if po.DpiVolterTransportObfuscate {
+			parts = append(parts, "dpiVolterObfuscate")
+		}
+		out.ProtectionDpiNote = strings.Join(parts, ",")
+	}
 	if mapOk && mapAt > 0 {
 		out.ClusterMapAtMs = mapAt
 		out.ClusterMapAgeMs = maxAgeMs(now, mapAt)
@@ -178,6 +198,9 @@ func Format(s Status) string {
 			line += fmt.Sprintf(", age=%d ms", s.ClusterSessionsAgeMs)
 		}
 		b.WriteString(line + "\n")
+	}
+	if strings.TrimSpace(s.ProtectionDpiNote) != "" {
+		b.WriteString("Защита/DPI флаги (protection.json): " + strings.TrimSpace(s.ProtectionDpiNote) + "\n")
 	}
 	if s.ClusterClientsCount >= 0 {
 		line := fmt.Sprintf("Снимок клиентов кластера: узел %s, клиентов %d", strings.TrimSpace(s.ClusterClientsNodeID), s.ClusterClientsCount)

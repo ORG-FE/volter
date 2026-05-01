@@ -63,6 +63,8 @@ final class Config {
   private final String clusterClientsPath;
   private final boolean clusterHttpAuth;
   private final String clusterHttpSecret;
+  private final String clusterInvitePath;
+  private final String clusterPeerHandshakePath;
 
   private Config(List<Integer> listenPorts, String token, int udpChannels, String publicHost, boolean debug,
                  boolean updateEnabled, String updateRepo, int updateCheckIntervalMinutes, int updateRestartExitCode,
@@ -74,8 +76,9 @@ final class Config {
                  boolean peerRelayEnabled, boolean quicRetryTokens, int relayMaxPerRemote, int relayMaxTotal, int relayMaxBudgetKbps,
                  String relayIndexFile, String relayIndexPath, String opsHintsPath,
                  String gossipIndexFile, String gossipIndexPath, String dhtFindPath, String dhtRpcListenUdp, String dhtRpcSecret,
-                 String clusterNodeId, int clusterListen, List<String> clusterPeers, int clusterGossipIntervalMs, String clusterMapPath,
-                 String clusterSessionsPath, String clusterClientsPath, boolean clusterHttpAuth, String clusterHttpSecret) {
+                 String clusterNodeId, int clusterListen, List<String> clusterPeers, int clusterGossipIntervalMs,                  String clusterMapPath,
+                 String clusterSessionsPath, String clusterClientsPath, boolean clusterHttpAuth, String clusterHttpSecret,
+                 String clusterInvitePath, String clusterPeerHandshakePath) {
     this.listenPorts = listenPorts;
     this.token = token;
     this.udpChannels = udpChannels;
@@ -124,6 +127,8 @@ final class Config {
     this.clusterClientsPath = clusterClientsPath != null && !clusterClientsPath.isBlank() ? clusterClientsPath.trim() : "/volter/cluster-clients.json";
     this.clusterHttpAuth = clusterHttpAuth;
     this.clusterHttpSecret = clusterHttpSecret != null ? clusterHttpSecret.trim() : "";
+    this.clusterInvitePath = clusterInvitePath != null && !clusterInvitePath.isBlank() ? clusterInvitePath.trim() : "/volter/cluster-invite";
+    this.clusterPeerHandshakePath = clusterPeerHandshakePath != null && !clusterPeerHandshakePath.isBlank() ? clusterPeerHandshakePath.trim() : "/volter/cluster-peer-handshake";
   }
 
   String serverMode() { return serverMode; }
@@ -238,6 +243,14 @@ final class Config {
       return clusterHttpSecret.trim();
     }
     return token != null ? token : "";
+  }
+
+  String clusterInvitePath() {
+    return clusterInvitePath;
+  }
+
+  String clusterPeerHandshakePath() {
+    return clusterPeerHandshakePath;
   }
 
   boolean tcpEnabled() { return !"quic-only".equals(serverMode); }
@@ -360,6 +373,14 @@ final class Config {
     }
     boolean clusterHttpAuth = "true".equalsIgnoreCase(p.getProperty("cluster.httpAuth", "false").trim());
     String clusterHttpSecret = p.getProperty("cluster.httpSecret", "").trim();
+    String clusterInvitePath = p.getProperty("cluster.invitePath", "/volter/cluster-invite").trim();
+    if (clusterInvitePath.isEmpty()) {
+      clusterInvitePath = "/volter/cluster-invite";
+    }
+    String clusterPeerHandshakePath = p.getProperty("cluster.peerHandshakePath", "/volter/cluster-peer-handshake").trim();
+    if (clusterPeerHandshakePath.isEmpty()) {
+      clusterPeerHandshakePath = "/volter/cluster-peer-handshake";
+    }
     if (serverMode.equals("quic-only") || serverMode.equals("both")) {
       if (quicListenPort < 1 || quicListenPort > 65535) throw new IOException("bad quicListenPort");
       if (quicCertPath == null || quicCertPath.isBlank()) throw new IOException("quicCertPath is required");
@@ -388,7 +409,9 @@ final class Config {
         clusterSessionsPath,
         clusterClientsPath,
         clusterHttpAuth,
-        clusterHttpSecret);
+        clusterHttpSecret,
+        clusterInvitePath,
+        clusterPeerHandshakePath);
   }
 
   private static String firstNonEmpty(String a, String b) {

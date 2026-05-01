@@ -19,3 +19,9 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Third-party notice (anti-DPI): the optional byedpi integration (github.com/hufrea/byedpi)
+is MIT-licensed. If you ship CGO/JNI bindings to byedpi, retain its copyright and license
+terms and review GPL interactions if you combine it with other components.

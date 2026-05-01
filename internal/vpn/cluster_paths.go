@@ -31,6 +31,20 @@ func clusterPollPaths(prot *config.ProtectionOptions) (mapPath, sessionsPath, cl
 	return mapPath, sessionsPath, clientsPath
 }
 
+func ClusterInviteHTTPPath(prot *config.ProtectionOptions) string {
+	if prot == nil {
+		return ""
+	}
+	return normalizeClusterHTTPPath(prot.ClusterInvitePath)
+}
+
+func ClusterPeerHandshakeHTTPPath(prot *config.ProtectionOptions) string {
+	if prot == nil {
+		return ""
+	}
+	return normalizeClusterHTTPPath(prot.ClusterPeerHandshakePath)
+}
+
 func normalizeClusterHTTPPath(p string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {

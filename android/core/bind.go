@@ -401,6 +401,62 @@ func StartProxy(listenAddr string, cfgJSON string, configDir string) string {
 	return jsonString(startResult{Handle: handle})
 }
 
+func StartStandaloneDpi(cfgJSON string, configDir string) string {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+
+	if strings.TrimSpace(cfgJSON) == "" {
+		return jsonString(startResult{Handle: 0, Error: "empty cfgJSON"})
+	}
+
+	var cfg config.Config
+	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
+		return jsonString(startResult{Handle: 0, Error: err.Error()})
+	}
+
+	preset := "--disorder 1 --ttl 8"
+	if cfg.Protection != nil {
+		if p := strings.TrimSpace(cfg.Protection.DpiLocalPreset); p != "" {
+			preset = p
+		}
+	}
+
+	bin := proxy.FindByedpiInDir(strings.TrimSpace(configDir))
+
+	s := &session{
+		done:       make(chan struct{}),
+		logsCh:     make(chan string, 500),
+		readyOnLog: []string{"proxy: byedpi слушает"},
+	}
+	handle := nextID.Add(1)
+	sessions.Store(handle, s)
+
+	restoreLogs := logSetup(s)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+
+	_, stop, err := proxy.StartByedpiLocalSocks(ctx, preset, bin)
+	if err != nil {
+		sessions.Delete(handle)
+		restoreLogs()
+		cancel()
+		return jsonString(startResult{Handle: 0, Error: err.Error()})
+	}
+
+	go func() {
+		defer close(s.done)
+		defer sessions.Delete(handle)
+		defer restoreLogs()
+		defer stop()
+		<-ctx.Done()
+	}()
+
+	s.ready.Store(true)
+
+	return jsonString(startResult{Handle: handle})
+}
+
 func Stop(handle int64) bool {
 	if handle < 0 {
 		return false

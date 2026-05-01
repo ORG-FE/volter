@@ -284,6 +284,10 @@
     <string name="protection_limits_title">Лимиты</string>
     <string name="protection_magic_split_label">magicSplit (0 = выкл)</string>
     <string name="protection_precheck">Предпроверка</string>
+    <string name="protection_antidpi_section_title">Anti-DPI (локально)</string>
+    <string name="protection_antidpi_section_hint">Без VPN Volter: локальный SOCKS через ciadpi/byedpi. Бинарник в каталог конфига приложения или PATH; пресет подставляет свои флаги вместо дефолта.</string>
+    <string name="protection_standalone_dpi_only">Только anti-DPI без туннеля</string>
+    <string name="protection_dpi_local_preset_label">Пресет byedpi (аргументы CLI, bind задаётся отдельно)</string>
     <string name="protection_save">Сохранить</string>
     <string name="protection_clear">Очистить</string>
     <string name="protection_param_fmt">%1$s · %2$d–%3$d</string>
