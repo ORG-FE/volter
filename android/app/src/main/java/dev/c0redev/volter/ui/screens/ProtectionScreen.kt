@@ -32,10 +32,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 import dev.c0redev.volter.ui.protection.ProtectionEditor
 import dev.c0redev.volter.ui.qr.buildQrBitmap
 
@@ -50,13 +52,13 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
+        verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
     ) {
         item {
             Text(
                 text = stringResource(R.string.protection_title),
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onBackground,
             )
         }
@@ -74,7 +76,7 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                 onClick = { shareProtection = current ?: ProtectionOptions() },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Поделиться protection QR")
+                Text(stringResource(R.string.protection_share_qr_button))
             }
         }
 
@@ -82,13 +84,16 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Последние сессии",
+                        text = stringResource(R.string.protection_sessions_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     val tail = metrics.takeLast(8).asReversed()
                     if (tail.isEmpty()) {
-                        Text("Нет данных", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.protection_sessions_empty),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     } else {
                         tail.forEach { r ->
                             Text(
@@ -118,31 +123,38 @@ private fun ProtectionQrDialog(protection: ProtectionOptions, context: Context, 
     val img = remember(uri) { buildQrBitmap(uri).asImageBitmap() }
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = VolterGlassDialogDefaults.shape(),
+        containerColor = VolterGlassDialogDefaults.containerColor(),
+        tonalElevation = VolterGlassDialogDefaults.tonalElevation,
         confirmButton = {
             Button(onClick = {
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, uri)
                 }
-                context.startActivity(Intent.createChooser(intent, "Share Volter protection"))
-            }) { Text("Share") }
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.protection_qr_share_chooser)))
+            }) { Text(stringResource(R.string.action_share)) }
         },
         dismissButton = {
             TextButton(onClick = {
                 val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cb.setPrimaryClip(ClipData.newPlainText("volter-protection", uri))
                 onDismiss()
-            }) { Text("Copy") }
+            }) { Text(stringResource(R.string.action_copy)) }
         },
-        title = { Text("Protection QR") },
+        title = { Text(stringResource(R.string.protection_qr_dialog_title)) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Image(bitmap = img, contentDescription = "protection qr", modifier = Modifier.fillMaxWidth().padding(8.dp))
-                Text("Сканируй как обычный volter:// ключ")
+                Image(
+                    bitmap = img,
+                    contentDescription = stringResource(R.string.protection_qr_image_cd),
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                )
+                Text(stringResource(R.string.protection_qr_scan_hint))
             }
         },
     )

@@ -1,5 +1,6 @@
 package dev.c0redev.volter.ui.screens
 
+import android.content.res.Resources
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -19,10 +21,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
 import dev.c0redev.volter.core.CoreBridge
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
 import kotlinx.coroutines.delay
@@ -39,6 +44,7 @@ private data class ClusterViewState(
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
+    val context = LocalContext.current
     val localCfgs = vm.localConfigs.collectAsState().value
     val activeName = vm.activeProfileName.collectAsState().value
     val activeCfg = localCfgs.firstOrNull { it.name == activeName }?.config
@@ -46,12 +52,18 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
     val selectedServer = activeCfg?.protection?.clusterPreferredServer
     var state by remember {
         mutableStateOf(
-            ClusterViewState("-", emptyList(), emptyList(), "Cluster data will appear after mesh sync", "unknown"),
+            ClusterViewState(
+                "-",
+                emptyList(),
+                emptyList(),
+                context.getString(R.string.cluster_summary_waiting),
+                "unknown",
+            ),
         )
     }
     LaunchedEffect(Unit) {
         while (true) {
-            state = parseClusterState(CoreBridge.meshStatus())
+            state = parseClusterState(CoreBridge.meshStatus(), context.resources)
             delay(2000L)
         }
     }
@@ -60,13 +72,13 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
+        verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
     ) {
         item {
             Text(
-                text = "Cluster",
-                style = MaterialTheme.typography.headlineSmall,
+                text = stringResource(R.string.nav_cluster),
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -74,7 +86,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Current server: ${state.nodeId}",
+                        text = stringResource(R.string.cluster_current_server_fmt, state.nodeId),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -84,7 +96,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "Clients source: ${state.clientsSource}",
+                        text = stringResource(R.string.cluster_clients_source_fmt, state.clientsSource),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -94,7 +106,11 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
         item {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Route mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        stringResource(R.string.cluster_route_mode),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("auto", "direct", "peer_relay", "server_relay").forEach { mode ->
                             FilterChip(
@@ -106,6 +122,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                     vm.upsertLocalConfig(name, cfg.copy(protection = prot))
                                 },
                                 label = { Text(mode) },
+                                shape = RoundedCornerShape(VolterSpacing.chipRadius),
                             )
                         }
                     }
@@ -116,13 +133,13 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = "Cluster servers (${state.servers.size})",
+                        text = stringResource(R.string.cluster_servers_title_fmt, state.servers.size),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     if (state.servers.isEmpty()) {
                         Text(
-                            text = "No servers discovered yet",
+                            text = stringResource(R.string.cluster_servers_empty),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
@@ -138,6 +155,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                     vm.upsertLocalConfig(name, cfg.copy(protection = prot))
                                 },
                                 label = { Text(row) },
+                                shape = RoundedCornerShape(VolterSpacing.chipRadius),
                             )
                         }
                     }
@@ -148,18 +166,21 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = "Mesh clients (${state.clients.size})",
+                        text = stringResource(R.string.cluster_mesh_clients_title_fmt, state.clients.size),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                     if (state.clients.isEmpty()) {
                         Text(
-                            text = "No client nodes in DHT snapshot yet",
+                            text = stringResource(R.string.cluster_mesh_clients_empty),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
                         state.clients.take(80).forEach { row ->
-                            Text(text = "• $row", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                text = stringResource(R.string.cluster_client_line_fmt, row),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
@@ -168,7 +189,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
     }
 }
 
-private fun parseClusterState(raw: String): ClusterViewState {
+private fun parseClusterState(raw: String, res: Resources): ClusterViewState {
     return try {
         val j = JSONObject(raw)
         val nodeId = j.optString("clusterNodeId", "").ifBlank { "-" }
@@ -214,6 +235,12 @@ private fun parseClusterState(raw: String): ClusterViewState {
             clientsSource = j.optString("clientsSource", "unknown"),
         )
     } catch (_: Exception) {
-        ClusterViewState("-", emptyList(), emptyList(), "Mesh status unavailable", "unknown")
+        ClusterViewState(
+            "-",
+            emptyList(),
+            emptyList(),
+            res.getString(R.string.cluster_status_unavailable),
+            "unknown",
+        )
     }
 }

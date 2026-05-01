@@ -52,12 +52,12 @@ val ciKeystorePass =
 
 android {
     namespace = "dev.c0redev.volter"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "dev.c0redev.volter"
         minSdk = 33
-        targetSdk = 34
+        targetSdk = 35
 
         versionCode = volterVersionCode()
         versionName = volterVersionName()
@@ -118,7 +118,7 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
     implementation(composeBom)
 
     implementation(files("libs/volter-core.aar"))

@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.BuildConfig
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.R
 import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.quick.QuickConnectPrefs
@@ -48,6 +49,7 @@ import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.UpdateUiState
 import dev.c0redev.volter.ui.components.SectionCard
 import dev.c0redev.volter.ui.components.StyledTextField
+import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 
 @Composable
 fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
@@ -82,21 +84,21 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             text = stringResource(R.string.settings_title),
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground,
         )
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Режим подключения",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = stringResource(R.string.settings_connection_mode_title),
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
 
@@ -105,17 +107,17 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         onClick = { mode = "tun" },
                         enabled = mode != "tun",
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     ) {
-                        Text("TUN")
+                        Text(stringResource(R.string.settings_mode_tun))
                     }
                     FilledTonalButton(
                         onClick = { mode = "proxy" },
                         enabled = mode != "proxy",
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     ) {
-                        Text("Proxy")
+                        Text(stringResource(R.string.settings_mode_proxy))
                     }
                 }
 
@@ -123,7 +125,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     StyledTextField(
                         value = proxyListen,
                         onValueChange = { proxyListen = it },
-                        label = "Proxy listen",
+                        label = stringResource(R.string.settings_proxy_listen_label),
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -134,12 +136,12 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "System proxy",
+                                text = stringResource(R.string.settings_system_proxy_title),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                             )
                             Text(
-                                text = "Не применяется на Android",
+                                text = stringResource(R.string.settings_system_proxy_subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -164,12 +166,12 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "IPv6 в TUN",
+                                text = stringResource(R.string.settings_ipv6_tun_title),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                             )
                             Text(
-                                text = "Если выкл — только IPv4",
+                                text = stringResource(R.string.settings_ipv6_tun_subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -185,12 +187,12 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     }
 
                     Text(
-                        text = "Транспорт к серверу",
+                        text = stringResource(R.string.settings_transport_title),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
                     )
                     Text(
-                        text = "Transport при коннекте, поверх того что в JSON/cloud",
+                        text = stringResource(R.string.settings_transport_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -199,25 +201,25 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             onClick = { transportPref = ClientSettings.TRANSPORT_AUTO },
                             enabled = transportPref != ClientSettings.TRANSPORT_AUTO,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
-                            Text("Авто")
+                            Text(stringResource(R.string.home_route_auto))
                         }
                         FilledTonalButton(
                             onClick = { transportPref = ClientSettings.TRANSPORT_TCP },
                             enabled = transportPref != ClientSettings.TRANSPORT_TCP,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
-                            Text("TCP")
+                            Text(stringResource(R.string.settings_transport_tcp))
                         }
                         FilledTonalButton(
                             onClick = { transportPref = ClientSettings.TRANSPORT_QUIC },
                             enabled = transportPref != ClientSettings.TRANSPORT_QUIC,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
-                            Text("QUIC")
+                            Text(stringResource(R.string.settings_transport_quic))
                         }
                     }
 
@@ -228,12 +230,12 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Dual tun-tcp",
+                                text = stringResource(R.string.settings_dual_tun_title),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Medium,
                             )
                             Text(
-                                text = "если сервер в quic/tcp, то юзается сразу 2 транспорта, потому что потому",
+                                text = stringResource(R.string.settings_dual_tun_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -296,14 +298,14 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             )
                         },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Save,
+                            imageVector = Icons.Outlined.Save,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
-                        Text("Сохранить", modifier = Modifier.padding(start = 8.dp))
+                        Text(stringResource(R.string.settings_save_client), modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
@@ -313,7 +315,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = stringResource(R.string.quick_tiles_section),
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
@@ -326,20 +328,20 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         }
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Обновления",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = stringResource(R.string.settings_updates_title),
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Сборка ${BuildConfig.VERSION_NAME}",
+                    text = stringResource(R.string.settings_build_fmt, BuildConfig.VERSION_NAME),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (!remoteTag.isNullOrBlank()) {
                     Text(
-                        text = "Релиз на GitHub: $remoteTag",
+                        text = stringResource(R.string.settings_release_fmt, remoteTag!!),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -349,14 +351,14 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     onClick = { vm.checkForUpdateAndInstall() },
                     enabled = updateUi is UpdateUiState.Idle,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.SystemUpdateAlt,
+                        imageVector = Icons.Outlined.SystemUpdateAlt,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
-                    Text("Проверить обновления", modifier = Modifier.padding(start = 8.dp))
+                    Text(stringResource(R.string.settings_check_updates), modifier = Modifier.padding(start = 8.dp))
                 }
 
                 when (val u = updateUi) {
@@ -400,12 +402,12 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Credits",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = stringResource(R.string.settings_credits_title),
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "Основной разработчик - c0redev (maxkrya)",
+                    text = stringResource(R.string.settings_credits_body),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -475,6 +477,9 @@ private fun QuickSlotRow(
     if (open) {
         AlertDialog(
             onDismissRequest = { open = false },
+            shape = VolterGlassDialogDefaults.shape(),
+            containerColor = VolterGlassDialogDefaults.containerColor(),
+            tonalElevation = VolterGlassDialogDefaults.tonalElevation,
             title = { Text(title) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {

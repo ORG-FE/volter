@@ -17,6 +17,7 @@ import androidx.core.app.ServiceCompat
 import dev.c0redev.volter.core.CoreBridge
 import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
+import dev.c0redev.volter.traffic.VpnTrafficRecorder
 import org.json.JSONObject
 import java.io.File
 import java.net.Inet4Address
@@ -35,6 +36,8 @@ class VolterVpnService : VpnService() {
     private var tunFd: Int = -1
     private var tunPfd: ParcelFileDescriptor? = null
     private val sessionAbort = AtomicBoolean(false)
+    private var trafficWallStartMs: Long = 0L
+    private var activeVpnMode: String? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -152,6 +155,7 @@ class VolterVpnService : VpnService() {
     }
 
     private fun stopActive() {
+        flushTrafficSnapshot()
         CoreSocketProtect.clear()
         val handle = coreHandle
         VolterLog.i("stopActive prevCoreHandle=$handle tunFd=$tunFd")
@@ -171,6 +175,19 @@ class VolterVpnService : VpnService() {
         stopForeground(STOP_FOREGROUND_DETACH)
     }
 
+    private fun flushTrafficSnapshot() {
+        val start = trafficWallStartMs
+        if (start <= 0L) return
+        val end = System.currentTimeMillis()
+        val mode = activeVpnMode ?: "tun"
+        trafficWallStartMs = 0L
+        activeVpnMode = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            runCatching { VpnTrafficRecorder.writePending(this, start, end, mode) }
+                .onFailure { VolterLog.w("flushTrafficSnapshot failed: ${it.message}") }
+        }
+    }
+
     private fun startProxyInternal(cfg: Config, settings: ClientSettings, configDir: String) {
         CoreSocketProtect.install(this)
         val cfgJson = cfg.toJson().toString()
@@ -188,6 +205,8 @@ class VolterVpnService : VpnService() {
             return
         }
         VolterLog.i("startProxy ok handle=$coreHandle")
+        trafficWallStartMs = System.currentTimeMillis()
+        activeVpnMode = "proxy"
         broadcastSession(coreHandle, "proxy")
         ensureForeground("proxy")
     }
@@ -294,6 +313,8 @@ class VolterVpnService : VpnService() {
             return
         }
         VolterLog.i("startTun core ok handle=$coreHandle")
+        trafficWallStartMs = System.currentTimeMillis()
+        activeVpnMode = "tun"
         broadcastSession(coreHandle, "tun")
         ensureForeground("connected")
     }

@@ -31,6 +31,7 @@ import dev.c0redev.volter.R
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.ProtectionPresets
 import dev.c0redev.volter.domain.model.SessionRecord
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.components.SectionCard
 import dev.c0redev.volter.ui.components.StyledTextField
 
@@ -60,9 +61,9 @@ fun ProtectionEditor(
         set(ProtectionDraft.from(p))
     }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(stringResource(R.string.protection_section_quick_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     stringResource(R.string.protection_section_quick_hint),
@@ -73,24 +74,24 @@ fun ProtectionEditor(
                     FilledTonalButton(
                         onClick = { applyPreset(ProtectionPresets.balanced()) },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     ) { Text(stringResource(R.string.protection_preset_balance)) }
                     FilledTonalButton(
                         onClick = { applyPreset(ProtectionPresets.strict()) },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     ) { Text(stringResource(R.string.protection_preset_strong)) }
                 }
                 FilledTonalButton(
                     onClick = { applyPreset(ProtectionPresets.suggestFromMetrics(metrics)) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
                 ) { Text(stringResource(R.string.protection_preset_auto)) }
             }
         }
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(stringResource(R.string.protection_section_main), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Segmented(
                     title = stringResource(R.string.protection_obfuscation),
@@ -141,7 +142,7 @@ fun ProtectionEditor(
         }
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(stringResource(R.string.protection_limits_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 NumberRow(
                     items = listOf(
@@ -178,13 +179,13 @@ fun ProtectionEditor(
                         Button(
                             onClick = { onSave(draft.toOptions()) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) { Text(stringResource(R.string.protection_save)) }
                         if (onClear != null) {
                             OutlinedButton(
                                 onClick = onClear,
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(14.dp),
+                                shape = RoundedCornerShape(VolterSpacing.controlRadius),
                             ) { Text(stringResource(R.string.protection_clear)) }
                         }
                     }
@@ -204,6 +205,7 @@ private fun Segmented(title: String, options: List<Pair<String, String>>, select
                 selected = selected == value,
                 onClick = { onSelect(value) },
                 label = { Text(label) },
+                shape = RoundedCornerShape(VolterSpacing.chipRadius),
             )
         }
     }

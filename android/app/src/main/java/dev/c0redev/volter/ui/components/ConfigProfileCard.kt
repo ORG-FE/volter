@@ -1,7 +1,6 @@
 package dev.c0redev.volter.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,9 +19,10 @@ import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.c0redev.volter.R
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.data.servergeo.serverHostFromField
 import dev.c0redev.volter.ui.ConfigItemState
 
@@ -83,32 +84,28 @@ fun ConfigProfileCard(
     val hostLine = serverHostFromField(item.config.server)
     val geo = item.geo
 
-    val cardShape = RoundedCornerShape(26.dp)
-    val borderMod = if (isActive) {
-        Modifier.border(1.5.dp, scheme.primary.copy(alpha = 0.65f), cardShape)
-    } else {
-        Modifier
+    val cardShape = RoundedCornerShape(VolterSpacing.glassRadius)
+    val borderColor = when {
+        isActive -> scheme.primary.copy(alpha = 0.5f)
+        else -> scheme.outlineVariant.copy(alpha = 0.38f)
     }
-    ElevatedCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(borderMod),
+    Card(
+        modifier = modifier.fillMaxWidth(),
         shape = cardShape,
-        elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = if (isActive) 10.dp else 6.dp,
-        ),
-        colors = CardDefaults.elevatedCardColors(
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, borderColor),
+        colors = CardDefaults.cardColors(
             containerColor = if (isActive) {
-                scheme.primaryContainer.copy(alpha = 0.68f)
+                scheme.primary.copy(alpha = 0.12f)
             } else {
-                scheme.surfaceContainer.copy(alpha = 0.98f)
+                scheme.surface.copy(alpha = 0.48f)
             },
         ),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(VolterSpacing.cardInner + 4.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(
@@ -119,7 +116,7 @@ fun ConfigProfileCard(
                 Box(
                     modifier = Modifier
                         .size(56.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(VolterSpacing.chipRadius))
                         .background(scheme.primaryContainer.copy(alpha = 0.8f)),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -175,7 +172,7 @@ fun ConfigProfileCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     color = pingTint(item.pingMs, item.pingFailed, scheme),
                 ) {
                     Row(
@@ -226,7 +223,7 @@ fun ConfigProfileCard(
                     },
                 )
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     color = scheme.surfaceContainerHighest,
                 ) {
                     Text(
@@ -238,7 +235,7 @@ fun ConfigProfileCard(
                 }
                 if (item.serverMode.isNotBlank()) {
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         color = scheme.surfaceContainerHighest,
                     ) {
                         Text(
@@ -255,7 +252,7 @@ fun ConfigProfileCard(
                 if (isActive) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         color = scheme.primary.copy(alpha = 0.22f),
                     ) {
                         Box(
@@ -281,7 +278,7 @@ fun ConfigProfileCard(
                             onClick = onPrimary,
                             enabled = !primaryBusy,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
                             if (primaryBusy) {
                                 CircularProgressIndicator(
@@ -308,7 +305,7 @@ fun ConfigProfileCard(
                             FilledTonalButton(
                                 onClick = onImport,
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp),
+                                shape = RoundedCornerShape(VolterSpacing.controlRadius),
                             ) {
                                 Text(importLabel)
                             }
@@ -324,7 +321,7 @@ fun ConfigProfileCard(
                     if (isActive) {
                         Surface(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                             color = scheme.primary.copy(alpha = 0.22f),
                         ) {
                             Box(
@@ -346,7 +343,7 @@ fun ConfigProfileCard(
                             onClick = onPrimary,
                             enabled = !primaryBusy,
                             modifier = Modifier.weight(1f, fill = true),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
                             if (primaryBusy) {
                                 CircularProgressIndicator(
@@ -379,7 +376,7 @@ fun ConfigProfileCard(
                     if (onEdit != null) {
                         FilledTonalButton(
                             onClick = onEdit,
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
                             Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.config_cd_edit))
                         }
@@ -395,7 +392,7 @@ fun ConfigProfileCard(
                     if (onShare != null) {
                         FilledTonalButton(
                             onClick = onShare,
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
                             Icon(Icons.Outlined.QrCode2, contentDescription = null)
                         }
@@ -420,7 +417,7 @@ private fun AssistChipCompat(text: String, ok: Boolean?) {
         null -> scheme.onSurfaceVariant
     }
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(VolterSpacing.controlRadius),
         color = bg,
     ) {
         Text(

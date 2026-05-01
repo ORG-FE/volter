@@ -5,6 +5,29 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 
+data class AppTrafficEntry(
+    val uid: Int,
+    val rxBytes: Long,
+    val txBytes: Long,
+    val label: String,
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("uid", uid)
+        put("rx", rxBytes)
+        put("tx", txBytes)
+        put("label", label)
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject): AppTrafficEntry = AppTrafficEntry(
+            uid = o.optInt("uid"),
+            rxBytes = o.optLong("rx", 0L),
+            txBytes = o.optLong("tx", 0L),
+            label = o.optString("label", "?"),
+        )
+    }
+}
+
 data class SessionRecord(
     val start: Instant,
     val end: Instant? = null,
@@ -19,6 +42,12 @@ data class SessionRecord(
     val dnsOkBefore: Boolean,
     val dnsOkAfter: Boolean? = null,
     val probeOk: Boolean,
+    val rxBytes: Long? = null,
+    val txBytes: Long? = null,
+    val byApp: List<AppTrafficEntry> = emptyList(),
+    val trafficCollectError: String? = null,
+    val routePrefixes: List<String> = emptyList(),
+    val excludePrefixes: List<String> = emptyList(),
 ) {
     fun toJson(): JSONObject {
         val j = JSONObject()
@@ -35,6 +64,18 @@ data class SessionRecord(
         j.put("dnsOKBefore", dnsOkBefore)
         dnsOkAfter?.let { j.put("dnsOKAfter", it) }
         j.put("probeOK", probeOk)
+        rxBytes?.let { j.put("rxBytes", it) }
+        txBytes?.let { j.put("txBytes", it) }
+        trafficCollectError?.let { j.put("trafficCollectError", it) }
+        if (byApp.isNotEmpty()) {
+            j.put("byApp", JSONArray().apply { byApp.forEach { put(it.toJson()) } })
+        }
+        if (routePrefixes.isNotEmpty()) {
+            j.put("routePrefixes", JSONArray().apply { routePrefixes.forEach { put(it) } })
+        }
+        if (excludePrefixes.isNotEmpty()) {
+            j.put("excludePrefixes", JSONArray().apply { excludePrefixes.forEach { put(it) } })
+        }
         return j
     }
 
@@ -53,9 +94,25 @@ data class SessionRecord(
             dnsOkBefore = j.getBoolean("dnsOKBefore"),
             dnsOkAfter = if (j.has("dnsOKAfter") && !j.isNull("dnsOKAfter")) j.getBoolean("dnsOKAfter") else null,
             probeOk = j.getBoolean("probeOK"),
+            rxBytes = if (j.has("rxBytes") && !j.isNull("rxBytes")) j.getLong("rxBytes") else null,
+            txBytes = if (j.has("txBytes") && !j.isNull("txBytes")) j.getLong("txBytes") else null,
+            byApp = parseAppList(j.optJSONArray("byApp")),
+            trafficCollectError = j.optNullableString("trafficCollectError"),
+            routePrefixes = parseStringList(j.optJSONArray("routePrefixes")),
+            excludePrefixes = parseStringList(j.optJSONArray("excludePrefixes")),
         )
 
         fun listFromJson(arr: JSONArray): List<SessionRecord> = List(arr.length()) { i -> fromJson(arr.getJSONObject(i)) }
+
+        private fun parseAppList(arr: JSONArray?): List<AppTrafficEntry> {
+            if (arr == null) return emptyList()
+            return List(arr.length()) { i -> AppTrafficEntry.fromJson(arr.getJSONObject(i)) }
+        }
+
+        private fun parseStringList(arr: JSONArray?): List<String> {
+            if (arr == null) return emptyList()
+            return List(arr.length()) { i -> arr.getString(i) }
+        }
     }
 }
 

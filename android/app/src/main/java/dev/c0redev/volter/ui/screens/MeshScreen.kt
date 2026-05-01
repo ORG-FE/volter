@@ -1,5 +1,6 @@
 package dev.c0redev.volter.ui.screens
 
+import android.content.res.Resources
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -37,11 +39,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.core.CoreBridge
 import dev.c0redev.volter.domain.model.PeerTicket
 import dev.c0redev.volter.domain.model.RelayOptions
 import dev.c0redev.volter.domain.model.VolterMeshDefaults
 import dev.c0redev.volter.ui.ConnectionViewModel
+import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 import dev.c0redev.volter.ui.mesh.MeshRelayEditor
 import dev.c0redev.volter.ui.qr.buildQrBitmap
 import kotlinx.coroutines.delay
@@ -69,12 +73,12 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
     }
 
     var body by remember { mutableStateOf("{}") }
-    var meshSummary by remember { mutableStateOf("No mesh stats yet") }
+    var meshSummary by remember { mutableStateOf(ctx.getString(R.string.mesh_stats_empty)) }
     LaunchedEffect(Unit) {
         while (true) {
             val raw = CoreBridge.meshStatus()
             body = prettyMeshJson(raw)
-            meshSummary = meshSummaryFrom(raw)
+            meshSummary = meshSummaryFrom(raw, ctx.resources)
             delay(2000L)
         }
     }
@@ -87,25 +91,26 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
     ) {
         Text(
             text = stringResource(R.string.mesh_title),
-            style = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
         )
         Text(
             text = stringResource(R.string.mesh_profile_label),
             style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
         ) {
             items(local, key = { it.name }) { it ->
                 FilterChip(
                     selected = selected == it.name,
                     onClick = { selected = it.name },
                     label = { Text(it.name) },
+                    shape = RoundedCornerShape(VolterSpacing.chipRadius),
                 )
             }
         }
@@ -113,7 +118,7 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             MeshRelayEditor(
                 relay = draft,
                 onRelayChange = { draft = it },
-                modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal),
             )
             FilledTonalButton(
                 onClick = {
@@ -121,7 +126,7 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(VolterSpacing.screenHorizontal),
             ) {
                 Text(stringResource(R.string.mesh_save))
             }
@@ -129,14 +134,14 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                 onClick = { shareTicketTarget = selected to item.config.copy(relay = draft) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = VolterSpacing.screenHorizontal),
             ) {
-                Text("Share peer ticket")
+                Text(stringResource(R.string.mesh_peer_ticket_share_button))
             }
         } else {
             Text(
-                text = "Add a local profile on Home / Profiles first.",
-                modifier = Modifier.padding(16.dp),
+                text = stringResource(R.string.mesh_add_profile_hint),
+                modifier = Modifier.padding(VolterSpacing.screenHorizontal),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -145,17 +150,17 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             text = stringResource(R.string.mesh_status_header),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
         )
         Text(
             text = meshSummary,
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal, vertical = 4.dp),
         )
         Text(
             text = body,
             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
         )
     }
     if (shareTicketTarget != null) {
@@ -172,7 +177,7 @@ private fun prettyMeshJson(raw: String): String {
     }
 }
 
-private fun meshSummaryFrom(raw: String): String {
+private fun meshSummaryFrom(raw: String, res: Resources): String {
     return try {
         val j = JSONObject(raw)
         val nodeId = j.optString("clusterNodeId", "").ifBlank { "-" }
@@ -201,7 +206,7 @@ private fun meshSummaryFrom(raw: String): String {
         }
         "Cluster node: $nodeId | cluster servers: $nodes | store-forward sent/recv: $sent/$recv | srflx: $srflx$csTail$lastSwitch"
     } catch (_: Exception) {
-        "Mesh status unavailable"
+        res.getString(R.string.cluster_status_unavailable)
     }
 }
 
@@ -222,15 +227,25 @@ private fun SharePeerTicketDialog(name: String, cfg: dev.c0redev.volter.domain.m
     val img = remember(uri) { buildQrBitmap(uri).asImageBitmap() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Peer ticket") },
+        shape = VolterGlassDialogDefaults.shape(),
+        containerColor = VolterGlassDialogDefaults.containerColor(),
+        tonalElevation = VolterGlassDialogDefaults.tonalElevation,
+        title = { Text(stringResource(R.string.mesh_peer_ticket_title)) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Image(bitmap = img, contentDescription = "peer ticket qr", modifier = Modifier.fillMaxWidth().padding(8.dp))
-                Text("PeerId: ${ticket.peerId}", style = MaterialTheme.typography.bodyMedium)
+                Image(
+                    bitmap = img,
+                    contentDescription = stringResource(R.string.mesh_peer_ticket_image_cd),
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                )
+                Text(
+                    stringResource(R.string.mesh_peer_ticket_peer_id_fmt, ticket.peerId),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         },
         confirmButton = {
@@ -239,15 +254,15 @@ private fun SharePeerTicketDialog(name: String, cfg: dev.c0redev.volter.domain.m
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, uri)
                 }
-                context.startActivity(Intent.createChooser(intent, "Share Peer ticket"))
-            }) { Text("Share") }
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.mesh_peer_ticket_share_chooser)))
+            }) { Text(stringResource(R.string.action_share)) }
         },
         dismissButton = {
             FilledTonalButton(onClick = {
                 val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cb.setPrimaryClip(ClipData.newPlainText("peer-ticket", uri))
                 onDismiss()
-            }) { Text("Copy") }
+            }) { Text(stringResource(R.string.action_copy)) }
         },
     )
 }

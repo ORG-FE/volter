@@ -27,7 +27,10 @@ import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.domain.model.PeerTicket
 import dev.c0redev.volter.domain.model.VolterMeshDefaults
+import dev.c0redev.volter.domain.model.AppTrafficEntry
 import dev.c0redev.volter.domain.model.SessionRecord
+import dev.c0redev.volter.traffic.TrafficPending
+import dev.c0redev.volter.traffic.VpnTrafficRecorder
 import dev.c0redev.volter.R
 import dev.c0redev.volter.update.UpdateManager
 import dev.c0redev.volter.update.UpdatePrefs
@@ -216,6 +219,8 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         val probeOk: Boolean,
         val reconnectCount: Int,
         val handshakeOk: Boolean,
+        val routesCsv: String?,
+        val excludeCsv: String?,
     )
 
     private val receiver = object : BroadcastReceiver() {
@@ -467,7 +472,18 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     private fun beginMetric(name: String, cfg: Config, reconnectCount: Int) {
         metricFinalized.set(false)
         activeMetric?.let { finalizeMetricDraft(it, Instant.now(), it.handshakeOk, "replaced") }
-        pendingMetric = MetricDraft(Instant.now(), name, cfg.server, false, null, false, reconnectCount, false)
+        pendingMetric = MetricDraft(
+            start = Instant.now(),
+            configName = name,
+            server = cfg.server,
+            dnsOkBefore = false,
+            rttBeforeNs = null,
+            probeOk = false,
+            reconnectCount = reconnectCount,
+            handshakeOk = false,
+            routesCsv = cfg.routes?.trim()?.take(1200),
+            excludeCsv = cfg.exclude?.trim()?.take(1200),
+        )
     }
 
     private suspend fun fillMetricBasics(cfg: Config) {
@@ -496,22 +512,45 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     private fun finalizeMetricDraft(draft: MetricDraft, end: Instant, handshakeOk: Boolean, errorType: String) {
         if (!metricFinalized.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
-            localRepo.appendMetric(SessionRecord(
-                start = draft.start,
-                end = end,
-                durationNs = Duration.between(draft.start, end).toNanos(),
-                server = draft.server,
-                configName = draft.configName,
-                errorType = errorType,
-                handshakeOk = handshakeOk,
-                reconnectCount = draft.reconnectCount,
-                rttBeforeNs = draft.rttBeforeNs,
-                dnsOkBefore = draft.dnsOkBefore,
-                dnsOkAfter = checkDnsOk(),
-                probeOk = draft.probeOk,
-            ))
+            var pending: TrafficPending? = null
+            for (i in 0 until 12) {
+                pending = VpnTrafficRecorder.consumePending(appCtx)
+                if (pending != null) break
+                delay(35L)
+            }
+            val routes = splitCsvPrefixes(draft.routesCsv)
+            val excludes = splitCsvPrefixes(draft.excludeCsv)
+            val apps = pending?.byApp?.map { AppTrafficEntry(it.uid, it.rxBytes, it.txBytes, it.label) } ?: emptyList()
+            localRepo.appendMetric(
+                SessionRecord(
+                    start = draft.start,
+                    end = end,
+                    durationNs = Duration.between(draft.start, end).toNanos(),
+                    server = draft.server,
+                    configName = draft.configName,
+                    errorType = errorType,
+                    handshakeOk = handshakeOk,
+                    reconnectCount = draft.reconnectCount,
+                    rttBeforeNs = draft.rttBeforeNs,
+                    dnsOkBefore = draft.dnsOkBefore,
+                    dnsOkAfter = checkDnsOk(),
+                    probeOk = draft.probeOk,
+                    rxBytes = pending?.rxBytes?.takeIf { it > 0L },
+                    txBytes = pending?.txBytes?.takeIf { it > 0L },
+                    byApp = apps,
+                    trafficCollectError = pending?.collectError,
+                    routePrefixes = routes,
+                    excludePrefixes = excludes,
+                ),
+            )
             reloadMetrics()
         }
+    }
+
+    private fun splitCsvPrefixes(raw: String?): List<String> {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return emptyList()
+        return s.split(',').map { it.trim() }.filter { it.isNotEmpty() }.take(48)
     }
 
     private fun startService(cfgJson: String, settingsJson: String) {
@@ -662,12 +701,12 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         clearActiveProfileUi()
         activeStartedAt = null
         autoFallbackDone = false
+        runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
         val draft = activeMetric
         if (draft != null) {
             val lastReady = runCatching { if (currentHandle > 0) CoreBridge.pollState(currentHandle).ready else false }.getOrDefault(false)
             finalizeActiveMetric(Instant.now(), draft.handshakeOk || lastReady, "graceful")
         }
-        runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
         runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
     }
 

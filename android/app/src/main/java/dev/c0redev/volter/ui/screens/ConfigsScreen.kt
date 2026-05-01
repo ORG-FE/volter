@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +59,7 @@ import dev.c0redev.volter.ui.ConfigItemState
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.ConfigProfileCard
 import dev.c0redev.volter.ui.components.StyledTextField
+import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 import dev.c0redev.volter.ui.qr.buildQrBitmap
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,28 +85,75 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
     var deleteConfirmName by remember { mutableStateOf<String?>(null) }
     var shareTarget by remember { mutableStateOf<Pair<String, Config>?>(null) }
 
+    val scheme = MaterialTheme.colorScheme
+    val onHero = scheme.onPrimary
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding)
-            .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
+            .padding(padding),
     ) {
-        Text(
-            text = stringResource(R.string.configs_title),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            scheme.primary.copy(alpha = 0.92f),
+                            scheme.primary.copy(alpha = 0.78f),
+                            scheme.surfaceContainerLow.copy(alpha = 0.35f),
+                        ),
+                    ),
+                ),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical + 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.configs_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = onHero,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = activeProfileName?.let { stringResource(R.string.configs_hero_active_fmt, it) }
+                        ?: stringResource(R.string.configs_hero_no_profile),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = onHero.copy(alpha = 0.9f),
+                    modifier = Modifier.fillMaxWidth(),
+                    fontWeight = FontWeight.Medium,
+                )
+                ConfigSourceSegment(
+                    modifier = Modifier.fillMaxWidth(),
+                    selectedIndex = tabIndex,
+                    onSelect = { tabIndex = it },
+                    localLabel = stringResource(R.string.configs_tab_local),
+                    cloudLabel = stringResource(R.string.configs_tab_cloud),
+                    onDarkBackground = true,
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
+        ) {
         Text(
             text = stringResource(R.string.configs_screen_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier.padding(bottom = 12.dp),
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 18.dp),
+                .padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -113,29 +163,19 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     editorCfg = null
                     editorOpen = true
                 },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(VolterSpacing.controlRadius),
             ) {
                 Text(stringResource(R.string.configs_add))
             }
             if (conn.connected) {
                 FilledTonalButton(
                     onClick = { vm.disconnect() },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
                 ) {
                     Text(stringResource(R.string.home_disconnect))
                 }
             }
         }
-
-        ConfigSourceSegment(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 20.dp, bottom = 4.dp),
-            selectedIndex = tabIndex,
-            onSelect = { tabIndex = it },
-            localLabel = stringResource(R.string.configs_tab_local),
-            cloudLabel = stringResource(R.string.configs_tab_cloud),
-        )
 
         when (tabIndex) {
             0 -> LazyColumn(
@@ -147,7 +187,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         Button(
                             onClick = { vm.refreshLocalConfigs() },
                             enabled = !localRefreshing,
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(stringResource(R.string.configs_local_refresh))
@@ -212,7 +252,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     Button(
                         onClick = { vm.refreshCloudConfigs(true) },
                         enabled = !cloudLoading,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
                     ) {
                         Text(stringResource(R.string.configs_cloud_refresh))
                     }
@@ -277,12 +317,16 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                 }
             }
         }
+        }
     }
 
     val deleteName = deleteConfirmName
     if (deleteName != null) {
         AlertDialog(
             onDismissRequest = { deleteConfirmName = null },
+            shape = VolterGlassDialogDefaults.shape(),
+            containerColor = VolterGlassDialogDefaults.containerColor(),
+            tonalElevation = VolterGlassDialogDefaults.tonalElevation,
             title = { Text(stringResource(R.string.configs_delete_title)) },
             text = { Text(stringResource(R.string.configs_delete_message, deleteName)) },
             confirmButton = {
@@ -308,6 +352,9 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         var importName by remember(importTargetVal.name) { mutableStateOf(importTargetVal.name) }
         AlertDialog(
             onDismissRequest = { importTarget = null },
+            shape = VolterGlassDialogDefaults.shape(),
+            containerColor = VolterGlassDialogDefaults.containerColor(),
+            tonalElevation = VolterGlassDialogDefaults.tonalElevation,
             title = { Text(stringResource(R.string.configs_import_title)) },
             confirmButton = {
                 Button(
@@ -364,15 +411,18 @@ private fun ShareConfigQrDialog(name: String, cfg: Config, context: Context, onD
     val img = remember(uri) { buildQrBitmap(uri).asImageBitmap() }
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = VolterGlassDialogDefaults.shape(),
+        containerColor = VolterGlassDialogDefaults.containerColor(),
+        tonalElevation = VolterGlassDialogDefaults.tonalElevation,
         confirmButton = {
             Button(onClick = {
                 val intent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, uri)
                 }
-                context.startActivity(Intent.createChooser(intent, "Share Volter"))
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.qr_config_share_chooser)))
             }) {
-                Text("Share")
+                Text(stringResource(R.string.action_share))
             }
         },
         dismissButton = {
@@ -381,10 +431,10 @@ private fun ShareConfigQrDialog(name: String, cfg: Config, context: Context, onD
                 cb.setPrimaryClip(ClipData.newPlainText("volter", uri))
                 onDismiss()
             }) {
-                Text("Copy")
+                Text(stringResource(R.string.action_copy))
             }
         },
-        title = { Text("QR config + protection") },
+        title = { Text(stringResource(R.string.qr_config_dialog_title)) },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -393,7 +443,7 @@ private fun ShareConfigQrDialog(name: String, cfg: Config, context: Context, onD
             ) {
                 Image(
                     bitmap = img,
-                    contentDescription = "volter qr",
+                    contentDescription = stringResource(R.string.qr_config_image_cd),
                     modifier = Modifier.fillMaxWidth().padding(8.dp),
                 )
                 Text(text = name, style = MaterialTheme.typography.bodyMedium)
@@ -409,12 +459,14 @@ private fun ConfigSourceSegment(
     onSelect: (Int) -> Unit,
     localLabel: String,
     cloudLabel: String,
+    onDarkBackground: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val onGlass = scheme.onPrimary
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(30.dp),
-        color = scheme.surfaceContainerLow,
+        shape = RoundedCornerShape(VolterSpacing.barPillRadius),
+        color = if (onDarkBackground) scheme.onPrimary.copy(alpha = 0.1f) else scheme.surfaceContainerLow,
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
     ) {
@@ -430,9 +482,13 @@ private fun ConfigSourceSegment(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(26.dp))
+                        .clip(RoundedCornerShape(VolterSpacing.glassRadius))
                         .background(
-                            if (sel) scheme.primaryContainer.copy(alpha = 0.88f) else Color.Transparent,
+                            when {
+                                !onDarkBackground && sel -> scheme.primaryContainer.copy(alpha = 0.88f)
+                                onDarkBackground && sel -> scheme.primary.copy(alpha = 0.42f)
+                                else -> Color.Transparent
+                            },
                         )
                         .clickable(
                             interactionSource = interaction,
@@ -446,7 +502,11 @@ private fun ConfigSourceSegment(
                         text = label,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (sel) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+                        color = when {
+                            onDarkBackground -> if (sel) onGlass else onGlass.copy(alpha = 0.82f)
+                            sel -> scheme.onPrimaryContainer
+                            else -> scheme.onSurfaceVariant
+                        },
                     )
                 }
             }
@@ -461,6 +521,10 @@ private fun ConfigEditorDialog(
     onDismiss: () -> Unit,
     onSave: (String, Config) -> Unit,
 ) {
+    val errBadConnection = stringResource(R.string.config_editor_err_connection)
+    val errBadTransport = stringResource(R.string.config_editor_err_transport)
+    val errBadSkip = stringResource(R.string.config_editor_err_skipverify)
+    val errBadQuicPort = stringResource(R.string.config_editor_err_quic_port)
     var name by remember { mutableStateOf(oldName ?: "default") }
     var connection by remember { mutableStateOf("") }
     var routes by remember { mutableStateOf("") }
@@ -507,6 +571,9 @@ private fun ConfigEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = VolterGlassDialogDefaults.shape(),
+        containerColor = VolterGlassDialogDefaults.containerColor(),
+        tonalElevation = VolterGlassDialogDefaults.tonalElevation,
         confirmButton = {
             Button(
                 onClick = {
@@ -516,7 +583,7 @@ private fun ConfigEditorDialog(
                     val parsedCfg = Config.parseConnectionConfig(connection) ?: parsedFromShare
                     val parsed = Config.parseConnection(connection)
                     if (parsed == null && parsedCfg == null) {
-                        err = "connection: volter://..."
+                        err = errBadConnection
                         return@Button
                     }
                     val (server, token) = parsed ?: (parsedCfg!!.server to parsedCfg.token)
@@ -545,12 +612,12 @@ private fun ConfigEditorDialog(
                     }
 
                     if (transportOut == null && transport.trim().isNotBlank() && tr != "auto") {
-                        err = "transport: tcp/quic/auto"
+                        err = errBadTransport
                         return@Button
                     }
 
                     if (quicSkipOut == null && quicSkipVerify.trim().isNotBlank()) {
-                        err = "quic skipVerify: true/false/empty"
+                        err = errBadSkip
                         return@Button
                     }
 
@@ -562,7 +629,7 @@ private fun ConfigEditorDialog(
 
                     val quicPortOut = quicPort.trim().toIntOrNull()
                     if (quicPort.trim().isNotBlank() && (quicPortOut == null || quicPortOut !in 1..65535)) {
-                        err = "quic port: 1-65535"
+                        err = errBadQuicPort
                         return@Button
                     }
                     val quicHost = parsedCfg?.quicServer?.let { Config.hostFromServer(it) } ?: Config.hostFromServer(server)
@@ -586,10 +653,10 @@ private fun ConfigEditorDialog(
 
                     onSave(safeName, cfg)
                 },
-            ) { Text("Сохранить") }
+            ) { Text(stringResource(R.string.config_editor_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-        title = { Text("Редактор конфига") },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.configs_import_cancel)) } },
+        title = { Text(stringResource(R.string.config_editor_title)) },
         text = {
             val scroll = rememberScrollState()
             Column(
@@ -598,21 +665,25 @@ private fun ConfigEditorDialog(
                     .verticalScroll(scroll),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                StyledTextField(value = name, onValueChange = { name = it }, label = "Имя", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = connection, onValueChange = { connection = it }, label = "volter://...", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = routes, onValueChange = { routes = it }, label = "routes (cidrs)", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = exclude, onValueChange = { exclude = it }, label = "exclude (cidrs)", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = tunCIDR6, onValueChange = { tunCIDR6 = it }, label = "tunCIDR6", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = transport, onValueChange = { transport = it }, label = "transport tcp/quic/auto", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = quicPort, onValueChange = { quicPort = digitsOnly(it).take(5) }, label = "quic port (host из ключа)", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = quicServerName, onValueChange = { quicServerName = it }, label = "quic SNI", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = quicSkipVerify, onValueChange = { quicSkipVerify = it }, label = "quic skipVerify true/false/пусто", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = quicCertPin, onValueChange = { quicCertPin = it }, label = "quic pin sha256 hex", modifier = Modifier.fillMaxWidth())
-                StyledTextField(value = quicCaCert, onValueChange = { quicCaCert = it }, label = "quic CA PEM путь", modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = name, onValueChange = { name = it }, label = stringResource(R.string.config_editor_label_name), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = connection, onValueChange = { connection = it }, label = stringResource(R.string.config_editor_label_connection), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = routes, onValueChange = { routes = it }, label = stringResource(R.string.config_editor_label_routes), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = exclude, onValueChange = { exclude = it }, label = stringResource(R.string.config_editor_label_exclude), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = tunCIDR6, onValueChange = { tunCIDR6 = it }, label = stringResource(R.string.config_editor_label_tun6), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = transport, onValueChange = { transport = it }, label = stringResource(R.string.config_editor_label_transport), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = quicPort, onValueChange = { quicPort = digitsOnly(it).take(5) }, label = stringResource(R.string.config_editor_label_quic_port), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = quicServerName, onValueChange = { quicServerName = it }, label = stringResource(R.string.config_editor_label_quic_sni), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = quicSkipVerify, onValueChange = { quicSkipVerify = it }, label = stringResource(R.string.config_editor_label_quic_skip), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = quicCertPin, onValueChange = { quicCertPin = it }, label = stringResource(R.string.config_editor_label_quic_pin), modifier = Modifier.fillMaxWidth())
+                StyledTextField(value = quicCaCert, onValueChange = { quicCaCert = it }, label = stringResource(R.string.config_editor_label_quic_ca), modifier = Modifier.fillMaxWidth())
 
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Switch(checked = traceLog, onCheckedChange = { traceLog = it })
-                    Text("quicTraceLog", modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        stringResource(R.string.config_editor_quic_trace),
+                        modifier = Modifier.padding(start = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
                 if (err != null) {
                     Text(
@@ -653,7 +724,7 @@ private fun digitsOnly(v: String): String {
 private fun LocalProfileSkeleton() {
     val bar = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(VolterSpacing.controlRadius),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -665,14 +736,14 @@ private fun LocalProfileSkeleton() {
                 Modifier
                     .fillMaxWidth(0.42f)
                     .height(18.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(VolterSpacing.skeletonLineRadius))
                     .background(bar),
             )
             Box(
                 Modifier
                     .fillMaxWidth(0.62f)
                     .height(13.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(VolterSpacing.skeletonLineRadius))
                     .background(bar),
             )
             Row(
@@ -683,14 +754,14 @@ private fun LocalProfileSkeleton() {
                     Modifier
                         .weight(1f)
                         .height(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(VolterSpacing.skeletonBlockRadius))
                         .background(bar),
                 )
                 Box(
                     Modifier
                         .width(52.dp)
                         .height(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(VolterSpacing.skeletonBlockRadius))
                         .background(bar),
                 )
             }

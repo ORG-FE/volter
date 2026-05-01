@@ -8,6 +8,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.c0redev.volter.theme.VolterSpacing
 
 @Composable
 fun StyledTextField(
@@ -25,10 +26,10 @@ fun StyledTextField(
         modifier = modifier,
         enabled = enabled,
         singleLine = singleLine,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(VolterSpacing.controlRadius),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
             disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
         ),
     )

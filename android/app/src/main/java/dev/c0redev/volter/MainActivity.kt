@@ -6,9 +6,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dev.c0redev.volter.theme.VolterTheme
 import dev.c0redev.volter.ui.AppNavGraph
@@ -24,7 +27,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             VolterTheme {
-                Surface(modifier = Modifier, color = MaterialTheme.colorScheme.background) {
+                val scheme = MaterialTheme.colorScheme
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    scheme.background,
+                                    scheme.surfaceContainerLowest.copy(alpha = 0.94f),
+                                ),
+                            ),
+                        ),
+                ) {
                     AppNavGraph(vm = vm)
                 }
             }

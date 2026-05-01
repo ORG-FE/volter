@@ -15,6 +15,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.domain.model.RelayOptions
 import dev.c0redev.volter.ui.components.SectionCard
 import dev.c0redev.volter.ui.components.StyledTextField
@@ -28,9 +29,9 @@ fun MeshRelayEditor(
     fun strList(s: String) = s.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
     fun linesList(s: String) = s.lines().map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(
                     stringResource(R.string.mesh_section_ice),
                     style = MaterialTheme.typography.titleMedium,
@@ -53,7 +54,7 @@ fun MeshRelayEditor(
         }
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(
                     stringResource(R.string.mesh_section_discovery),
                     style = MaterialTheme.typography.titleMedium,
@@ -81,7 +82,7 @@ fun MeshRelayEditor(
         }
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(
                     stringResource(R.string.mesh_section_dht),
                     style = MaterialTheme.typography.titleMedium,
@@ -143,7 +144,7 @@ fun MeshRelayEditor(
         }
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(
                     stringResource(R.string.mesh_section_peer_udp),
                     style = MaterialTheme.typography.titleMedium,
@@ -177,7 +178,7 @@ fun MeshRelayEditor(
         }
 
         SectionCard {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
                 Text(
                     stringResource(R.string.mesh_section_emergency_stake),
                     style = MaterialTheme.typography.titleMedium,

@@ -1,20 +1,11 @@
 package dev.c0redev.volter.ui.screens
 
-import android.graphics.Paint
-import android.graphics.RuntimeShader
-import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -27,21 +18,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.ViewList
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,6 +40,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,56 +49,28 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.util.Locale
 import dev.c0redev.volter.BuildConfig
 import dev.c0redev.volter.R
+import dev.c0redev.volter.domain.model.ProtectionOptions
+import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
-
-private const val ringShaderSrc = """
-uniform float2 resolution;
-uniform float time;
-uniform float4 colorA;
-uniform float4 colorB;
-uniform float4 colorC;
-
-half4 main(float2 fragCoord) {
-    float2 uv = fragCoord / max(resolution, float2(1.0));
-    float2 p = uv - 0.5;
-    float r = length(p);
-    float angle = atan(p.y, p.x);
-    float wave = sin(angle * 6.0 + time * 2.4) * 0.5 + 0.5;
-    float wave2 = cos(angle * 10.0 - time * 1.8) * 0.5 + 0.5;
-    half3 c = mix(colorA.rgb, colorB.rgb, wave);
-    c = mix(c, colorC.rgb, wave2 * 0.45);
-    float glow = smoothstep(0.48, 0.12, abs(r - 0.40));
-    return half4(c * (0.65 + glow * 0.85), glow);
-}
-"""
 
 private data class GuideEntry(
     val title: String,
@@ -124,7 +87,6 @@ fun HomeScreen(
     onNavigateToTab: (String) -> Unit = {},
 ) {
     val conn = vm.connection.collectAsState().value
-    val settings = vm.clientSettings.collectAsState().value
     val logs = vm.logs.collectAsState().value
     val local = vm.localConfigs.collectAsState().value
     val cloud = vm.cloudConfigs.collectAsState().value
@@ -132,6 +94,10 @@ fun HomeScreen(
     val cloudProgress = vm.cloudRefreshProgress.collectAsState().value
     val connectingName = vm.connectingProfileName.collectAsState().value
     val activeProfile = vm.activeProfileName.collectAsState().value
+    val metrics by vm.metrics.collectAsState()
+    val activeCfg = remember(activeProfile, local) {
+        activeProfile?.let { n -> local.firstOrNull { it.name == n }?.config }
+    }
     val haptic = LocalHapticFeedback.current
     var prevReady by remember { mutableStateOf(false) }
 
@@ -142,24 +108,23 @@ fun HomeScreen(
         prevReady = conn.ready
     }
 
-    val pulse by animateFloatAsState(
-        targetValue = if (conn.connected) 1.02f else 1f,
-        animationSpec = tween(280),
-        label = "connPulse",
-    )
-
-    LazyColumn(
+    val homeScroll = rememberScrollState()
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding)
-            .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
-        verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
+            .padding(padding),
     ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(homeScroll)
+                .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
+            verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
+        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = stringResource(R.string.home_title),
-                    style = MaterialTheme.typography.headlineLarge,
+                    style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Text(
@@ -183,59 +148,12 @@ fun HomeScreen(
                     )
                 }
             }
-        }
 
-        item {
-            FilledTonalButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onNavigateToTab("configs")
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Dns,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    stringResource(R.string.home_primary_profiles),
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
-        }
-
-        item {
-            SectionCard(modifier = Modifier.scale(pulse)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ConnectionGlowIndicator(connected = conn.connected)
-                        Text(
-                            text = stringResource(R.string.home_status_title),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    StatusRow(label = stringResource(R.string.home_mode), value = conn.mode ?: settings.mode)
-                    StatusRow(
-                        label = stringResource(R.string.home_connected),
-                        value = if (conn.connected) stringResource(R.string.home_yes) else stringResource(R.string.home_no),
-                    )
-                    StatusRow(
-                        label = stringResource(R.string.home_ready),
-                        value = if (conn.ready) stringResource(R.string.home_yes) else stringResource(R.string.home_no),
-                    )
-
+        SectionCard {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     val err = conn.error
                     if (!err.isNullOrBlank()) {
                         Text(
@@ -270,10 +188,10 @@ fun HomeScreen(
                             },
                             enabled = !cloudLoading,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                imageVector = Icons.Outlined.Refresh,
                                 contentDescription = stringResource(R.string.home_refresh_cd),
                                 modifier = Modifier.size(18.dp),
                             )
@@ -286,14 +204,14 @@ fun HomeScreen(
                             },
                             enabled = conn.connected,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer,
                                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
                             ),
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Stop,
+                                imageVector = Icons.Outlined.Stop,
                                 contentDescription = stringResource(R.string.home_disconnect_cd),
                                 modifier = Modifier.size(18.dp),
                             )
@@ -320,12 +238,14 @@ fun HomeScreen(
                         )
                     }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     if (local.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Серверы подключения",
+                            text = stringResource(R.string.home_servers_pill_title),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                         ServerPillRow(
                             servers = local,
@@ -336,14 +256,47 @@ fun HomeScreen(
                     }
                 }
             }
+
+        TrafficRoutingCard(
+            records = metrics.records,
+            routeMode = activeCfg?.protection?.routeMode?.ifBlank { "auto" } ?: "auto",
+            profileName = activeProfile,
+            canEditRoute = activeCfg != null && !activeProfile.isNullOrBlank(),
+            onRouteMode = { mode ->
+                val name = activeProfile ?: return@TrafficRoutingCard
+                val cfg = local.firstOrNull { it.name == name }?.config ?: return@TrafficRoutingCard
+                val prot = (cfg.protection ?: ProtectionOptions()).copy(routeMode = mode)
+                vm.upsertLocalConfig(name, cfg.copy(protection = prot))
+            },
+            onOpenProtection = { onNavigateToTab("protection") },
+            onOpenCluster = { onNavigateToTab("cluster") },
+        )
+
+        FilledTonalButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onNavigateToTab("configs")
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(VolterSpacing.chipRadius),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ViewList,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                stringResource(R.string.home_primary_profiles),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
 
-        item {
-            HomeGuideCard(onNavigateToTab = onNavigateToTab)
-        }
+        HomeGuideCard(onNavigateToTab = onNavigateToTab)
 
-        item {
-            SectionCard {
+        SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = stringResource(R.string.home_summary),
@@ -356,26 +309,230 @@ fun HomeScreen(
                     InfoRow(label = stringResource(R.string.home_logs_buffer), value = logs.size.toString())
                 }
             }
-        }
 
         if (logs.isNotEmpty()) {
-            item {
-                SectionCard {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.home_recent_logs),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    logs.takeLast(5).forEach { log ->
                         Text(
-                            text = stringResource(R.string.home_recent_logs),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
+                            text = log,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        logs.takeLast(5).forEach { log ->
-                            Text(
-                                text = log,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                     }
+                }
+            }
+        }
+        }
+    }
+}
+
+@Composable
+private fun TrafficRoutingCard(
+    records: List<SessionRecord>,
+    routeMode: String,
+    profileName: String?,
+    canEditRoute: Boolean,
+    onRouteMode: (String) -> Unit,
+    onOpenProtection: () -> Unit,
+    onOpenCluster: () -> Unit,
+) {
+    val last = records.lastOrNull()
+    val scheme = MaterialTheme.colorScheme
+    SectionCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = stringResource(R.string.home_traffic_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = scheme.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.home_traffic_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.home_traffic_sessions),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                )
+                Text(
+                    text = records.size.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = scheme.primary,
+                )
+            }
+            if (last != null) {
+                StatusRow(
+                    label = stringResource(R.string.home_traffic_last_profile),
+                    value = last.configName,
+                )
+                StatusRow(
+                    label = stringResource(R.string.home_traffic_last_server),
+                    value = last.server,
+                )
+                StatusRow(
+                    label = stringResource(R.string.home_traffic_last_duration),
+                    value = formatSessionDuration(last),
+                )
+                StatusRow(
+                    label = stringResource(R.string.home_traffic_last_hs),
+                    value = if (last.handshakeOk) stringResource(R.string.home_yes) else stringResource(R.string.home_no),
+                )
+                val rx = last.rxBytes
+                val tx = last.txBytes
+                if (rx != null && tx != null) {
+                    StatusRow(
+                        label = stringResource(R.string.home_traffic_rx),
+                        value = formatTrafficBytes(rx),
+                    )
+                    StatusRow(
+                        label = stringResource(R.string.home_traffic_tx),
+                        value = formatTrafficBytes(tx),
+                    )
+                } else if (rx != null) {
+                    StatusRow(
+                        label = stringResource(R.string.home_traffic_rx),
+                        value = formatTrafficBytes(rx),
+                    )
+                } else if (tx != null) {
+                    StatusRow(
+                        label = stringResource(R.string.home_traffic_tx),
+                        value = formatTrafficBytes(tx),
+                    )
+                }
+                if (!last.trafficCollectError.isNullOrBlank()) {
+                    StatusRow(
+                        label = stringResource(R.string.home_traffic_collect_err),
+                        value = last.trafficCollectError ?: "",
+                    )
+                }
+                if (last.byApp.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.home_traffic_apps),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    last.byApp.take(10).forEach { row ->
+                        StatusRow(
+                            label = row.label,
+                            value = "↓ ${formatTrafficBytes(row.rxBytes)} · ↑ ${formatTrafficBytes(row.txBytes)}",
+                        )
+                    }
+                }
+                if (last.routePrefixes.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.home_traffic_routes),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    last.routePrefixes.take(12).forEach { p ->
+                        Text(
+                            text = "· $p",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurface,
+                        )
+                    }
+                }
+                if (last.excludePrefixes.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.home_traffic_excludes),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    last.excludePrefixes.take(12).forEach { p ->
+                        Text(
+                            text = "· $p",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurface,
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    text = stringResource(R.string.home_traffic_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+            if (profileName.isNullOrBlank()) {
+                Text(
+                    text = stringResource(R.string.home_traffic_pick_profile),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.tertiary,
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Text(
+                text = stringResource(R.string.home_traffic_split_hint),
+                style = MaterialTheme.typography.labelLarge,
+                color = scheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                TrafficTargetChip(
+                    label = stringResource(R.string.home_traffic_chip_apps),
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenProtection,
+                )
+                TrafficTargetChip(
+                    label = stringResource(R.string.home_traffic_chip_sites),
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenProtection,
+                )
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                text = stringResource(R.string.home_routing_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = scheme.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.home_routing_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
+            RouteModePills(
+                routeMode = routeMode,
+                enabled = canEditRoute,
+                onSelect = onRouteMode,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(
+                    onClick = onOpenProtection,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                ) {
+                    Text(stringResource(R.string.home_routing_open_protect))
+                }
+                TextButton(
+                    onClick = onOpenCluster,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                ) {
+                    Text(stringResource(R.string.home_routing_open_cluster))
                 }
             }
         }
@@ -383,75 +540,130 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ConnectionGlowIndicator(connected: Boolean, size: Dp = 26.dp) {
-    val inf = rememberInfiniteTransition(label = "connGlow")
-    val angle by inf.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(animation = tween(3600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "connGlowAngle",
+private fun RouteModePills(
+    routeMode: String,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    val norm = routeMode.ifBlank { "auto" }
+    val relaySelected = norm == "peer_relay" || norm == "server_relay"
+    val scheme = MaterialTheme.colorScheme
+    val modes = listOf(
+        Triple("auto", stringResource(R.string.home_route_auto), norm == "auto"),
+        Triple("direct", stringResource(R.string.home_route_direct), norm == "direct"),
+        Triple("peer_relay", stringResource(R.string.home_route_relay), relaySelected),
     )
-    val base = if (connected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.onSurfaceVariant
-    val glowAlpha = if (connected) 0.95f else 0.28f
-    val ringWidth = with(LocalDensity.current) { 3.dp.toPx() }
-    Box(
-        modifier = Modifier.size(size),
-        contentAlignment = Alignment.Center,
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(VolterSpacing.glassRadius),
+        color = scheme.surface.copy(alpha = 0.38f),
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.4f)),
     ) {
-        if (connected) {
-            Box(
-                modifier = Modifier
-                    .size(size + 6.dp)
-                    .blur(8.dp)
-                    .background(Color(0xFF8B5CF6).copy(alpha = 0.35f), RoundedCornerShape(999.dp)),
-            )
-        }
-        if (connected && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            AgslRing(
-                size = size,
-                ringWidth = ringWidth,
-                angle = angle,
-                alpha = glowAlpha,
-            )
-        } else {
-            androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
-                val sweep = Brush.sweepGradient(
-                    listOf(
-                        Color(0xFF8B5CF6),
-                        Color(0xFF6D28D9),
-                        Color(0xFFEC4899),
-                        Color(0xFF8B5CF6),
-                    ),
-                    center = center,
-                )
-                rotate(angle) {
-                    drawArc(
-                        brush = if (connected) sweep else Brush.linearGradient(listOf(base, base)),
-                        startAngle = 0f,
-                        sweepAngle = 360f,
-                        useCenter = false,
-                        style = Stroke(width = ringWidth, cap = StrokeCap.Round),
-                        topLeft = Offset.Zero,
-                        size = this.size,
-                        alpha = glowAlpha,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            modes.forEach { (key, label, selected) ->
+                val interaction = remember(key) { MutableInteractionSource() }
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(VolterSpacing.chipRadius))
+                        .clickable(
+                            enabled = enabled,
+                            interactionSource = interaction,
+                            indication = null,
+                        ) { onSelect(key) },
+                    shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                    color = if (selected) {
+                        scheme.primary.copy(alpha = 0.28f)
+                    } else {
+                        Color.Transparent
+                    },
+                    border = if (selected) {
+                        BorderStroke(1.dp, scheme.primary.copy(alpha = 0.55f))
+                    } else {
+                        BorderStroke(1.dp, Color.Transparent)
+                    },
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (selected) scheme.primary else scheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 11.dp, horizontal = 4.dp),
                     )
                 }
             }
         }
-        Box(
+    }
+}
+
+@Composable
+private fun TrafficTargetChip(
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val interaction = remember(label) { MutableInteractionSource() }
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(VolterSpacing.chipRadius))
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
+        shape = RoundedCornerShape(VolterSpacing.chipRadius),
+        color = scheme.surfaceContainerHigh.copy(alpha = 0.55f),
+        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = scheme.onSurface,
+            textAlign = TextAlign.Center,
             modifier = Modifier
-                .size(size - 10.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = if (connected) Icons.Default.CheckCircle else Icons.Default.Error,
-                contentDescription = null,
-                tint = if (connected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(14.dp),
-            )
-        }
+                .fillMaxWidth()
+                .padding(vertical = 14.dp, horizontal = 8.dp),
+        )
+    }
+}
+
+private fun formatTrafficBytes(n: Long): String {
+    if (n <= 0L) return "0 B"
+    var v = n.toDouble()
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    var i = 0
+    while (v >= 1024.0 && i < units.lastIndex) {
+        v /= 1024.0
+        i++
+    }
+    return if (i == 0) {
+        "${n} ${units[i]}"
+    } else {
+        String.format(Locale.US, "%.1f %s", v, units[i])
+    }
+}
+
+private fun formatSessionDuration(r: SessionRecord): String {
+    val ns = r.durationNs ?: return "—"
+    if (ns <= 0L) return "—"
+    val sec = ns / 1_000_000_000L
+    val h = sec / 3600
+    val m = (sec % 3600) / 60
+    val s = sec % 60
+    return when {
+        h > 0 -> "${h}h ${m}m"
+        m > 0 -> "${m}m ${s}s"
+        else -> "${s}s"
     }
 }
 
@@ -462,22 +674,29 @@ private fun ServerPillRow(
     connectingName: String?,
     onSelect: (String, dev.c0redev.volter.domain.model.Config) -> Unit,
 ) {
+    val scheme = MaterialTheme.colorScheme
     val scroll = rememberScrollState()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(999.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.54f))
-            .horizontalScroll(scroll)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(VolterSpacing.barPillRadius),
+        color = scheme.surfaceContainerLow.copy(alpha = 0.78f),
+        border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.28f)),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scroll)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         servers.forEach { item ->
             val selected = item.name == activeName || item.name == connectingName
             Box(
                 modifier = Modifier
                     .size(width = 122.dp, height = 36.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(RoundedCornerShape(VolterSpacing.fullPill))
                     .background(
                         if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
                         else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
@@ -494,57 +713,7 @@ private fun ServerPillRow(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun AgslRing(size: Dp, ringWidth: Float, angle: Float, alpha: Float) {
-    val c1 = MaterialTheme.colorScheme.primary
-    val c2 = MaterialTheme.colorScheme.tertiary
-    val c3 = MaterialTheme.colorScheme.secondary
-    val shader = remember {
-        runCatching { RuntimeShader(ringShaderSrc) }.getOrNull()
-    }
-    val a1 = c1.toArgb()
-    val a2 = c2.toArgb()
-    val a3 = c3.toArgb()
-    if (shader == null) {
-        androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
-            val sweep = Brush.sweepGradient(listOf(c1, c2, c3, c1), center = center)
-            rotate(angle) {
-                drawArc(
-                    brush = sweep,
-                    startAngle = 0f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    style = Stroke(width = ringWidth, cap = StrokeCap.Round),
-                    topLeft = Offset.Zero,
-                    size = this.size,
-                    alpha = alpha,
-                )
-            }
         }
-        return
-    }
-    androidx.compose.foundation.Canvas(modifier = Modifier.size(size)) {
-        shader.setFloatUniform("resolution", this.size.width, this.size.height)
-        shader.setFloatUniform("time", angle / 57.2958f)
-        shader.setFloatUniform("colorA", ((a1 shr 16) and 0xFF) / 255f, ((a1 shr 8) and 0xFF) / 255f, (a1 and 0xFF) / 255f, 1f)
-        shader.setFloatUniform("colorB", ((a2 shr 16) and 0xFF) / 255f, ((a2 shr 8) and 0xFF) / 255f, (a2 and 0xFF) / 255f, 1f)
-        shader.setFloatUniform("colorC", ((a3 shr 16) and 0xFF) / 255f, ((a3 shr 8) and 0xFF) / 255f, (a3 and 0xFF) / 255f, 1f)
-        val p = Paint().apply {
-            isAntiAlias = true
-            style = Paint.Style.STROKE
-            strokeWidth = ringWidth
-            strokeCap = Paint.Cap.ROUND
-            this.alpha = (alpha * 255f).toInt().coerceIn(0, 255)
-            this.shader = shader
-        }
-        val native = drawContext.canvas.nativeCanvas
-        native.save()
-        native.rotate(angle, center.x, center.y)
-        native.drawCircle(center.x, center.y, (this.size.minDimension * 0.5f) - (ringWidth * 0.5f), p)
-        native.restore()
     }
 }
 
@@ -596,21 +765,21 @@ private fun HomeGuideCard(onNavigateToTab: (String) -> Unit) {
             hint = stringResource(R.string.home_guide_configs_hint),
             steps = stringArrayResource(R.array.guide_configs_steps).toList(),
             route = "configs",
-            icon = Icons.Outlined.Dns,
+            icon = Icons.AutoMirrored.Outlined.ViewList,
         ),
         GuideEntry(
             title = stringResource(R.string.nav_protection),
             hint = stringResource(R.string.home_guide_protection_hint),
             steps = stringArrayResource(R.array.guide_protection_steps).toList(),
             route = "protection",
-            icon = Icons.Outlined.Security,
+            icon = Icons.Outlined.VerifiedUser,
         ),
         GuideEntry(
             title = stringResource(R.string.nav_logs),
             hint = stringResource(R.string.home_guide_logs_hint),
             steps = stringArrayResource(R.array.guide_logs_steps).toList(),
             route = "logs",
-            icon = Icons.AutoMirrored.Outlined.ReceiptLong,
+            icon = Icons.AutoMirrored.Outlined.Article,
         ),
         GuideEntry(
             title = stringResource(R.string.nav_settings),
@@ -670,7 +839,7 @@ private fun HomeGuideCard(onNavigateToTab: (String) -> Unit) {
                             )
                         }
                         Icon(
-                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -696,7 +865,7 @@ private fun HomeGuideCard(onNavigateToTab: (String) -> Unit) {
                                     onNavigateToTab(e.route)
                                     openRoute = null
                                 },
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(VolterSpacing.controlRadius),
                             ) {
                                 Text(stringResource(R.string.home_guide_open))
                             }

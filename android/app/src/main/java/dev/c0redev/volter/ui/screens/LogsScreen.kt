@@ -9,11 +9,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,9 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.annotation.StringRes
 import dev.c0redev.volter.R
+import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.clientlog.parseLogLine
 import dev.c0redev.volter.clientlog.tagColor
-import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
 
@@ -93,7 +94,7 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
     ) {
         Text(
             text = stringResource(R.string.logs_title),
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground,
         )
         OutlinedTextField(
@@ -127,6 +128,7 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     selected = tagFilter == chip.key,
                     onClick = { tagFilter = chip.key },
                     label = { Text(stringResource(chip.labelRes)) },
+                    shape = RoundedCornerShape(VolterSpacing.chipRadius),
                 )
             }
         }
@@ -143,7 +145,7 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                 },
                 enabled = filtered.isNotEmpty(),
             ) {
-                Icon(Icons.Default.ContentCopy, contentDescription = stringResource(R.string.logs_copy_all))
+                Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.logs_copy_all))
             }
         }
 
