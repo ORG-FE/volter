@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,9 +19,8 @@ const stunMagicCookie = 0x2112A442
 
 var (
 	DefaultSTUNServers = []string{
+		"stun.rtc.yandex.net:3478",
 		"stun.l.google.com:19302",
-		"stun.cloudflare.com:3478",
-		"stun.stunprotocol.org:3478",
 	}
 )
 
@@ -40,7 +41,10 @@ func GatherSrflx(ctx context.Context, servers []string) (*SrflxResult, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		r, err := gatherOne(ctx, hostPort)
+		r, err := gatherOneUDP(ctx, hostPort)
+		if err != nil {
+			r, err = gatherOneTCP(ctx, hostPort)
+		}
 		if err == nil {
 			r.Kind = CandidateSrflx
 			return r, nil
@@ -65,7 +69,12 @@ func GatherSrflxOnUDP(ctx context.Context, uc *net.UDPConn, servers []string) (*
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		r, err := gatherOneOnUDP(ctx, uc, hostPort)
+		network, clean := stunServerSpec(hostPort)
+		if network == "tcp" {
+			lastErr = errors.New("ice: tcp-only stun is unsupported for shared udp socket")
+			continue
+		}
+		r, err := gatherOneOnUDP(ctx, uc, clean)
 		if err == nil {
 			r.Kind = CandidateSrflx
 			return r, nil
@@ -78,8 +87,12 @@ func GatherSrflxOnUDP(ctx context.Context, uc *net.UDPConn, servers []string) (*
 	return nil, lastErr
 }
 
-func gatherOne(ctx context.Context, hostPort string) (*SrflxResult, error) {
-	addr, err := net.ResolveUDPAddr("udp", hostPort)
+func gatherOneUDP(ctx context.Context, hostPort string) (*SrflxResult, error) {
+	network, clean := stunServerSpec(hostPort)
+	if network == "tcp" {
+		return gatherOneTCP(ctx, clean)
+	}
+	addr, err := net.ResolveUDPAddr("udp", clean)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +145,63 @@ func gatherOne(ctx context.Context, hostPort string) (*SrflxResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SrflxResult{IP: ip, Port: port, RTT: rtt, Server: hostPort}, nil
+	return &SrflxResult{IP: ip, Port: port, RTT: rtt, Server: clean + "/udp"}, nil
+}
+
+func gatherOneTCP(ctx context.Context, hostPort string) (*SrflxResult, error) {
+	_, clean := stunServerSpec(hostPort)
+	d := net.Dialer{}
+	if p := sockprotect.Protect; p != nil {
+		d.Control = func(network, address string, c syscall.RawConn) error {
+			var ctrlErr error
+			if err := c.Control(func(fd uintptr) {
+				ctrlErr = p(fd)
+			}); err != nil {
+				return err
+			}
+			return ctrlErr
+		}
+	}
+	conn, err := d.DialContext(ctx, "tcp", clean)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	var txID [12]byte
+	if _, err := rand.Read(txID[:]); err != nil {
+		return nil, err
+	}
+	req := buildBindingRequest(txID)
+	deadline, hasDL := ctx.Deadline()
+	if !hasDL {
+		deadline = time.Now().Add(5 * time.Second)
+	}
+	_ = conn.SetDeadline(deadline)
+
+	t0 := time.Now()
+	if _, err := conn.Write(req); err != nil {
+		return nil, err
+	}
+	hdr := make([]byte, 20)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return nil, err
+	}
+	ln := int(binary.BigEndian.Uint16(hdr[2:4]))
+	if ln < 0 || ln > 64*1024 {
+		return nil, errors.New("stun tcp: bad len")
+	}
+	body := make([]byte, ln)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return nil, err
+	}
+	pkt := append(hdr, body...)
+	rtt := time.Since(t0)
+	ip, port, err := parseBindingResponse(pkt, txID)
+	if err != nil {
+		return nil, err
+	}
+	return &SrflxResult{IP: ip, Port: port, RTT: rtt, Server: clean + "/tcp"}, nil
 }
 
 func gatherOneOnUDP(ctx context.Context, uc *net.UDPConn, hostPort string) (*SrflxResult, error) {
@@ -172,6 +241,18 @@ func gatherOneOnUDP(ctx context.Context, uc *net.UDPConn, hostPort string) (*Srf
 		}
 		return &SrflxResult{IP: ip, Port: port, RTT: rtt, Server: hostPort}, nil
 	}
+}
+
+func stunServerSpec(hostPort string) (network string, addr string) {
+	s := strings.TrimSpace(hostPort)
+	network = "udp"
+	if strings.HasPrefix(s, "udp://") {
+		return "udp", strings.TrimPrefix(s, "udp://")
+	}
+	if strings.HasPrefix(s, "tcp://") {
+		return "tcp", strings.TrimPrefix(s, "tcp://")
+	}
+	return network, s
 }
 
 func buildBindingRequest(txID [12]byte) []byte {

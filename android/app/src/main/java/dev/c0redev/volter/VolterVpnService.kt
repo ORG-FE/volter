@@ -22,6 +22,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -272,6 +273,17 @@ class VolterVpnService : VpnService() {
             builder.excludeRoute(IpPrefix(ip, pfx))
         }
 
+        // bypass mesh infra hosts as well, if protect fails on some devices this still keeps control plane reachable
+        val relayHosts = collectRelayBypassHosts(cfg)
+        for (h in relayHosts) {
+            runCatching { resolveHostIPsPreferV4(h) }
+                .getOrDefault(emptyList())
+                .forEach { ip ->
+                    val pfx = if (ip is Inet4Address) 32 else 128
+                    builder.excludeRoute(IpPrefix(ip, pfx))
+                }
+        }
+
         val quicUsed = isQuicUsed(cfg.transport, cfg.quicServer)
         if (quicUsed) {
             val quicServer = cfg.quicServer ?: ""
@@ -371,6 +383,43 @@ class VolterVpnService : VpnService() {
         val all = InetAddress.getAllByName(host).toList()
         val v4 = all.filterIsInstance<Inet4Address>()
         return if (v4.isNotEmpty()) v4 else all
+    }
+
+    private fun collectRelayBypassHosts(cfg: Config): Set<String> {
+        val out = linkedSetOf<String>()
+        val relay = cfg.relay ?: return out
+        relay.dhtRpcSeedPeers.orEmpty().forEach { hp ->
+            parseHostPort(hp)?.first?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
+        }
+        relay.stunServers.orEmpty().forEach { spec ->
+            parseStunHost(spec)?.let(out::add)
+        }
+        relay.turnUrls.orEmpty().forEach { spec ->
+            parseUrlHost(spec)?.let(out::add)
+        }
+        relay.discoveryURL?.let { parseUrlHost(it)?.let(out::add) }
+        relay.dhtFindUrls.orEmpty().forEach { u -> parseUrlHost(u)?.let(out::add) }
+        relay.gossipPeers.orEmpty().forEach { u -> parseUrlHost(u)?.let(out::add) }
+        return out
+    }
+
+    private fun parseStunHost(spec: String): String? {
+        val s = spec.trim()
+        if (s.isEmpty()) return null
+        val clean = s.removePrefix("udp://").removePrefix("tcp://")
+        return parseHostPort(clean)?.first?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun parseUrlHost(raw: String): String? {
+        val s = raw.trim()
+        if (s.isEmpty()) return null
+        return runCatching {
+            val normalized = when {
+                s.contains("://") -> s
+                else -> "http://$s"
+            }
+            URI(normalized).host?.trim()?.takeIf { it.isNotEmpty() }
+        }.getOrNull()
     }
 
     private fun broadcastSession(handle: Long, mode: String) {

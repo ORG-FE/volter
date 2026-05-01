@@ -52,7 +52,7 @@ object VolterMeshDefaults {
             dhtFindUrls = dhtFindUrls,
             dhtPublishSrflx = true,
             symmetricNatHolePunch = true,
-            stunServers = listOf("stun4.l.google.com:19302", "stun.sipnet.net:3478"),
+            stunServers = listOf("stun.rtc.yandex.net:3478", "stun.l.google.com:19302"),
         )
     }
 }

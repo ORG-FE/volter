@@ -87,6 +87,9 @@ func runDhtRpcProbe(ctx context.Context, relay *config.RelayOptions) {
 	}
 	seen := make(map[string]struct{})
 	addrs := append([]string(nil), seeds...)
+	okCount := 0
+	lastErrAddr := ""
+	var lastErr error
 	for _, n := range tab.Nearest(64) {
 		if a := strings.TrimSpace(n.DhtRPC); a != "" {
 			addrs = append(addrs, a)
@@ -106,9 +109,11 @@ func runDhtRpcProbe(ctx context.Context, relay *config.RelayOptions) {
 		raw, err := dht.UDPFindNode(sub, addr, secret, target, findK)
 		cancel()
 		if err != nil {
-			clientlog.Warn("vpn: dht rpc %s: %v", addr, err)
+			lastErrAddr = addr
+			lastErr = err
 			continue
 		}
+		okCount++
 		gctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		view := applyRelayProductFilters(gctx, raw, relay)
 		cancel()
@@ -116,5 +121,8 @@ func runDhtRpcProbe(ctx context.Context, relay *config.RelayOptions) {
 		if dig, err := discovery.RelayIndexDigest(view); err == nil {
 			telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("dht rpc digest=%s nodes=%d", dig, len(view)))
 		}
+	}
+	if okCount == 0 && lastErr != nil {
+		clientlog.Warn("vpn: dht rpc all seeds failed, last %s: %v", lastErrAddr, lastErr)
 	}
 }
