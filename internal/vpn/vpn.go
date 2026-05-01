@@ -152,16 +152,19 @@ func Run(ctx context.Context, opt Options) error {
 	if opt.Relay != nil && (len(opt.Relay.GossipPeers) > 0 || len(opt.Relay.DHTFindURLs) > 0) {
 		go runGossipMesh(ctx, opt.Relay)
 	}
-	if opt.Relay != nil && strings.TrimSpace(opt.Relay.PeerID) != "" && len(opt.Relay.DhtRpcSeedPeers) > 0 {
+	if opt.Relay != nil && strings.TrimSpace(opt.Relay.PeerID) != "" &&
+		(len(dhtRPCSeeds(opt.Relay)) > 0 || opt.Relay.PeerPathFromDiscovery || opt.Relay.GossipEnabled || len(opt.Relay.GossipPeers) > 0) {
 		go runStoreForwardControlPlane(ctx, opt.Relay)
 	}
-	if opt.Relay != nil && (strings.TrimSpace(opt.Relay.DhtRpcListenUDP) != "" || len(opt.Relay.DhtRpcSeedPeers) > 0) {
+	if opt.Relay != nil && (strings.TrimSpace(opt.Relay.DhtRpcListenUDP) != "" ||
+		len(dhtRPCSeeds(opt.Relay)) > 0 || opt.Relay.PeerPathFromDiscovery || opt.Relay.GossipEnabled || len(opt.Relay.GossipPeers) > 0) {
 		go runDhtRpcSidecar(ctx, opt.Relay)
 	}
 	if opt.Relay != nil && strings.TrimSpace(opt.Relay.PeerRelayUDPListen) != "" {
 		go runPeerRelayUDP(ctx, opt.Token, opt.Relay)
 	}
-	if opt.PathManager != nil && opt.Relay != nil && opt.Relay.PeerRelayUseUDP && len(opt.Relay.DhtRpcSeedPeers) > 0 {
+	if opt.PathManager != nil && opt.Relay != nil && opt.Relay.PeerRelayUseUDP &&
+		(len(dhtRPCSeeds(opt.Relay)) > 0 || opt.Relay.PeerPathFromDiscovery || opt.Relay.GossipEnabled) {
 		relay := opt.Relay
 		opt.PathManager.SetPeerUDPEndpointsResolver(func(peerID string) []string {
 			sub, cancel := context.WithTimeout(ctx, 7*time.Second)
@@ -170,7 +173,7 @@ func Run(ctx context.Context, opt Options) error {
 		})
 	}
 	if opt.Relay != nil && opt.Relay.SymmetricNatHolePunch && strings.TrimSpace(opt.Relay.PeerID) != "" &&
-		len(opt.Relay.DhtRpcSeedPeers) > 0 {
+		(len(dhtRPCSeeds(opt.Relay)) > 0 || opt.Relay.PeerPathFromDiscovery || opt.Relay.GossipEnabled) {
 		go runSymmetricNatHolePunch(ctx, opt.Relay)
 	}
 

@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"syscall"
 	"time"
+
+	"dev.c0redev.volter/internal/sockprotect"
 )
 
 const stunMagicCookie = 0x2112A442
@@ -81,6 +84,17 @@ func gatherOne(ctx context.Context, hostPort string) (*SrflxResult, error) {
 		return nil, err
 	}
 	d := net.Dialer{}
+	if p := sockprotect.Protect; p != nil {
+		d.Control = func(network, address string, c syscall.RawConn) error {
+			var ctrlErr error
+			if err := c.Control(func(fd uintptr) {
+				ctrlErr = p(fd)
+			}); err != nil {
+				return err
+			}
+			return ctrlErr
+		}
+	}
 	conn, err := d.DialContext(ctx, "udp", addr.String())
 	if err != nil {
 		return nil, err

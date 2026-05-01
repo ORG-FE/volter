@@ -23,6 +23,9 @@ quicKeyPath=quic/auto.key
 # relayIndexFile=...   # если нужен статический JSON с диска
 # relayIndexPath=/volter/relay-index.json
 # dhtFindPath=/volter/dht/find
+# dhtRpcListenUdp=0.0.0.0:25565
+# dhtRpcSecret=   # optional, default = token
+# Для p2p ICE mesh: у узлов в relayIndex/gossip должен быть dhtRpc=host:port этого UDP listener.
 # gossipIndexPath=/volter/gossip-nodes.json
 
 # Peer relay / QUIC retry (см. Config.java)

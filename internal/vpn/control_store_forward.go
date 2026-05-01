@@ -45,7 +45,7 @@ func StoreForwardStats() storeForwardStats {
 }
 
 func runStoreForwardControlPlane(ctx context.Context, relay *config.RelayOptions) {
-	if relay == nil || strings.TrimSpace(relay.PeerID) == "" || len(relay.DhtRpcSeedPeers) == 0 {
+	if relay == nil || strings.TrimSpace(relay.PeerID) == "" {
 		return
 	}
 	q := &controlPlaneQueue{seen: make(map[string]int64)}
@@ -101,7 +101,7 @@ func flushControlQueue(ctx context.Context, relay *config.RelayOptions, q *contr
 		}
 		key := sha256.Sum256([]byte("cp:" + strings.TrimSpace(relay.PeerID) + ":" + m.ID))
 		headKey := sha256.Sum256([]byte("cp:" + strings.TrimSpace(relay.PeerID)))
-		for _, seed := range relay.DhtRpcSeedPeers {
+		for _, seed := range dhtRPCSeeds(relay) {
 			seed = strings.TrimSpace(seed)
 			if seed == "" {
 				continue
@@ -127,7 +127,7 @@ func pullControlInbox(ctx context.Context, relay *config.RelayOptions, q *contro
 			continue
 		}
 		key := sha256.Sum256([]byte("cp:" + peerID))
-		for _, seed := range relay.DhtRpcSeedPeers {
+		for _, seed := range dhtRPCSeeds(relay) {
 			seed = strings.TrimSpace(seed)
 			if seed == "" {
 				continue

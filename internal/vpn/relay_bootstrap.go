@@ -72,52 +72,43 @@ func runRelayBootstrapVerify(ctx context.Context, relay *config.RelayOptions) {
 		return inline, nil
 	}
 
-	raw0, err := fetchRaw()
-	if err != nil {
-		clientlog.Warn("vpn: relay bootstrap: %v", err)
-		return
-	}
-	dig0, err := applyRaw(raw0)
-	if err != nil {
-		clientlog.Warn("vpn: relay bootstrap verify: %v", err)
-		return
-	}
-	if dig0 != lastDig {
-		lastDig = dig0
-		gctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-		nv := applyRelayProductFilters(gctx, cur.Nodes, relay)
-		cancel()
-		clientlog.OK("vpn: relay index nodes=%d digest=%s", len(nv), dig0)
-		telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("bootstrap digest=%s nodes=%d", dig0, len(nv)))
+	runOnce := func() {
+		raw, err := fetchRaw()
+		if err != nil {
+			clientlog.Warn("vpn: relay bootstrap: %v", err)
+			return
+		}
+		dig, err := applyRaw(raw)
+		if err != nil {
+			clientlog.Warn("vpn: relay bootstrap verify: %v", err)
+			return
+		}
+		if dig != lastDig {
+			lastDig = dig
+			gctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+			nv := applyRelayProductFilters(gctx, cur.Nodes, relay)
+			cancel()
+			clientlog.OK("vpn: relay index nodes=%d digest=%s", len(nv), dig)
+			telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("bootstrap digest=%s nodes=%d", dig, len(nv)))
+		}
 	}
 
+	runOnce()
+
+	quickRetry := time.NewTicker(12 * time.Second)
+	defer quickRetry.Stop()
 	tick := time.NewTicker(15 * time.Minute)
 	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-tick.C:
-			if url != "" {
-				fetchCtx, cancel := context.WithTimeout(ctx, 50*time.Second)
-				b, err := discovery.FetchBootstrapBody(fetchCtx, url)
-				cancel()
-				if err != nil {
-					clientlog.Warn("vpn: relay bootstrap refresh fetch: %v", err)
-				} else {
-					dig, err := applyRaw(string(b))
-					if err != nil {
-						clientlog.Warn("vpn: relay bootstrap refresh verify: %v", err)
-					} else if dig != lastDig {
-						lastDig = dig
-						gctx, cancel := context.WithTimeout(ctx, 90*time.Second)
-						nv := applyRelayProductFilters(gctx, cur.Nodes, relay)
-						cancel()
-						clientlog.Info("vpn: relay index updated nodes=%d digest=%s", len(nv), dig)
-						telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("refresh digest=%s nodes=%d", dig, len(nv)))
-					}
-				}
+		case <-quickRetry.C:
+			if !loaded {
+				runOnce()
 			}
+		case <-tick.C:
+			runOnce()
 			if !loaded {
 				continue
 			}

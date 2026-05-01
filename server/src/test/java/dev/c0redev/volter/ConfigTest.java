@@ -31,6 +31,8 @@ class ConfigTest {
     assertEquals("", c.gossipIndexFile());
     assertEquals("/volter/gossip-nodes.json", c.gossipIndexPath());
     assertEquals("/volter/dht/find", c.dhtFindPath());
+    assertEquals("", c.dhtRpcListenUdp());
+    assertEquals("test-token", c.dhtRpcSecret());
   }
 
   @Test

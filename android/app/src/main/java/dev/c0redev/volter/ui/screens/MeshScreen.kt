@@ -28,6 +28,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -48,12 +49,16 @@ import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 import dev.c0redev.volter.ui.mesh.MeshRelayEditor
 import dev.c0redev.volter.ui.qr.buildQrBitmap
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 @Composable
 fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     val local by vm.localConfigs.collectAsState()
     var selected by remember { mutableStateOf(local.firstOrNull()?.name.orEmpty()) }
     LaunchedEffect(local.map { it.name }) {
@@ -141,14 +146,18 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             }
             FilledTonalButton(
                 onClick = {
-                    val cfgJson = item.config.copy(relay = draft).toJson().toString()
-                    val r = CoreBridge.relaySelfTest(cfgJson, 10_000)
-                    val warn = if (r.warnings.isEmpty()) "-" else r.warnings.joinToString("; ")
-                    val err = r.error ?: "-"
-                    selfTest =
-                        "ok=${r.ok} serverReachable=${r.serverReachable} mode=${r.serverMode.ifBlank { "-" }} " +
-                            "serverRelay=${r.serverRelay} peerRelayReady=${r.peerRelayReady} stunOk=${r.stunOk} " +
-                            "srflx=${r.stunSrflx.ifBlank { "-" }} warnings=$warn error=$err"
+                    selfTest = "Running self-test..."
+                    scope.launch(Dispatchers.IO) {
+                        val cfgJson = item.config.copy(relay = draft).toJson().toString()
+                        val r = CoreBridge.relaySelfTest(cfgJson, 10_000)
+                        val warn = if (r.warnings.isEmpty()) "-" else r.warnings.joinToString("; ")
+                        val err = r.error ?: "-"
+                        val msg =
+                            "ok=${r.ok} serverReachable=${r.serverReachable} mode=${r.serverMode.ifBlank { "-" }} " +
+                                "serverRelay=${r.serverRelay} peerRelayReady=${r.peerRelayReady} stunOk=${r.stunOk} " +
+                                "srflx=${r.stunSrflx.ifBlank { "-" }} warnings=$warn error=$err"
+                        withContext(Dispatchers.Main) { selfTest = msg }
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()

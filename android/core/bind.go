@@ -558,6 +558,8 @@ func RelaySelfTest(cfgJSON string, timeoutMs int) string {
 	if err != nil || len(addrs) == 0 {
 		return jsonString(relaySelfTestResult{OK: false, Error: "bad server addr"})
 	}
+	uninstallProtect := installSocketProtect()
+	defer uninstallProtect()
 	serverAddr := addrs[0]
 	ok, _, caps, probeErr := probe.ProbeVolterWithCaps(serverAddr, cfg.Token, time.Duration(timeoutMs)*time.Millisecond)
 	out := relaySelfTestResult{

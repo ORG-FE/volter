@@ -52,6 +52,8 @@ final class Config {
   private final String gossipIndexFile;
   private final String gossipIndexPath;
   private final String dhtFindPath;
+  private final String dhtRpcListenUdp;
+  private final String dhtRpcSecret;
   private final String clusterNodeId;
   private final int clusterListen;
   private final List<String> clusterPeers;
@@ -71,7 +73,7 @@ final class Config {
                  boolean camouflageTcpEnabled, String camouflageTcpProxyHost, int camouflageTcpProxyPort, String camouflageHttpServerName,
                  boolean peerRelayEnabled, boolean quicRetryTokens, int relayMaxPerRemote, int relayMaxTotal, int relayMaxBudgetKbps,
                  String relayIndexFile, String relayIndexPath, String opsHintsPath,
-                 String gossipIndexFile, String gossipIndexPath, String dhtFindPath,
+                 String gossipIndexFile, String gossipIndexPath, String dhtFindPath, String dhtRpcListenUdp, String dhtRpcSecret,
                  String clusterNodeId, int clusterListen, List<String> clusterPeers, int clusterGossipIntervalMs, String clusterMapPath,
                  String clusterSessionsPath, String clusterClientsPath, boolean clusterHttpAuth, String clusterHttpSecret) {
     this.listenPorts = listenPorts;
@@ -111,6 +113,8 @@ final class Config {
     this.gossipIndexFile = gossipIndexFile != null ? gossipIndexFile.trim() : "";
     this.gossipIndexPath = gossipIndexPath != null && !gossipIndexPath.isBlank() ? gossipIndexPath.trim() : "/volter/gossip-nodes.json";
     this.dhtFindPath = dhtFindPath != null && !dhtFindPath.isBlank() ? dhtFindPath.trim() : "/volter/dht/find";
+    this.dhtRpcListenUdp = dhtRpcListenUdp != null ? dhtRpcListenUdp.trim() : "";
+    this.dhtRpcSecret = dhtRpcSecret != null ? dhtRpcSecret.trim() : "";
     this.clusterNodeId = clusterNodeId != null && !clusterNodeId.isBlank() ? clusterNodeId.trim() : "node-0";
     this.clusterListen = clusterListen;
     this.clusterPeers = clusterPeers != null ? clusterPeers : List.of();
@@ -180,6 +184,17 @@ final class Config {
 
   String dhtFindPath() {
     return dhtFindPath;
+  }
+
+  String dhtRpcListenUdp() {
+    return dhtRpcListenUdp;
+  }
+
+  String dhtRpcSecret() {
+    if (dhtRpcSecret != null && !dhtRpcSecret.isBlank()) {
+      return dhtRpcSecret;
+    }
+    return token != null ? token : "";
   }
 
   String clusterNodeId() {
@@ -325,6 +340,8 @@ final class Config {
     if (dhtFindPath.isEmpty()) {
       dhtFindPath = "/volter/dht/find";
     }
+    String dhtRpcListenUdp = p.getProperty("dhtRpcListenUdp", "").trim();
+    String dhtRpcSecret = p.getProperty("dhtRpcSecret", "").trim();
     String clusterNodeId = p.getProperty("cluster.nodeId", "node-0").trim();
     int clusterListen = parseInt(p.getProperty("cluster.listen"), 0);
     List<String> clusterPeers = parseCsvStrings(p.getProperty("cluster.peers"));
@@ -361,6 +378,8 @@ final class Config {
         gossipIndexFile,
         gossipIndexPath,
         dhtFindPath,
+        dhtRpcListenUdp,
+        dhtRpcSecret,
         clusterNodeId,
         clusterListen,
         clusterPeers,

@@ -51,11 +51,13 @@ final class ClusterRuntime {
     Config c = cfg;
     if (c == null) return;
     String endpoint = "";
+    String dhtRpc = "";
     if (!c.listenPorts().isEmpty()) {
       String host = resolveSelfHost(c);
       endpoint = "http://" + host.trim() + ":" + c.listenPorts().get(0) + c.clusterMapPath();
+      dhtRpc = selfDhtRpc(host, c.dhtRpcListenUdp());
     }
-    nodes.put(c.clusterNodeId(), new ClusterNode(c.clusterNodeId(), endpoint, System.currentTimeMillis(), true));
+    nodes.put(c.clusterNodeId(), new ClusterNode(c.clusterNodeId(), endpoint, dhtRpc, System.currentTimeMillis(), true));
   }
 
   private String resolveSelfHost(Config c) {
@@ -102,6 +104,9 @@ final class ClusterRuntime {
       sb.append("{\"id\":\"").append(json(n.nodeId)).append("\",");
       sb.append("\"region\":\"").append(json(regionFromNodeId(n.nodeId))).append("\",");
       sb.append("\"endpoint\":\"").append(json(n.endpoint)).append("\",");
+      if (n.dhtRpc != null && !n.dhtRpc.isBlank()) {
+        sb.append("\"dhtRpc\":\"").append(json(n.dhtRpc)).append("\",");
+      }
       sb.append("\"ts\":").append(n.lastSeenMs).append(",");
       sb.append("\"alive\":").append(n.alive).append("}");
     }
@@ -223,7 +228,7 @@ final class ClusterRuntime {
     for (Map.Entry<String, ClusterNode> e : nodes.entrySet()) {
       if (!e.getValue().endpoint.equals(endpoint)) continue;
       ClusterNode n = e.getValue();
-      nodes.put(e.getKey(), new ClusterNode(n.nodeId, n.endpoint, System.currentTimeMillis(), false));
+      nodes.put(e.getKey(), new ClusterNode(n.nodeId, n.endpoint, n.dhtRpc, System.currentTimeMillis(), false));
     }
   }
 
@@ -301,9 +306,10 @@ final class ClusterRuntime {
     for (Map<String, String> row : parsed) {
       String id = row.getOrDefault("id", "").trim();
       String endpoint = row.getOrDefault("endpoint", "").trim();
+      String dhtRpc = row.getOrDefault("dhtRpc", "").trim();
       if (id.isEmpty()) continue;
       if (endpoint.isEmpty()) endpoint = "";
-      nodes.put(id, new ClusterNode(id, endpoint, now, true));
+      nodes.put(id, new ClusterNode(id, endpoint, dhtRpc, now, true));
       merged++;
     }
     return merged;
@@ -327,8 +333,10 @@ final class ClusterRuntime {
       Map<String, String> m = new LinkedHashMap<>();
       String id = jsonField(c, "id");
       String endpoint = jsonField(c, "endpoint");
+      String dhtRpc = jsonField(c, "dhtRpc");
       if (id != null) m.put("id", id);
       if (endpoint != null) m.put("endpoint", endpoint);
+      if (dhtRpc != null) m.put("dhtRpc", dhtRpc);
       if (!m.isEmpty()) out.add(m);
     }
     return out;
@@ -345,6 +353,36 @@ final class ClusterRuntime {
     int q2 = json.indexOf('"', q1 + 1);
     if (q2 < 0) return null;
     return json.substring(q1 + 1, q2);
+  }
+
+  private static String selfDhtRpc(String publicHost, String listenUdp) {
+    String host = publicHost == null ? "" : publicHost.trim();
+    if (host.isBlank()) return "";
+    if (listenUdp == null || listenUdp.isBlank()) return "";
+    int port = dhtListenPort(listenUdp.trim());
+    if (port <= 0) return "";
+    return host + ":" + port;
+  }
+
+  private static int dhtListenPort(String listenUdp) {
+    if (listenUdp == null || listenUdp.isBlank()) return 0;
+    String s = listenUdp.trim();
+    try {
+      if (s.startsWith(":")) {
+        return Integer.parseInt(s.substring(1));
+      }
+      if (s.startsWith("[")) {
+        int end = s.indexOf(']');
+        if (end > 0 && end+2 <= s.length() && s.charAt(end + 1) == ':') {
+          return Integer.parseInt(s.substring(end + 2));
+        }
+      }
+      int idx = s.lastIndexOf(':');
+      if (idx > 0 && idx < s.length()-1) {
+        return Integer.parseInt(s.substring(idx + 1));
+      }
+    } catch (Exception ignored) {}
+    return 0;
   }
 
   private static String json(String s) {
@@ -366,12 +404,14 @@ final class ClusterRuntime {
   private static final class ClusterNode {
     final String nodeId;
     final String endpoint;
+    final String dhtRpc;
     final long lastSeenMs;
     final boolean alive;
 
-    ClusterNode(String nodeId, String endpoint, long lastSeenMs, boolean alive) {
+    ClusterNode(String nodeId, String endpoint, String dhtRpc, long lastSeenMs, boolean alive) {
       this.nodeId = nodeId;
       this.endpoint = endpoint;
+      this.dhtRpc = dhtRpc;
       this.lastSeenMs = lastSeenMs;
       this.alive = alive;
     }

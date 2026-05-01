@@ -78,12 +78,13 @@ func marshalPresence(primary string, extra []string) ([]byte, error) {
 }
 
 func presenceDHTStore(ctx context.Context, relay *config.RelayOptions, val []byte) {
-	if relay == nil || strings.TrimSpace(relay.PeerID) == "" || len(relay.DhtRpcSeedPeers) == 0 || len(val) == 0 {
+	seeds := dhtRPCSeeds(relay)
+	if relay == nil || strings.TrimSpace(relay.PeerID) == "" || len(seeds) == 0 || len(val) == 0 {
 		return
 	}
 	key := sha256.Sum256([]byte(strings.TrimSpace(relay.PeerID)))
 	secret := relay.DhtRpcSecret
-	for _, seed := range relay.DhtRpcSeedPeers {
+	for _, seed := range seeds {
 		seed = strings.TrimSpace(seed)
 		if seed == "" {
 			continue
@@ -109,8 +110,9 @@ func publishMergedPresenceCandidates(ctx context.Context, relay *config.RelayOpt
 }
 
 func publishSrflxToDHT(ctx context.Context, relay *config.RelayOptions, hostPort string) {
+	seeds := dhtRPCSeeds(relay)
 	if relay == nil || !relay.DhtPublishSrflx ||
-		len(relay.DhtRpcSeedPeers) == 0 || strings.TrimSpace(relay.PeerID) == "" ||
+		len(seeds) == 0 || strings.TrimSpace(relay.PeerID) == "" ||
 		strings.TrimSpace(hostPort) == "" {
 		return
 	}
@@ -134,12 +136,13 @@ func endpointsFromPresenceJSON(raw []byte) []string {
 }
 
 func fetchUdpEndpointsFromDHT(ctx context.Context, relay *config.RelayOptions, peerID string) []string {
-	if relay == nil || strings.TrimSpace(peerID) == "" || len(relay.DhtRpcSeedPeers) == 0 {
+	seeds := dhtRPCSeeds(relay)
+	if relay == nil || strings.TrimSpace(peerID) == "" || len(seeds) == 0 {
 		return nil
 	}
 	key := sha256.Sum256([]byte(strings.TrimSpace(peerID)))
 	secret := relay.DhtRpcSecret
-	for _, seed := range relay.DhtRpcSeedPeers {
+	for _, seed := range seeds {
 		seed = strings.TrimSpace(seed)
 		if seed == "" {
 			continue
@@ -175,7 +178,7 @@ func punchBurst(uc *net.UDPConn, hostPort string) {
 }
 
 func runSymmetricNatHolePunch(ctx context.Context, relay *config.RelayOptions) {
-	if relay == nil || !relay.SymmetricNatHolePunch || len(relay.DhtRpcSeedPeers) == 0 ||
+	if relay == nil || !relay.SymmetricNatHolePunch || len(dhtRPCSeeds(relay)) == 0 ||
 		strings.TrimSpace(relay.PeerID) == "" {
 		return
 	}
