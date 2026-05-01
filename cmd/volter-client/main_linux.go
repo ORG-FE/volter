@@ -211,6 +211,7 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 		return err
 	}
 	bypassIPs := []net.IP{opts.serverIP}
+	bypassIPs = append(bypassIPs, resolveBypassHosts(relayBypassHosts(opts.relay))...)
 	if tunnel.UsesQUICTransport(opts.transport, opts.quicServer) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		extra, err := tunnel.QUICDialTargetIPs(ctx, addrs, opts.quicServer)

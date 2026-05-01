@@ -227,6 +227,7 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 		routeCIDRs:        routeCIDRs,
 		excludeCIDRs:      excludeCIDRs,
 		protection:        config.MergeProbeObfsIntoProtection(prot, probeCaps),
+		relay:             cfg.Relay,
 		proxy:             settings.Mode == "proxy",
 		proxyListen:       settings.ProxyListen,
 		systemProxy:       settings.SystemProxy,
