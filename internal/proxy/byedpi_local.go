@@ -8,10 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
@@ -115,9 +113,7 @@ func StartByedpiLocalSocks(ctx context.Context, presetLine string, binOverride s
 	args = appendPresetWithoutListen(args, presetLine)
 	cctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(cctx, args[0], args[1:]...)
-	if runtime.GOOS != "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	}
+	prepareByedpiCmd(cmd)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
@@ -138,25 +134,3 @@ func StartByedpiLocalSocks(ctx context.Context, presetLine string, binOverride s
 	return addr, stop, nil
 }
 
-func killProc(cmd *exec.Cmd) {
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-	pid := cmd.Process.Pid
-	if runtime.GOOS != "windows" {
-		_ = syscall.Kill(-pid, syscall.SIGTERM)
-		done := make(chan struct{})
-		go func() {
-			_ = cmd.Wait()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(400 * time.Millisecond):
-			_ = syscall.Kill(-pid, syscall.SIGKILL)
-		}
-		return
-	}
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
-}
