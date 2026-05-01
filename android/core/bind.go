@@ -19,6 +19,7 @@ import (
 	"crypto/x509"
 
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/ice"
 	"dev.c0redev.volter/internal/meshstatus"
 	"dev.c0redev.volter/internal/netcfg"
 	"dev.c0redev.volter/internal/probe"
@@ -81,6 +82,18 @@ func installSocketProtect() func() {
 type quicIPsResult struct {
 	IPs   []string `json:"ips"`
 	Error string   `json:"error,omitempty"`
+}
+
+type relaySelfTestResult struct {
+	OK              bool     `json:"ok"`
+	ServerReachable bool     `json:"serverReachable"`
+	ServerMode      string   `json:"serverMode,omitempty"`
+	ServerRelay     bool     `json:"serverRelay"`
+	PeerRelayReady  bool     `json:"peerRelayReady"`
+	StunOK          bool     `json:"stunOk"`
+	StunSrflx       string   `json:"stunSrflx,omitempty"`
+	Warnings        []string `json:"warnings,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 type session struct {
@@ -528,4 +541,75 @@ func QuicDialTargetIPs(server string, quicServer string) string {
 		out = append(out, ip.String())
 	}
 	return jsonString(quicIPsResult{IPs: out})
+}
+
+func RelaySelfTest(cfgJSON string, timeoutMs int) string {
+	if strings.TrimSpace(cfgJSON) == "" {
+		return jsonString(relaySelfTestResult{OK: false, Error: "empty cfgJSON"})
+	}
+	if timeoutMs <= 0 {
+		timeoutMs = 10_000
+	}
+	var cfg config.Config
+	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
+		return jsonString(relaySelfTestResult{OK: false, Error: err.Error()})
+	}
+	addrs, err := resolveServerAddrs(cfg.Server)
+	if err != nil || len(addrs) == 0 {
+		return jsonString(relaySelfTestResult{OK: false, Error: "bad server addr"})
+	}
+	serverAddr := addrs[0]
+	ok, _, caps, probeErr := probe.ProbeVolterWithCaps(serverAddr, cfg.Token, time.Duration(timeoutMs)*time.Millisecond)
+	out := relaySelfTestResult{
+		ServerReachable: ok,
+		ServerMode:      probe.ServerModeFromCaps(caps),
+	}
+	if caps != nil {
+		out.ServerRelay = (caps.FeatureBits & protocol.FeatureRelayServer) != 0
+	}
+	if probeErr != nil {
+		out.Warnings = append(out.Warnings, "probe: "+probeErr.Error())
+	}
+	relay := cfg.Relay
+	if relay == nil {
+		out.Warnings = append(out.Warnings, "relay config missing")
+		out.OK = out.ServerReachable
+		return jsonString(out)
+	}
+	if strings.TrimSpace(relay.PeerID) == "" {
+		out.Warnings = append(out.Warnings, "relay.peerId empty")
+	}
+	if len(relay.DhtRpcSeedPeers) == 0 {
+		out.Warnings = append(out.Warnings, "relay.dhtRpcSeedPeers empty")
+	}
+	if !relay.PeerPathFromDiscovery {
+		out.Warnings = append(out.Warnings, "relay.peerPathFromDiscovery=false")
+	}
+	if !relay.PeerRelayUseUDP {
+		out.Warnings = append(out.Warnings, "relay.peerRelayUseUdp=false")
+	}
+	if strings.TrimSpace(relay.PeerRelayUDPListen) == "" {
+		out.Warnings = append(out.Warnings, "relay.peerRelayUdpListen empty")
+	}
+	if len(relay.StunServers) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
+		defer cancel()
+		r, stunErr := ice.GatherSrflx(ctx, relay.StunServers)
+		if stunErr != nil {
+			out.Warnings = append(out.Warnings, "stun: "+stunErr.Error())
+		} else {
+			out.StunOK = true
+			out.StunSrflx = fmt.Sprintf("%s:%d", r.IP.String(), r.Port)
+		}
+	} else {
+		out.Warnings = append(out.Warnings, "relay.stunServers empty")
+	}
+	out.PeerRelayReady =
+		strings.TrimSpace(relay.PeerID) != "" &&
+			len(relay.DhtRpcSeedPeers) > 0 &&
+			relay.PeerPathFromDiscovery &&
+			relay.PeerRelayUseUDP &&
+			strings.TrimSpace(relay.PeerRelayUDPListen) != ""
+	out.OK = out.ServerReachable && (out.PeerRelayReady || out.ServerRelay)
+	return jsonString(out)
 }

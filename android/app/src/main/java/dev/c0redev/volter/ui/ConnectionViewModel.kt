@@ -446,7 +446,35 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             else -> { }
         }
         c = VolterMeshDefaults.applyIfEnabled(c, settings)
+        c = applyPeerTickets(c)
         return c
+    }
+
+    private fun applyPeerTickets(cfg: Config): Config {
+        val tickets = localRepo.listPeerTickets()
+            .filter { !it.isExpired() && it.verifySig() }
+        if (tickets.isEmpty()) return cfg
+
+        val relay = cfg.relay ?: dev.c0redev.volter.domain.model.RelayOptions()
+        val mergedSeeds = linkedSetOf<String>()
+        relay.dhtRpcSeedPeers?.forEach { s ->
+            val v = s.trim()
+            if (v.isNotEmpty()) mergedSeeds += v
+        }
+        for (ticket in tickets) {
+            for (addr in ticket.addrs) {
+                val v = addr.trim()
+                if (v.isEmpty()) continue
+                if (":" !in v) continue
+                mergedSeeds += v
+            }
+        }
+        val mergedRelay = relay.copy(
+            dhtRpcSeedPeers = mergedSeeds.takeIf { it.isNotEmpty() }?.toList(),
+            peerPathFromDiscovery = relay.peerPathFromDiscovery ?: true,
+            peerRelayUseUdp = relay.peerRelayUseUdp ?: true,
+        )
+        return cfg.copy(relay = mergedRelay)
     }
 
     private suspend fun checkDnsOk(): Boolean = withContext(Dispatchers.IO) {

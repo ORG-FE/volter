@@ -322,11 +322,11 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 	case "peer_relay":
 		allowPeerPath = true
 		if pm != nil {
-			decision = pm.Decide(dst, dual, quicEnabled, true)
+			decision = pm.Decide(dst, dual, quicEnabled, true, true)
 		}
 	default:
 		if pm != nil {
-			decision = pm.Decide(dst, dual, quicEnabled, allowPeerPath)
+			decision = pm.Decide(dst, dual, quicEnabled, allowPeerPath, false)
 		}
 	}
 	if decision.PreferTCP {

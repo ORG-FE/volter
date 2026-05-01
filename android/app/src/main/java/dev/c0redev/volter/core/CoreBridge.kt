@@ -37,6 +37,18 @@ object CoreBridge {
         val error: String?,
     )
 
+    data class RelaySelfTestResult(
+        val ok: Boolean,
+        val serverReachable: Boolean,
+        val serverMode: String,
+        val serverRelay: Boolean,
+        val peerRelayReady: Boolean,
+        val stunOk: Boolean,
+        val stunSrflx: String,
+        val warnings: List<String>,
+        val error: String?,
+    )
+
     fun startTun(tunFd: Int, mtu: Int, cfgJson: String, configDir: String): StartResult {
         VolterLog.i("Core.startTun fd=$tunFd mtu=$mtu cfgBytes=${cfgJson.length} configDir=$configDir")
         val raw = Core.startTun(tunFd.toLong(), mtu.toLong(), cfgJson, configDir)
@@ -131,6 +143,36 @@ object CoreBridge {
         for (i in 0 until arr.length()) out.add(arr.getString(i))
         VolterLog.i("quicDialTargetIPs -> n=${out.size} err=${err ?: "null"}")
         return QuicIPsResult(ips = out, error = err)
+    }
+
+    fun relaySelfTest(cfgJson: String, timeoutMs: Long): RelaySelfTestResult {
+        val raw = try {
+            val c = Class.forName("core.Core")
+            val m = runCatching {
+                c.getMethod("relaySelfTest", String::class.java, Long::class.javaPrimitiveType)
+            }.getOrElse {
+                c.getMethod("relaySelfTest", String::class.java, Int::class.javaPrimitiveType)
+            }
+            val arg = if (m.parameterTypes.lastOrNull() == Int::class.javaPrimitiveType) timeoutMs.toInt() else timeoutMs
+            m.invoke(null, cfgJson, arg) as String
+        } catch (e: Exception) {
+            """{"ok":false,"error":"relaySelfTest unavailable: rebuild volter-core.aar","warnings":["${e.message}"]}"""
+        }
+        val j = JSONObject(raw)
+        val warnings = ArrayList<String>()
+        val arr = j.optJSONArray("warnings") ?: JSONArray()
+        for (i in 0 until arr.length()) warnings.add(arr.optString(i, ""))
+        return RelaySelfTestResult(
+            ok = j.optBoolean("ok", false),
+            serverReachable = j.optBoolean("serverReachable", false),
+            serverMode = j.optString("serverMode", ""),
+            serverRelay = j.optBoolean("serverRelay", false),
+            peerRelayReady = j.optBoolean("peerRelayReady", false),
+            stunOk = j.optBoolean("stunOk", false),
+            stunSrflx = j.optString("stunSrflx", ""),
+            warnings = warnings.filter { it.isNotBlank() },
+            error = nullableErr(j, "error"),
+        )
     }
 
     fun meshStatus(): String {

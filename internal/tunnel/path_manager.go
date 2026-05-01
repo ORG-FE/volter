@@ -287,7 +287,7 @@ func (m *PathManager) srflxLatencyFactor() float64 {
 	return p
 }
 
-func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerPath bool) PathDecision {
+func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerPath bool, forcePeerPath bool) PathDecision {
 	if m == nil {
 		return PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
 	}
@@ -305,11 +305,13 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		if !allowPeerPath || !m.peerDial {
 			return PathDecision{}, false
 		}
-		cand := m.globalCand
-		if cand != ice.CandidateSrflx && cand != ice.CandidateRelay {
-			return PathDecision{}, false
+		if !forcePeerPath {
+			cand := m.globalCand
+			if cand != ice.CandidateSrflx && cand != ice.CandidateRelay {
+				return PathDecision{}, false
+			}
 		}
-		if st.failStreak < 1 && st.ewmaOK >= 0.42 {
+		if !forcePeerPath && st.failStreak < 1 && st.ewmaOK >= 0.42 {
 			return PathDecision{}, false
 		}
 		epSnap := m.peerUDPEndpoints

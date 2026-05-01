@@ -47,6 +47,7 @@ object VolterMeshDefaults {
             peerPathFromDiscovery = true,
             peerRelayUseQuic = true,
             peerRelayUseUdp = true,
+            peerRelayUdpListen = "0.0.0.0:0",
             dhtRpcSeedPeers = seeds,
             dhtFindUrls = dhtFindUrls,
             dhtPublishSrflx = true,

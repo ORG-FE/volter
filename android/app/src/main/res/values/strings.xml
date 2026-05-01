@@ -33,6 +33,7 @@
     <string name="mesh_peer_ticket_share_chooser">Share peer ticket</string>
     <string name="mesh_peer_ticket_image_cd">Peer ticket QR code</string>
     <string name="mesh_peer_ticket_share_button">Share peer ticket</string>
+    <string name="mesh_self_test_button">Run relay self-test</string>
     <string name="mesh_add_profile_hint">Add a local profile on Home / Profiles first.</string>
     <string name="mesh_stats_empty">No mesh stats yet</string>
     <string name="nav_logs">Logs</string>

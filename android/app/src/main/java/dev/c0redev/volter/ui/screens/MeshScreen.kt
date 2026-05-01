@@ -74,6 +74,7 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
 
     var body by remember { mutableStateOf("{}") }
     var meshSummary by remember { mutableStateOf(ctx.getString(R.string.mesh_stats_empty)) }
+    var selfTest by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         while (true) {
             val raw = CoreBridge.meshStatus()
@@ -138,6 +139,23 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             ) {
                 Text(stringResource(R.string.mesh_peer_ticket_share_button))
             }
+            FilledTonalButton(
+                onClick = {
+                    val cfgJson = item.config.copy(relay = draft).toJson().toString()
+                    val r = CoreBridge.relaySelfTest(cfgJson, 10_000)
+                    val warn = if (r.warnings.isEmpty()) "-" else r.warnings.joinToString("; ")
+                    val err = r.error ?: "-"
+                    selfTest =
+                        "ok=${r.ok} serverReachable=${r.serverReachable} mode=${r.serverMode.ifBlank { "-" }} " +
+                            "serverRelay=${r.serverRelay} peerRelayReady=${r.peerRelayReady} stunOk=${r.stunOk} " +
+                            "srflx=${r.stunSrflx.ifBlank { "-" }} warnings=$warn error=$err"
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = VolterSpacing.screenHorizontal),
+            ) {
+                Text(stringResource(R.string.mesh_self_test_button))
+            }
         } else {
             Text(
                 text = stringResource(R.string.mesh_add_profile_hint),
@@ -162,6 +180,13 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
         )
+        if (selfTest.isNotBlank()) {
+            Text(
+                text = selfTest,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.padding(horizontal = VolterSpacing.screenHorizontal, vertical = 4.dp),
+            )
+        }
     }
     if (shareTicketTarget != null) {
         val (name, cfg) = shareTicketTarget!!

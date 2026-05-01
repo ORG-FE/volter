@@ -61,6 +61,7 @@
     <string name="mesh_peer_ticket_share_chooser">Поделиться билетом пира</string>
     <string name="mesh_peer_ticket_image_cd">QR билета пира</string>
     <string name="mesh_peer_ticket_share_button">Поделиться билетом пира</string>
+    <string name="mesh_self_test_button">Тест relay и STUN</string>
     <string name="mesh_add_profile_hint">Сначала добавь локальный профиль на Главной / в Профилях.</string>
     <string name="mesh_stats_empty">Пока нет статистики mesh</string>
     <string name="mesh_title">Mesh / relay</string>

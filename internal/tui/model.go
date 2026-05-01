@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -14,9 +15,11 @@ import (
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/geo"
+	"dev.c0redev.volter/internal/ice"
 	"dev.c0redev.volter/internal/meshstatus"
 	"dev.c0redev.volter/internal/metrics"
 	"dev.c0redev.volter/internal/probe"
+	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/update"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -52,6 +55,7 @@ const (
 var tabNames = []string{"Главная", "Конфигурации", "Облако", "Логи", "Mesh", "Кластер", "Защита", "Настройки"}
 
 type meshRefreshMsg struct{}
+type meshSelfTestMsg struct{ report string }
 
 type status int
 
@@ -173,6 +177,7 @@ type Model struct {
 	meshEditing      bool
 	meshFormFocus    int
 	meshInputs       []textinput.Model
+	meshSelfTest     string
 	clusterServerIdx int
 
 	clientSettings    config.ClientSettings
@@ -368,6 +373,11 @@ func (m *Model) meshFullContent() string {
 		b.WriteString(emptyState.Render("Не подключено — таблица узлов и srflx после VPN-сессии с relay.") + "\n\n")
 	}
 	b.WriteString(meshstatus.Format(meshstatus.Gather()))
+	if strings.TrimSpace(m.meshSelfTest) != "" {
+		b.WriteString("\n\n")
+		b.WriteString(sectionTitle.Render("Self-test relay/STUN") + "\n")
+		b.WriteString("  " + m.meshSelfTest + "\n")
+	}
 	return b.String()
 }
 
@@ -1129,6 +1139,49 @@ func autoProbeCmds(cfgs []config.Config, names []string) tea.Cmd {
 	return tea.Batch(runPingAll(cfgs, names), runProbeAll(cfgs, names))
 }
 
+func runMeshSelfTest(cfg config.Config, profileName string) tea.Cmd {
+	return func() tea.Msg {
+		var lines []string
+		lines = append(lines, "profile="+profileName)
+		ok, _, caps, err := probe.ProbeVolterWithCaps(cfg.Server, cfg.Token, 8*time.Second)
+		lines = append(lines, fmt.Sprintf("serverReachable=%v", ok))
+		if caps != nil {
+			mode := probe.ServerModeFromCaps(caps)
+			serverRelay := (caps.FeatureBits & protocol.FeatureRelayServer) != 0
+			lines = append(lines, fmt.Sprintf("serverMode=%s", mode))
+			lines = append(lines, fmt.Sprintf("serverRelay=%v", serverRelay))
+		}
+		if err != nil {
+			lines = append(lines, "probeErr="+err.Error())
+		}
+		if cfg.Relay == nil {
+			lines = append(lines, "relay=missing")
+			return meshSelfTestMsg{report: strings.Join(lines, " | ")}
+		}
+		r := cfg.Relay
+		peerReady :=
+			strings.TrimSpace(r.PeerID) != "" &&
+				len(r.DhtRpcSeedPeers) > 0 &&
+				r.PeerPathFromDiscovery &&
+				r.PeerRelayUseUDP &&
+				strings.TrimSpace(r.PeerRelayUDPListen) != ""
+		lines = append(lines, fmt.Sprintf("peerRelayReady=%v", peerReady))
+		if len(r.StunServers) > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			srflx, stunErr := ice.GatherSrflx(ctx, r.StunServers)
+			if stunErr != nil {
+				lines = append(lines, "stunErr="+stunErr.Error())
+			} else {
+				lines = append(lines, fmt.Sprintf("stunOk=true srflx=%s:%d", srflx.IP.String(), srflx.Port))
+			}
+		} else {
+			lines = append(lines, "stun=empty")
+		}
+		return meshSelfTestMsg{report: strings.Join(lines, " | ")}
+	}
+}
+
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{autoProbeCmds(m.cfgs, m.names), runCheckUpdate(m.opts.Version), runFetchCloud()}
 	if len(m.cloudCfgs) > 0 {
@@ -1420,6 +1473,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.logs = m.logs[len(m.logs)-500:]
 				}
 				return m, nil
+			}
+		case "x", "X":
+			if m.tab == tabMesh && !m.meshEditing {
+				name := m.meshRelayEffectiveTarget()
+				if name == "" {
+					m.err = "нет локального профиля"
+					return m, nil
+				}
+				cfg, err := config.LoadByName(name)
+				if err != nil {
+					m.err = err.Error()
+					return m, nil
+				}
+				return m, runMeshSelfTest(cfg, name)
 			}
 		case "ctrl+left", "ctrl+h":
 			if (m.tab == tabProtection || m.tab == tabMesh) && !m.protectionEditing && !m.meshEditing && len(m.names) > 0 {
@@ -1836,6 +1903,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tab == tabMesh || m.tab == tabCluster {
 			return m, meshTickCmd()
 		}
+		return m, nil
+	case meshSelfTestMsg:
+		m.meshSelfTest = msg.report
+		m.setMeshViewportContent()
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.logViewport.Width = msg.Width - 4
@@ -2457,7 +2528,7 @@ func (m *Model) View() string {
 		footer += hintText.Render("  ") + hintKey.Render("↑/↓") + hintText.Render(" выбор  ") + hintKey.Render("P") + hintText.Render(" ping  ") + hintKey.Render("T") + hintText.Render(" volter  ") + hintKey.Render("E") + hintText.Render(" ред.  ") + hintKey.Render("R") + hintText.Render(" обновить")
 	}
 	if m.tab == tabMesh {
-		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("K") + hintText.Render(" export ticket  ") + hintKey.Render("I") + hintText.Render(" import ticket(file)  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
+		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("K") + hintText.Render(" export ticket  ") + hintKey.Render("I") + hintText.Render(" import ticket(file)  ") + hintKey.Render("X") + hintText.Render(" self-test stun/relay  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabCluster {
 		footer += hintText.Render("  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
