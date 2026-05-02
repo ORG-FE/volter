@@ -26,10 +26,11 @@ data class ProtectionOptions(
     val clusterPreferredServer: String? = null,
     val clusterInvitePath: String? = null,
     val clusterPeerHandshakePath: String? = null,
+    val clusterRouteAssist: Boolean = false,
+    val clusterAssistTargetNodeId: String? = null,
     val tlsProfileId: String? = null,
     val ja3TargetHash: String? = null,
     val standaloneDpiOnly: Boolean = false,
-    /** "" | "embedded" | "external" — пусто = встроенный движок. */
     val dpiLocalEngine: String? = null,
     val dpiLocalEmbedded: DpiLocalEmbedded? = null,
     val dpiLocalPreset: String? = null,
@@ -63,6 +64,8 @@ data class ProtectionOptions(
         clusterPreferredServer?.let { j.put("clusterPreferredServer", it) }
         clusterInvitePath?.let { j.put("clusterInvitePath", it) }
         clusterPeerHandshakePath?.let { j.put("clusterPeerHandshakePath", it) }
+        if (clusterRouteAssist) j.put("clusterRouteAssist", true)
+        clusterAssistTargetNodeId?.let { j.put("clusterAssistTargetNodeId", it) }
         tlsProfileId?.let { j.put("tlsProfileId", it) }
         ja3TargetHash?.let { j.put("ja3TargetHash", it) }
         if (standaloneDpiOnly) j.put("standaloneDpiOnly", true)
@@ -110,6 +113,8 @@ data class ProtectionOptions(
             clusterPreferredServer = j.optNullableString("clusterPreferredServer"),
             clusterInvitePath = j.optNullableString("clusterInvitePath"),
             clusterPeerHandshakePath = j.optNullableString("clusterPeerHandshakePath"),
+            clusterRouteAssist = j.optBoolean("clusterRouteAssist", false),
+            clusterAssistTargetNodeId = j.optNullableString("clusterAssistTargetNodeId"),
             tlsProfileId = j.optNullableString("tlsProfileId"),
             ja3TargetHash = j.optNullableString("ja3TargetHash"),
             standaloneDpiOnly = j.optBoolean("standaloneDpiOnly", false),

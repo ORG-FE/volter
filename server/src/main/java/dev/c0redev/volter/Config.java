@@ -65,6 +65,7 @@ final class Config {
   private final String clusterHttpSecret;
   private final String clusterInvitePath;
   private final String clusterPeerHandshakePath;
+  private final boolean clusterExitFallbackToDirect;
 
   private Config(List<Integer> listenPorts, String token, int udpChannels, String publicHost, boolean debug,
                  boolean updateEnabled, String updateRepo, int updateCheckIntervalMinutes, int updateRestartExitCode,
@@ -78,7 +79,8 @@ final class Config {
                  String gossipIndexFile, String gossipIndexPath, String dhtFindPath, String dhtRpcListenUdp, String dhtRpcSecret,
                  String clusterNodeId, int clusterListen, List<String> clusterPeers, int clusterGossipIntervalMs,                  String clusterMapPath,
                  String clusterSessionsPath, String clusterClientsPath, boolean clusterHttpAuth, String clusterHttpSecret,
-                 String clusterInvitePath, String clusterPeerHandshakePath) {
+                 String clusterInvitePath, String clusterPeerHandshakePath,
+                 boolean clusterExitFallbackToDirect) {
     this.listenPorts = listenPorts;
     this.token = token;
     this.udpChannels = udpChannels;
@@ -129,6 +131,7 @@ final class Config {
     this.clusterHttpSecret = clusterHttpSecret != null ? clusterHttpSecret.trim() : "";
     this.clusterInvitePath = clusterInvitePath != null && !clusterInvitePath.isBlank() ? clusterInvitePath.trim() : "/volter/cluster-invite";
     this.clusterPeerHandshakePath = clusterPeerHandshakePath != null && !clusterPeerHandshakePath.isBlank() ? clusterPeerHandshakePath.trim() : "/volter/cluster-peer-handshake";
+    this.clusterExitFallbackToDirect = clusterExitFallbackToDirect;
   }
 
   String serverMode() { return serverMode; }
@@ -251,6 +254,10 @@ final class Config {
 
   String clusterPeerHandshakePath() {
     return clusterPeerHandshakePath;
+  }
+
+  boolean clusterExitFallbackToDirect() {
+    return clusterExitFallbackToDirect;
   }
 
   boolean tcpEnabled() { return !"quic-only".equals(serverMode); }
@@ -381,6 +388,8 @@ final class Config {
     if (clusterPeerHandshakePath.isEmpty()) {
       clusterPeerHandshakePath = "/volter/cluster-peer-handshake";
     }
+    boolean clusterExitFallbackToDirect =
+        !"false".equalsIgnoreCase(p.getProperty("cluster.exitFallbackToDirect", "true").trim());
     if (serverMode.equals("quic-only") || serverMode.equals("both")) {
       if (quicListenPort < 1 || quicListenPort > 65535) throw new IOException("bad quicListenPort");
       if (quicCertPath == null || quicCertPath.isBlank()) throw new IOException("quicCertPath is required");
@@ -411,7 +420,8 @@ final class Config {
         clusterHttpAuth,
         clusterHttpSecret,
         clusterInvitePath,
-        clusterPeerHandshakePath);
+        clusterPeerHandshakePath,
+        clusterExitFallbackToDirect);
   }
 
   private static String firstNonEmpty(String a, String b) {

@@ -24,6 +24,7 @@ import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.logging.Logger;
 
@@ -91,7 +92,13 @@ final class ConnectionHandler implements Runnable {
                     s.close();
                 } catch (IOException ignored) {}
             });
-            session.handle(hs, hr, in, out, (connect, rest) -> handleTcp(connect, rest, s, xor), streamPool);
+            session.handle(
+                hs,
+                hr,
+                in,
+                out,
+                (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts),
+                streamPool);
             handedOff = true;
             return;
         } catch (EOFException ignored) {
@@ -916,12 +923,22 @@ final class ConnectionHandler implements Runnable {
         } catch (Throwable ignored) {}
     }
 
-    private void handleTcp(Protocol.TcpConnect c, InputStream in, Socket s, XorStream xor) throws IOException {
+    private void handleTcp(
+            Protocol.TcpConnect c,
+            InputStream in,
+            Socket s,
+            XorStream xor,
+            Optional<Protocol.ClientOptions> copts)
+            throws IOException {
         log.info("TCP connect to " + c.ip().getHostAddress() + ":" + c.port());
         if (tcpPool == null) {
             throw new IOException("tcp reactor unavailable");
         }
         s.setSoTimeout(0);
+        OutputStream clientXorOut = xor.wrapOutput(s.getOutputStream());
+        if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientXorOut, copts)) {
+            return;
+        }
         byte[] initialClientData = drainAvailableWithoutBlocking(in);
         tcpPool.register(s, c, xor, initialClientData, true);
     }

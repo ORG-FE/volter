@@ -1,5 +1,6 @@
 package dev.c0redev.volter;
 
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -85,6 +86,57 @@ final class ClusterRuntime {
       }
     }
     return "127.0.0.1";
+  }
+
+  boolean isAuthorizedClusterExit(String exitRaw) {
+    if (exitRaw == null || exitRaw.isBlank()) {
+      return false;
+    }
+    String normalized = ClusterPreferredCanonical.canonical(exitRaw.trim());
+    InetSocketAddress want;
+    try {
+      want = ClusterTcpExitBridge.parseHostPort(normalized);
+    } catch (Exception e) {
+      return false;
+    }
+    for (String id : nodes.keySet()) {
+      Optional<String> ohp = resolveVolterHttpHostPort(id);
+      if (ohp.isEmpty()) {
+        continue;
+      }
+      try {
+        InetSocketAddress known = ClusterTcpExitBridge.parseHostPort(ohp.get());
+        if (known.getPort() == want.getPort() && known.getAddress().equals(want.getAddress())) {
+          return true;
+        }
+      } catch (Exception ignored) {
+      }
+    }
+    return false;
+  }
+
+  Optional<InetSocketAddress> resolveClusterExitDialAddress(String hint) {
+    if (hint == null || hint.isBlank()) {
+      return Optional.empty();
+    }
+    String h = ClusterPreferredCanonical.canonical(hint.trim());
+    if (nodes.containsKey(h)) {
+      return resolveVolterHttpHostPort(h).flatMap(hp -> {
+        try {
+          return Optional.of(ClusterTcpExitBridge.parseHostPort(hp));
+        } catch (Exception e) {
+          return Optional.empty();
+        }
+      });
+    }
+    try {
+      InetSocketAddress addr = ClusterTcpExitBridge.parseHostPort(h);
+      if (isAuthorizedClusterExit(h)) {
+        return Optional.of(addr);
+      }
+    } catch (Exception ignored) {
+    }
+    return Optional.empty();
   }
 
   Optional<String> resolveVolterHttpHostPort(String nodeId) {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
+	"dev.c0redev.volter/internal/clusteraddr"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/geo"
 	"dev.c0redev.volter/internal/ice"
@@ -493,7 +494,8 @@ func (m *Model) cycleClusterPreferredServer() {
 	if cfg.Protection != nil {
 		opts = *cfg.Protection
 	}
-	opts.ClusterPreferredServer = server
+	opts.ClusterPreferredServer = clusteraddr.CanonicalHostPort(server)
+	opts.RouteMode = "server_relay"
 	cfg.Protection = &opts
 	_ = config.Save(name, cfg)
 }

@@ -1,6 +1,7 @@
 package vpn
 
 import (
+	"strings"
 	"sync/atomic"
 
 	"dev.c0redev.volter/internal/clusteraddr"
@@ -20,6 +21,9 @@ func SetClusterDialPreference(hostPort string) {
 
 func dialServerAddrs(base []string, prot *config.ProtectionOptions) []string {
 	addrs := orderedServerAddrs(base, prot)
+	if prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != "" {
+		return addrs
+	}
 	v := clusterDialPref.Load()
 	pref, _ := v.(string)
 	if pref == "" {

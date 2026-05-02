@@ -320,8 +320,12 @@ final class QuicServer implements AutoCloseable {
                 hr,
                 in,
                 out,
-                (connect, rest) ->
-                    QuicTcpRelay.run(connect, rest, out, cfg.quicTcpConnectTimeoutMs()),
+                (connect, rest, copts) -> {
+                  if (ClusterTcpExitBridge.maybeBridge(cfg, connect, rest, out, copts)) {
+                    return;
+                  }
+                  QuicTcpRelay.run(connect, rest, out, cfg.quicTcpConnectTimeoutMs());
+                },
                 null);
           } catch (Exception e) {
             log.warning("QUIC stream session failed: " + e);

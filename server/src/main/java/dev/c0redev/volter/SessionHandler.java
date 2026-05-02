@@ -9,7 +9,8 @@ import java.util.logging.Logger;
 
 final class SessionHandler {
   interface TcpHandler {
-    void onTcp(Protocol.TcpConnect connect, InputStream in) throws IOException;
+    void onTcp(Protocol.TcpConnect connect, InputStream in, Optional<Protocol.ClientOptions> clientOpts)
+        throws IOException;
   }
 
   private static final Logger log = Log.logger(SessionHandler.class);
@@ -73,7 +74,7 @@ final class SessionHandler {
     }
     if (hs.role() == Protocol.ROLE_TCP) {
       Protocol.TcpConnect c = Protocol.readTcpConnect(in);
-      tcpHandler.onTcp(c, in);
+      tcpHandler.onTcp(c, in, hr.opts());
       return;
     }
     if (hs.role() == Protocol.ROLE_RELAY_TCP) {
@@ -108,7 +109,7 @@ final class SessionHandler {
       Protocol.TcpConnect c = Protocol.readTcpConnect(in);
       sendHopAck(out, routeId, hopIndex, 1, "");
       try {
-        tcpHandler.onTcp(c, in);
+        tcpHandler.onTcp(c, in, hr.opts());
       } finally {
         registry.release(remote);
       }

@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
-	"dev.c0redev.volter/internal/clusteraddr"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/ice"
 	"dev.c0redev.volter/internal/obfuscate"
@@ -45,30 +44,8 @@ func clusterPollHeaderKey(opt Options) string {
 }
 
 func orderedServerAddrs(addrs []string, prot *config.ProtectionOptions) []string {
-	if len(addrs) <= 1 || prot == nil {
-		return addrs
-	}
-	want := strings.TrimSpace(prot.ClusterPreferredServer)
-	if want == "" {
-		return addrs
-	}
-	match := clusteraddr.MatchPreferred(addrs, want)
-	if match < 0 {
-		for i, a := range addrs {
-			if strings.EqualFold(strings.TrimSpace(a), want) {
-				match = i
-				break
-			}
-		}
-	}
-	if match <= 0 {
-		return addrs
-	}
-	out := make([]string, 0, len(addrs))
-	out = append(out, addrs[match])
-	out = append(out, addrs[:match]...)
-	out = append(out, addrs[match+1:]...)
-	return out
+	_ = prot
+	return addrs
 }
 
 type Options struct {
@@ -111,6 +88,9 @@ func Run(ctx context.Context, opt Options) error {
 		go runClusterMapPoll(ctx, a, ck, mapPath)
 		go runClusterSessionsPoll(ctx, a, ck, sessPath)
 		go runClusterClientsPoll(ctx, a, ck, clientsPath)
+	}
+	if opt.Protection != nil && opt.Protection.ClusterRouteAssist {
+		go runClusterRouteAssist(ctx, opt)
 	}
 	telemetry.NoteVPNStart()
 	readyCb := opt.Ready

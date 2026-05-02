@@ -151,7 +151,10 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                     val name = activeName ?: return@FilterChip
                                     val cfg = activeCfg ?: return@FilterChip
                                     val prot = (cfg.protection ?: dev.c0redev.volter.domain.model.ProtectionOptions())
-                                        .copy(clusterPreferredServer = normalized)
+                                        .copy(
+                                            clusterPreferredServer = canonicalClusterExit(normalized),
+                                            routeMode = "server_relay",
+                                        )
                                     vm.upsertLocalConfig(name, cfg.copy(protection = prot))
                                 },
                                 label = { Text(row) },
@@ -187,6 +190,17 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             }
         }
     }
+}
+
+private fun canonicalClusterExit(raw: String): String {
+    val s = raw.trim().substringBefore(" ").trim()
+    if (s.isEmpty()) return ""
+    if (s.startsWith("[")) return s
+    val colon = s.lastIndexOf(':')
+    if (colon <= 0 || colon >= s.length - 1) return s
+    val host = s.substring(0, colon).trim()
+    val port = s.substring(colon + 1).trim()
+    return "${host.lowercase()}:$port"
 }
 
 private fun parseClusterState(raw: String, res: Resources): ClusterViewState {

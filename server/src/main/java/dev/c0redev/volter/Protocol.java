@@ -340,6 +340,41 @@ final class Protocol {
     if (ln > 0) out.write(val, 0, ln);
   }
 
+  static void writeVolterClientHandshake(OutputStream xorOut, byte role, String token, byte[] optsUtf8)
+      throws IOException {
+    byte[] junk = new byte[384 + RND.nextInt(1024)];
+    RND.nextBytes(junk);
+    xorOut.write(junk);
+    xorOut.write(MAGIC);
+    xorOut.write(VERSION);
+    xorOut.write(role & 0xff);
+    byte[] tok = token.getBytes(StandardCharsets.UTF_8);
+    if (tok.length > MAX_TOKEN) {
+      throw new IOException("token too long");
+    }
+    writeU16(xorOut, tok.length);
+    xorOut.write(tok);
+    if (role == ROLE_UDP) {
+      xorOut.write(0);
+    }
+    int ol = optsUtf8 == null ? 0 : optsUtf8.length;
+    if (ol > MAX_OPTS) {
+      throw new IOException("opts too long");
+    }
+    writeU16(xorOut, ol);
+    if (ol > 0) {
+      xorOut.write(optsUtf8);
+    }
+    xorOut.flush();
+  }
+
+  static void writeTcpConnectFrame(OutputStream xorOut, TcpConnect c) throws IOException {
+    xorOut.write(c.addrType() & 0xff);
+    xorOut.write(c.ip().getAddress());
+    writeU16(xorOut, c.port());
+    xorOut.flush();
+  }
+
   record Handshake(byte role, int channelId, String token) {}
   record TcpConnect(byte addrType, InetAddress ip, int port) {}
   record UdpFrame(byte addrType, int srcPort, InetAddress dst, int dstPort, byte[] payload) {}
@@ -371,6 +406,7 @@ final class Protocol {
       String resumeToken,
       String routeId,
       int hopIndex,
+      String clusterPreferredServer,
       String tlsProfileId,
       String ja3TargetHash) {
     static Optional<ClientOptions> parse(String json) {
@@ -387,6 +423,7 @@ final class Protocol {
         String resumeToken = "";
         String routeId = "";
         int hopIndex = 0;
+        String clusterPreferredServer = "";
         if (json.contains("\"padS4\"")) {
           int i = json.indexOf("\"padS4\"");
           int start = json.indexOf(":", i) + 1;
@@ -486,6 +523,13 @@ final class Protocol {
           if (hopIndex < 0) hopIndex = 0;
           if (hopIndex > 16) hopIndex = 16;
         }
+        if (json.contains("\"clusterPreferredServer\"")) {
+          int i = json.indexOf("\"clusterPreferredServer\"");
+          int start = json.indexOf(":", i) + 1;
+          int q1 = json.indexOf("\"", start);
+          int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+          if (q1 >= 0 && q2 > q1) clusterPreferredServer = json.substring(q1 + 1, q2).trim();
+        }
         String tlsProfileId = "";
         String ja3TargetHash = "";
         if (json.contains("\"tlsProfileId\"")) {
@@ -517,6 +561,7 @@ final class Protocol {
             resumeToken,
             routeId,
             hopIndex,
+            clusterPreferredServer,
             tlsProfileId,
             ja3TargetHash));
       } catch (Exception e) {

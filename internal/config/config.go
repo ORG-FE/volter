@@ -125,10 +125,11 @@ type ProtectionOptions struct {
 	ClusterPreferredServer   string `json:"clusterPreferredServer,omitempty"`
 	ClusterInvitePath        string `json:"clusterInvitePath,omitempty"`
 	ClusterPeerHandshakePath string `json:"clusterPeerHandshakePath,omitempty"`
+	ClusterRouteAssist        bool   `json:"clusterRouteAssist,omitempty"`
+	ClusterAssistTargetNodeID string `json:"clusterAssistTargetNodeId,omitempty"`
 	TlsProfileID             string `json:"tlsProfileId,omitempty"`
 	Ja3TargetHash            string `json:"ja3TargetHash,omitempty"`
 	StandaloneDpiOnly        bool   `json:"standaloneDpiOnly,omitempty"`
-	// DpiLocalEngine: "" | "embedded" | "external". Пусто = embedded (встроенный Go-движок).
 	DpiLocalEngine              string            `json:"dpiLocalEngine,omitempty"`
 	DpiLocalEmbedded            *DpiLocalEmbedded `json:"dpiLocalEmbedded,omitempty"`
 	DpiVolunteer                bool              `json:"dpiVolunteer,omitempty"`
@@ -140,7 +141,6 @@ type ProtectionOptions struct {
 	RoutePlannerV2              bool              `json:"routePlannerV2,omitempty"`
 }
 
-// DpiLocalEmbedded задаёт локальный anti-DPI без внешнего ciadpi (порт byedpi-style split/ttl/disorder).
 type DpiLocalEmbedded struct {
 	SplitAfter  int  `json:"splitAfter,omitempty"`
 	SplitAfter2 int  `json:"splitAfter2,omitempty"`
@@ -158,7 +158,6 @@ func DpiLocalEngineIsExternal(p *ProtectionOptions) bool {
 	return strings.EqualFold(strings.TrimSpace(p.DpiLocalEngine), "external")
 }
 
-// DpiLocalEngineIsEmbedded — явный выбор встроенного движка (поле dpiLocalEngine = "embedded").
 func DpiLocalEngineIsEmbedded(p *ProtectionOptions) bool {
 	if p == nil {
 		return false
@@ -166,7 +165,6 @@ func DpiLocalEngineIsEmbedded(p *ProtectionOptions) bool {
 	return strings.EqualFold(strings.TrimSpace(p.DpiLocalEngine), "embedded")
 }
 
-// StandaloneDpiUseExternalBin — использовать внешний ciadpi/byedpi вместо встроенного dpiengine.
 func StandaloneDpiUseExternalBin(cfg *Config) bool {
 	if cfg == nil || cfg.Protection == nil {
 		return false
@@ -228,7 +226,6 @@ func MergeDpiLocalEmbeddedDefaults(e *DpiLocalEmbedded) DpiLocalEmbedded {
 	return out
 }
 
-// ClampDpiLocalPreset режет строку пресета для внешнего byedpi по числу рун (как dpi.MaxGossipPresetRunes).
 func ClampDpiLocalPreset(s string) string {
 	if utf8.RuneCountInString(s) <= dpi.MaxGossipPresetRunes {
 		return s
@@ -237,7 +234,6 @@ func ClampDpiLocalPreset(s string) string {
 	return string(r[:dpi.MaxGossipPresetRunes])
 }
 
-// SanitizeProtectionInPlace лимиты полей protection перед сохранением или после загрузки.
 func SanitizeProtectionInPlace(p *ProtectionOptions) {
 	if p == nil {
 		return

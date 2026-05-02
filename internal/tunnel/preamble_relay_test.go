@@ -3,11 +3,32 @@ package tunnel
 import (
 	"bufio"
 	"bytes"
+	"strings"
 	"testing"
 
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/protocol"
 )
+
+func TestTcpRelayPreambleUsesTcpRoleWhenClusterExitRelayHop(t *testing.T) {
+	var buf bytes.Buffer
+	w := bufio.NewWriter(&buf)
+	prot := &config.ProtectionOptions{
+		RelayHop:               1,
+		RelayMaxHop:            2,
+		ClusterPreferredServer: "ru.example:443",
+	}
+	if err := tcpRelayPreamble(w, "tok", prot, protocol.TimeSlot()); err != nil {
+		t.Fatal(err)
+	}
+	hs, err := protocol.ReadHandshakeAfterSkip(bufio.NewReader(bytes.NewReader(buf.Bytes())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hs.Role != protocol.RoleTCP() {
+		t.Fatalf("cluster exit must use tcp role on entry, got %d", hs.Role)
+	}
+}
 
 func TestTcpRelayPreambleUsesRelayRole(t *testing.T) {
 	var buf bytes.Buffer
@@ -79,5 +100,16 @@ func TestProtForServerRelayRouteEnforcesRelayHop(t *testing.T) {
 	}
 	if got.RelayBudgetKbps != 256 {
 		t.Fatalf("expected relay budget from relay opts, got %d", got.RelayBudgetKbps)
+	}
+}
+
+func TestProtForServerRelayRouteKeepsClusterPreferred(t *testing.T) {
+	src := &config.ProtectionOptions{
+		ClusterPreferredServer: "ru.example:443",
+		RouteMode:              "server_relay",
+	}
+	got := protForServerRelayRoute(src, nil)
+	if got == nil || strings.TrimSpace(got.ClusterPreferredServer) != "ru.example:443" {
+		t.Fatalf("cluster exit hint lost: %+v", got)
 	}
 }

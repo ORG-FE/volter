@@ -33,6 +33,21 @@ class ConfigTest {
     assertEquals("/volter/dht/find", c.dhtFindPath());
     assertEquals("", c.dhtRpcListenUdp());
     assertEquals("test-token", c.dhtRpcSecret());
+    assertTrue(c.clusterExitFallbackToDirect());
+  }
+
+  @Test
+  void clusterExitFallbackToDirectCanBeDisabled() throws Exception {
+    Path f = Files.createTempFile("volter-config", ".properties");
+    Files.writeString(f, """
+        listenPorts=18080
+        token=test-token
+        udpChannels=4
+        serverMode=tcp-only
+        cluster.exitFallbackToDirect=false
+        """, StandardCharsets.UTF_8);
+    Config c = Config.load(f);
+    assertFalse(c.clusterExitFallbackToDirect());
   }
 
   @Test

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
+	"dev.c0redev.volter/internal/clusteraddr"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/telemetry"
@@ -198,7 +199,9 @@ func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOpti
 		eff := relayOptsForHandshake(prot, token)
 		optsJSON, _ = json.Marshal(eff)
 		if eff.RelayHop > 0 || eff.RelayMaxHop > 0 || eff.PeerID != "" {
-			role = protocol.RoleRelayTCP()
+			if strings.TrimSpace(prot.ClusterPreferredServer) == "" {
+				role = protocol.RoleRelayTCP()
+			}
 		}
 	}
 	return protocol.WriteHandshakeWithPrefixAndOptsSlot(w, role, 0, token, prefixLen, optsJSON, slot)
@@ -302,6 +305,11 @@ func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.Relay
 }
 
 func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, dual bool, sel *DualPathSelector, pm *PathManager, allowPeerPath bool, relay *config.RelayOptions) (net.Conn, bool, bool, error) {
+	if prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != "" {
+		p := *prot
+		p.ClusterPreferredServer = clusteraddr.CanonicalHostPort(strings.TrimSpace(prot.ClusterPreferredServer))
+		prot = &p
+	}
 	flowStart := time.Now()
 	preferTCP := false
 	decision := PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
@@ -309,6 +317,11 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 	mode := routeModeOf(prot)
 	SetRouteTrace(dst.String(), mode, "", "")
 	quicEnabled := UsesQUICTransport(transport, quicServer) && quicShared != nil
+	clusterExit := prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != ""
+	if clusterExit {
+		quicEnabled = false
+		preferTCP = true
+	}
 	switch mode {
 	case "direct":
 		allowPeerPath = false
@@ -320,14 +333,29 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		preferTCP = true
 		dialProt = protForServerRelayRoute(prot, relay)
 	case "peer_relay":
-		allowPeerPath = true
+		allowPeerPath = !clusterExit
 		if pm != nil {
-			decision = pm.Decide(dst, dual, quicEnabled, true, true)
+			if clusterExit {
+				decision = pm.Decide(dst, dual, quicEnabled, false, false)
+			} else {
+				decision = pm.Decide(dst, dual, quicEnabled, true, true)
+			}
 		}
 	default:
 		if pm != nil {
-			decision = pm.Decide(dst, dual, quicEnabled, allowPeerPath, false)
+			ap := allowPeerPath
+			if clusterExit {
+				ap = false
+			}
+			decision = pm.Decide(dst, dual, quicEnabled, ap, false)
 		}
+	}
+	if clusterExit {
+		allowPeerPath = false
+		decision = PathDecision{PreferTCP: true, RelayClass: PathClassServer, PathTTL: 2}
+		dialProt = protForServerRelayRoute(prot, relay)
+		preferTCP = true
+		quicEnabled = false
 	}
 	if decision.PreferTCP {
 		preferTCP = true
