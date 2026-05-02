@@ -3,6 +3,7 @@
 package update
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -27,8 +28,12 @@ func Apply(destExe string, downloadURL string) error {
 		return err
 	}
 	if err := os.Rename(tmp, destAbs); err != nil {
-		_ = os.Remove(tmp)
-		return err
+		argv := append([]string{destAbs}, os.Args[1:]...)
+		if execErr := syscall.Exec(tmp, argv, os.Environ()); execErr != nil {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("replace binary: %w; exec %s: %v", err, tmp, execErr)
+		}
+		return nil
 	}
 	return syscall.Exec(destAbs, os.Args, os.Environ())
 }

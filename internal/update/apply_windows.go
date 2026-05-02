@@ -28,11 +28,7 @@ func Apply(destExe string, downloadURL string) error {
 	batName := fmt.Sprintf("volter-self-update-%d.bat", os.Getpid())
 	batPath := filepath.Join(dir, batName)
 	argsLine := batchArgs(os.Args[1:])
-	bat := "@echo off\r\n" +
-		"ping -n 3 127.0.0.1 >nul\r\n" +
-		fmt.Sprintf(`move /Y "%s" "%s"`, escapeBatchMeta(newPath), escapeBatchMeta(destAbs)) + "\r\n" +
-		fmt.Sprintf(`start "" "%s"%s`, escapeBatchMeta(destAbs), argsLine) + "\r\n" +
-		fmt.Sprintf(`del "%s"`, escapeBatchMeta(batPath)) + "\r\n"
+	bat := buildSelfUpdateBat(destAbs, newPath, batPath, argsLine)
 	if err := os.WriteFile(batPath, []byte(bat), 0600); err != nil {
 		_ = os.Remove(newPath)
 		return err
@@ -47,8 +43,35 @@ func Apply(destExe string, downloadURL string) error {
 	return nil
 }
 
-func escapeBatchMeta(s string) string {
-	return strings.ReplaceAll(s, `"`, `""`)
+func buildSelfUpdateBat(destAbs, newPath, batPath, argsLine string) string {
+	q := func(p string) string { return `"` + strings.ReplaceAll(p, `"`, `""`) + `"` }
+	var b strings.Builder
+	b.WriteString("@echo off\r\n")
+	b.WriteString("setlocal\r\n")
+	b.WriteString("REM Wait for the updater process to exit and release the exe.\r\n")
+	b.WriteString("ping -n 4 127.0.0.1 >nul\r\n")
+	b.WriteString("set attempts=0\r\n")
+	b.WriteString(":retry\r\n")
+	b.WriteString("set /a attempts+=1\r\n")
+	fmt.Fprintf(&b, "move /Y %s %s >nul 2>&1\r\n", q(newPath), q(destAbs))
+	b.WriteString("if %errorlevel%==0 goto launch\r\n")
+	b.WriteString("if %attempts% geq 60 goto trycopy\r\n")
+	b.WriteString("ping -n 2 127.0.0.1 >nul\r\n")
+	b.WriteString("goto retry\r\n")
+	b.WriteString(":trycopy\r\n")
+	fmt.Fprintf(&b, "copy /B /Y %s %s >nul 2>&1\r\n", q(newPath), q(destAbs))
+	b.WriteString("if errorlevel 1 goto fail\r\n")
+	fmt.Fprintf(&b, "del /F /Q %s >nul 2>&1\r\n", q(newPath))
+	b.WriteString("goto launch\r\n")
+	b.WriteString(":launch\r\n")
+	fmt.Fprintf(&b, `start "" %s%s`+"\r\n", q(destAbs), argsLine)
+	fmt.Fprintf(&b, "del /F /Q %s >nul 2>&1\r\n", q(batPath))
+	b.WriteString("goto eof\r\n")
+	b.WriteString(":fail\r\n")
+	fmt.Fprintf(&b, "del /F /Q %s >nul 2>&1\r\n", q(batPath))
+	b.WriteString(":eof\r\n")
+	b.WriteString("endlocal\r\n")
+	return b.String()
 }
 
 func batchArgs(osArgs []string) string {

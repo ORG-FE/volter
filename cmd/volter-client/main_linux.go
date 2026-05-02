@@ -163,13 +163,10 @@ const embeddedPolicy = `<?xml version="1.0" encoding="UTF-8"?>
 </policyconfig>
 `
 
-const embeddedIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 108 108">
-  <rect width="108" height="108" rx="24" fill="#070B12"/>
-  <path d="M54 18 84 34 84 72 54 90 24 72 24 34Z" fill="#123E45"/>
-  <path d="M54 26 76 38 76 68 54 82 32 68 32 38Z" fill="#7CE7D2"/>
-  <path d="M21 46 32 39 32 68 21 75Z" fill="#A9B8FF"/>
-  <path d="M76 38 88 45 88 74 76 68Z" fill="#FFB86B"/>
-  <path d="M54 39 66 46 66 62 54 69 42 62 42 46Z" fill="#070B12"/>
+const embeddedIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
+  <rect width="108" height="108" fill="#050505"/>
+  <path d="M54 18 L84 34 L84 72 L54 90 L24 72 L24 34 Z" fill="none" stroke="#f5f5f5" stroke-width="2.4"/>
+  <path fill="#f5f5f5" d="M38 30 L54 76 L70 30 L62 34 L54 66 L46 34 Z"/>
 </svg>
 `
 
