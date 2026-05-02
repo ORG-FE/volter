@@ -139,7 +139,7 @@ final class ConnectionHandler implements Runnable {
     }
 
     private boolean tryCamouflage(Socket client, BufferedInputStream rawIn, OutputStream rawOut) {
-        if (!cfg.camouflageTcpEnabled() || rawIn == null || rawOut == null) {
+        if (rawIn == null || rawOut == null) {
             return false;
         }
         try {
@@ -228,6 +228,9 @@ final class ConnectionHandler implements Runnable {
             } catch (IOException e) {
                 log.fine("cluster peer handshake http: " + e.getMessage());
             }
+        }
+        if (!cfg.camouflageTcpEnabled()) {
+            return false;
         }
         String host = cfg.camouflageTcpProxyHost();
         int port = cfg.camouflageTcpProxyPort();
