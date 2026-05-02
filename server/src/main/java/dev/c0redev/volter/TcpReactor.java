@@ -194,7 +194,11 @@ final class TcpReactorPool {
           closeChannel(reg.client());
           closeChannel(remote);
           if (!closed.get()) {
-            log.warning("tcp register failed: " + e.getMessage());
+            String detail = e.getMessage();
+            log.warning(
+              "tcp register failed: "
+                + (detail != null && !detail.isBlank() ? detail : e.getClass().getSimpleName())
+            );
           }
         }
       }

@@ -105,11 +105,11 @@ final class ConnectionHandler implements Runnable {
                     session.handle(hs, hr, in, out, tcp, streamPool);
                 } catch (IOException e) {
                     log.fine("session ended: " + e.getMessage());
-                } finally {
                     try {
                         s.close();
                     } catch (IOException ignored) {}
                 }
+                // при успешном ROLE_TCP сокет передан TcpReactor — закрывать здесь нельзя (иначе register гонит ClosedChannel)
             });
             return;
         } catch (EOFException ignored) {
@@ -948,6 +948,9 @@ final class ConnectionHandler implements Runnable {
         s.setSoTimeout(0);
         OutputStream clientXorOut = xor.wrapOutput(s.getOutputStream());
         if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientXorOut, copts)) {
+            try {
+                s.close();
+            } catch (IOException ignored) {}
             return;
         }
         byte[] initialClientData = drainAvailableWithoutBlocking(in);
