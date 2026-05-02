@@ -182,6 +182,17 @@ data class Config(
             return "volter://$b"
         }
 
+        fun buildMinimalConnectionUri(cfg: Config): String {
+            val server = cfg.server.trim()
+            val token = cfg.token.trim()
+            if (server.isEmpty() || token.isEmpty()) return ""
+            val json =
+                "{\"s\":${JSONObject.quote(server)},\"k\":${JSONObject.quote(token)}}"
+            val b =
+                Base64.encodeToString(json.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            return "volter://$b"
+        }
+
         fun buildProtectionUri(name: String, protection: ProtectionOptions): String {
             val payload = JSONObject()
             payload.put("v", 1)

@@ -543,7 +543,7 @@ private fun ConfigEditorDialog(
         err = null
         name = oldName ?: "default"
         if (initialConfig != null) {
-            connection = Config.buildShareUri(oldName ?: "default", initialConfig)
+            connection = Config.buildMinimalConnectionUri(initialConfig)
             routes = initialConfig.routes ?: ""
             exclude = initialConfig.exclude ?: ""
             tunCIDR6 = initialConfig.tunCIDR6 ?: ""
