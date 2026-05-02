@@ -207,6 +207,26 @@ fun ProtectionEditor(
                             },
                         ),
                     )
+                    NumberRow(
+                        items = listOf(
+                            NumberItem(R.string.protection_dpi_split_after2, draft.dpiSplitAfter2, 0, 65536) {
+                                set(draft.copy(dpiSplitAfter2 = it))
+                            },
+                            NumberItem(R.string.protection_dpi_ttl2_ms, draft.dpiTtl2Millis, 0, 60_000) {
+                                set(draft.copy(dpiTtl2Millis = it))
+                            },
+                        ),
+                    )
+                    NumberRow(
+                        items = listOf(
+                            NumberItem(R.string.protection_dpi_jitter_ms, draft.dpiJitterMaxMs, 0, 5000) {
+                                set(draft.copy(dpiJitterMaxMs = it))
+                            },
+                            NumberItem(R.string.protection_dpi_lead_in_ms, draft.dpiLeadInMs, 0, 60_000) {
+                                set(draft.copy(dpiLeadInMs = it))
+                            },
+                        ),
+                    )
                     ToggleRow(
                         title = stringResource(R.string.protection_dpi_disorder),
                         checked = draft.dpiDisorder,
@@ -329,8 +349,12 @@ private data class ProtectionDraft(
     /** false = встроенный Go-движок, true = внешний ciadpi/byedpi. */
     val engineExternal: Boolean = false,
     val dpiSplitAfter: Int = 1,
+    val dpiSplitAfter2: Int = 0,
     val dpiTtlMillis: Int = 8,
+    val dpiTtl2Millis: Int = 0,
     val dpiDisorder: Boolean = false,
+    val dpiJitterMaxMs: Int = 0,
+    val dpiLeadInMs: Int = 0,
     val dpiLocalPreset: String = "",
 ) {
     fun clean(): ProtectionDraft {
@@ -353,7 +377,11 @@ private data class ProtectionDraft(
                 else -> ""
             },
             dpiSplitAfter = dpiSplitAfter.coerceIn(1, 65536),
+            dpiSplitAfter2 = dpiSplitAfter2.coerceIn(0, 65536),
             dpiTtlMillis = dpiTtlMillis.coerceIn(1, 60_000),
+            dpiTtl2Millis = dpiTtl2Millis.coerceIn(0, 60_000),
+            dpiJitterMaxMs = dpiJitterMaxMs.coerceIn(0, 5000),
+            dpiLeadInMs = dpiLeadInMs.coerceIn(0, 60_000),
         )
     }
 
@@ -362,11 +390,22 @@ private data class ProtectionDraft(
         val d = clean()
         val emb = DpiLocalEmbedded(
             splitAfter = d.dpiSplitAfter,
+            splitAfter2 = d.dpiSplitAfter2,
             ttlMillis = d.dpiTtlMillis,
+            ttl2Millis = d.dpiTtl2Millis,
             disorder = d.dpiDisorder,
+            jitterMaxMs = d.dpiJitterMaxMs,
+            leadInMs = d.dpiLeadInMs,
         )
-        val embOut =
-            if (emb.splitAfter == 1 && emb.ttlMillis == 8 && !emb.disorder) null else emb
+        val embDefault =
+            emb.splitAfter == 1 &&
+                emb.splitAfter2 == 0 &&
+                emb.ttlMillis == 8 &&
+                emb.ttl2Millis == 0 &&
+                !emb.disorder &&
+                emb.jitterMaxMs == 0 &&
+                emb.leadInMs == 0
+        val embOut = if (embDefault) null else emb
         val engine =
             if (d.engineExternal) "external" else "embedded"
         return b.copy(
@@ -415,8 +454,12 @@ private data class ProtectionDraft(
                 else -> false
             },
             dpiSplitAfter = p?.dpiLocalEmbedded?.splitAfter ?: 1,
+            dpiSplitAfter2 = p?.dpiLocalEmbedded?.splitAfter2 ?: 0,
             dpiTtlMillis = p?.dpiLocalEmbedded?.ttlMillis ?: 8,
+            dpiTtl2Millis = p?.dpiLocalEmbedded?.ttl2Millis ?: 0,
             dpiDisorder = p?.dpiLocalEmbedded?.disorder ?: false,
+            dpiJitterMaxMs = p?.dpiLocalEmbedded?.jitterMaxMs ?: 0,
+            dpiLeadInMs = p?.dpiLocalEmbedded?.leadInMs ?: 0,
             dpiLocalPreset = p?.dpiLocalPreset ?: "",
         ).clean()
     }

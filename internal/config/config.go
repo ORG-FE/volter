@@ -142,9 +142,13 @@ type ProtectionOptions struct {
 
 // DpiLocalEmbedded задаёт локальный anti-DPI без внешнего ciadpi (порт byedpi-style split/ttl/disorder).
 type DpiLocalEmbedded struct {
-	SplitAfter int  `json:"splitAfter,omitempty"`
-	TTLMillis  int  `json:"ttlMillis,omitempty"`
-	Disorder   bool `json:"disorder,omitempty"`
+	SplitAfter  int  `json:"splitAfter,omitempty"`
+	SplitAfter2 int  `json:"splitAfter2,omitempty"`
+	TTLMillis   int  `json:"ttlMillis,omitempty"`
+	TTL2Millis  int  `json:"ttl2Millis,omitempty"`
+	Disorder    bool `json:"disorder,omitempty"`
+	JitterMaxMs int  `json:"jitterMaxMs,omitempty"`
+	LeadInMs    int  `json:"leadInMs,omitempty"`
 }
 
 func DpiLocalEngineIsExternal(p *ProtectionOptions) bool {
@@ -183,16 +187,43 @@ func MergeDpiLocalEmbeddedDefaults(e *DpiLocalEmbedded) DpiLocalEmbedded {
 		if e.SplitAfter > 0 {
 			out.SplitAfter = e.SplitAfter
 		}
+		if e.SplitAfter2 > 0 {
+			out.SplitAfter2 = e.SplitAfter2
+		}
 		if e.TTLMillis > 0 {
 			out.TTLMillis = e.TTLMillis
 		}
+		if e.TTL2Millis > 0 {
+			out.TTL2Millis = e.TTL2Millis
+		}
 		out.Disorder = e.Disorder
+		if e.JitterMaxMs > 0 {
+			out.JitterMaxMs = e.JitterMaxMs
+		}
+		if e.LeadInMs > 0 {
+			out.LeadInMs = e.LeadInMs
+		}
 	}
 	if out.SplitAfter > 65536 {
 		out.SplitAfter = 65536
 	}
+	if out.SplitAfter2 > 65536 {
+		out.SplitAfter2 = 65536
+	}
+	if out.SplitAfter2 > 0 && out.SplitAfter2 <= out.SplitAfter {
+		out.SplitAfter2 = 0
+	}
 	if out.TTLMillis > 60_000 {
 		out.TTLMillis = 60_000
+	}
+	if out.TTL2Millis > 60_000 {
+		out.TTL2Millis = 60_000
+	}
+	if out.JitterMaxMs > 5000 {
+		out.JitterMaxMs = 5000
+	}
+	if out.LeadInMs > 60_000 {
+		out.LeadInMs = 60_000
 	}
 	return out
 }

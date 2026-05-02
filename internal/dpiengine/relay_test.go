@@ -43,7 +43,7 @@ func TestRelayDisorderSendsSecondSegmentFirst(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		relayPipe(cRead, up, Options{SplitAfter: 2, TTLMillis: 0, Disorder: true})
+		relayPipe(cRead, up, Options{SplitAfter: 2, TTLMillis: 0, Disorder: true, JitterMaxMs: 0, LeadInMs: 0})
 	}()
 	if _, err := cWrite.Write([]byte("abcd")); err != nil {
 		t.Fatal(err)
@@ -72,7 +72,7 @@ func TestRelaySplitInsertsTTLBetweenChunks(t *testing.T) {
 	t0 := time.Now()
 	go func() {
 		defer close(done)
-		relayPipe(cRead, up, Options{SplitAfter: 1, TTLMillis: 50, Disorder: false})
+		relayPipe(cRead, up, Options{SplitAfter: 1, TTLMillis: 50, Disorder: false, JitterMaxMs: 0, LeadInMs: 0})
 	}()
 	if _, err := cWrite.Write([]byte("ab")); err != nil {
 		t.Fatal(err)
@@ -94,5 +94,67 @@ func TestRelaySplitInsertsTTLBetweenChunks(t *testing.T) {
 	}
 	if string(ch[0]) != "a" || string(ch[1]) != "b" {
 		t.Fatalf("order got %q %q", ch[0], ch[1])
+	}
+}
+
+func TestRelayTripleSplitOrder(t *testing.T) {
+	cRead, cWrite := net.Pipe()
+	up := &memUpstream{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		relayPipe(cRead, up, Options{
+			SplitAfter: 2, SplitAfter2: 3, TTLMillis: 0, TTL2Millis: 0, Disorder: false,
+			JitterMaxMs: 0, LeadInMs: 0,
+		})
+	}()
+	if _, err := cWrite.Write([]byte("abcde")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cWrite.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay timeout")
+	}
+	ch := up.chunks()
+	if len(ch) < 3 {
+		t.Fatalf("want 3 writes, got %d %q", len(ch), ch)
+	}
+	if string(ch[0]) != "ab" || string(ch[1]) != "c" || string(ch[2]) != "de" {
+		t.Fatalf("triple order got %q %q %q", ch[0], ch[1], ch[2])
+	}
+}
+
+func TestRelayTripleDisorder(t *testing.T) {
+	cRead, cWrite := net.Pipe()
+	up := &memUpstream{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		relayPipe(cRead, up, Options{
+			SplitAfter: 2, SplitAfter2: 3, TTLMillis: 0, TTL2Millis: 0, Disorder: true,
+			JitterMaxMs: 0, LeadInMs: 0,
+		})
+	}()
+	if _, err := cWrite.Write([]byte("abcde")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cWrite.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay timeout")
+	}
+	ch := up.chunks()
+	if len(ch) < 3 {
+		t.Fatalf("want 3 writes, got %d", len(ch))
+	}
+	if string(ch[0]) != "c" || string(ch[1]) != "ab" || string(ch[2]) != "de" {
+		t.Fatalf("triple disorder got %q %q %q", ch[0], ch[1], ch[2])
 	}
 }

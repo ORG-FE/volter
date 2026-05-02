@@ -37,7 +37,7 @@ const (
 	pingRed                  = "1"
 	probeTimeout             = 5 * time.Second
 	tabCount                 = 8
-	protectionFormFieldCount = 20
+	protectionFormFieldCount = 24
 )
 
 type tab int
@@ -714,6 +714,10 @@ func newProtectionInputs(opts config.ProtectionOptions) []textinput.Model {
 		ti("splitAfter", strconv.Itoa(mergedEmb.SplitAfter)),
 		ti("ttlMillis", strconv.Itoa(mergedEmb.TTLMillis)),
 		ti("disorder true|false", strconv.FormatBool(mergedEmb.Disorder)),
+		ti("splitAfter2 0=off", strconv.Itoa(mergedEmb.SplitAfter2)),
+		ti("ttl2Millis 0=same", strconv.Itoa(mergedEmb.TTL2Millis)),
+		ti("jitterMaxMs", strconv.Itoa(mergedEmb.JitterMaxMs)),
+		ti("leadInMs", strconv.Itoa(mergedEmb.LeadInMs)),
 		ti("dpiLocalPreset", strings.TrimSpace(opts.DpiLocalPreset)),
 	}
 }
@@ -806,6 +810,7 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 	dpiEngineStr := ""
 	splitA, ttl := 1, 8
 	disorder := false
+	splitA2, ttl2, jitter, leadIn := 0, 0, 0, 0
 	presetLine := ""
 	if len(inputs) >= protectionFormFieldCount {
 		standalone = strings.ToLower(strings.TrimSpace(inputs[14].Value())) == "true"
@@ -817,10 +822,20 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 		splitA = clamp(atoi(inputs[16].Value()), 1, 65536)
 		ttl = clamp(atoi(inputs[17].Value()), 1, 60000)
 		disorder = strings.ToLower(strings.TrimSpace(inputs[18].Value())) == "true"
-		presetLine = strings.TrimSpace(inputs[19].Value())
+		splitA2 = clamp(atoi(inputs[19].Value()), 0, 65536)
+		ttl2 = clamp(atoi(inputs[20].Value()), 0, 60000)
+		jitter = clamp(atoi(inputs[21].Value()), 0, 5000)
+		leadIn = clamp(atoi(inputs[22].Value()), 0, 60000)
+		presetLine = strings.TrimSpace(inputs[23].Value())
 	}
-	defEmb := config.DpiLocalEmbedded{SplitAfter: 1, TTLMillis: 8, Disorder: false}
-	curEmb := config.DpiLocalEmbedded{SplitAfter: splitA, TTLMillis: ttl, Disorder: disorder}
+	defEmb := config.DpiLocalEmbedded{
+		SplitAfter: 1, TTLMillis: 8, Disorder: false,
+		SplitAfter2: 0, TTL2Millis: 0, JitterMaxMs: 0, LeadInMs: 0,
+	}
+	curEmb := config.DpiLocalEmbedded{
+		SplitAfter: splitA, TTLMillis: ttl, Disorder: disorder,
+		SplitAfter2: splitA2, TTL2Millis: ttl2, JitterMaxMs: jitter, LeadInMs: leadIn,
+	}
 	var embPtr *config.DpiLocalEmbedded
 	if curEmb != defEmb {
 		embPtr = &curEmb
@@ -2174,7 +2189,7 @@ func (m *Model) protectionView() string {
 	if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount {
 		labels := []string{
 			"obfuscation", "junkCount", "junkMin", "junkMax", "padS1", "padS2", "padS3", "padS4", "preCheck", "magicSplit", "junkStyle", "flushPolicy", "preambleProfile", "preambleRotate",
-			"standaloneDpiOnly", "dpiLocalEngine", "splitAfter", "ttlMillis", "disorder", "dpiLocalPreset",
+			"standaloneDpiOnly", "dpiLocalEngine", "splitAfter", "ttlMillis", "disorder", "splitAfter2", "ttl2Millis", "jitterMaxMs", "leadInMs", "dpiLocalPreset",
 		}
 		for i := range m.protectionInputs {
 			b.WriteString("  ")
@@ -2238,8 +2253,8 @@ func (m *Model) protectionView() string {
 		b.WriteString(kvLabel.Render("dpiLocalEngine:") + " ")
 		b.WriteString(kvValue.Render(eng) + "\n")
 		b.WriteString("  ")
-		b.WriteString(kvLabel.Render("embedded split/ttl/disorder:") + " ")
-		b.WriteString(kvValue.Render(fmt.Sprintf("%d / %d / %v", de.SplitAfter, de.TTLMillis, de.Disorder)) + "   ")
+		b.WriteString(kvLabel.Render("dpi embedded:") + " ")
+		b.WriteString(kvValue.Render(fmt.Sprintf("s %d|%d ttl %d|%d dis %v jit %d lead %d", de.SplitAfter, de.SplitAfter2, de.TTLMillis, de.TTL2Millis, de.Disorder, de.JitterMaxMs, de.LeadInMs)) + "   ")
 		b.WriteString(kvLabel.Render("dpiLocalPreset:") + " ")
 		b.WriteString(kvValue.Render(orEmpty(opts.DpiLocalPreset, "-")) + "\n")
 		b.WriteString("  ")

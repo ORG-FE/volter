@@ -214,6 +214,14 @@ func TestMergeDpiLocalEmbeddedDefaults(t *testing.T) {
 	if got.SplitAfter != 65536 || got.TTLMillis != 60_000 {
 		t.Fatalf("caps %+v", got)
 	}
+	got = MergeDpiLocalEmbeddedDefaults(&DpiLocalEmbedded{SplitAfter: 3, SplitAfter2: 2})
+	if got.SplitAfter2 != 0 {
+		t.Fatalf("split2 must clear when not after split1 %+v", got)
+	}
+	got = MergeDpiLocalEmbeddedDefaults(&DpiLocalEmbedded{SplitAfter: 2, SplitAfter2: 5, TTL2Millis: 9, JitterMaxMs: 10, LeadInMs: 3})
+	if got.SplitAfter != 2 || got.SplitAfter2 != 5 || got.TTL2Millis != 9 || got.JitterMaxMs != 10 || got.LeadInMs != 3 {
+		t.Fatalf("extra fields %+v", got)
+	}
 }
 
 func TestStandaloneDpiUseExternalBin(t *testing.T) {

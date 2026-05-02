@@ -470,9 +470,13 @@ func StartStandaloneDpi(cfgJSON string, configDir string) string {
 		emb = config.MergeDpiLocalEmbeddedDefaults(nil)
 	}
 	dopts := dpiengine.Options{
-		SplitAfter: emb.SplitAfter,
-		TTLMillis:  emb.TTLMillis,
-		Disorder:   emb.Disorder,
+		SplitAfter:  emb.SplitAfter,
+		SplitAfter2: emb.SplitAfter2,
+		TTLMillis:   emb.TTLMillis,
+		TTL2Millis:  emb.TTL2Millis,
+		Disorder:    emb.Disorder,
+		JitterMaxMs: emb.JitterMaxMs,
+		LeadInMs:    emb.LeadInMs,
 	}
 	socksAddr, err := dpiengine.Serve(ctx, dopts)
 	if err != nil {

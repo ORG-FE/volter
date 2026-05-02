@@ -302,6 +302,10 @@
     <string name="protection_dpi_split_after">split after bytes</string>
     <string name="protection_dpi_ttl_ms">TTL delay (ms)</string>
     <string name="protection_dpi_disorder">Disorder (send 2nd segment first)</string>
+    <string name="protection_dpi_split_after2">second split at byte (0 = off)</string>
+    <string name="protection_dpi_ttl2_ms">second gap (ms, 0 = same as TTL)</string>
+    <string name="protection_dpi_jitter_ms">random jitter (ms, added to delays)</string>
+    <string name="protection_dpi_lead_in_ms">delay before upstream (ms)</string>
     <string name="protection_dpi_local_preset_label_embedded">External preset (used only in External mode; set engine to External to apply)</string>
     <string name="protection_standalone_dpi_only">Standalone anti-DPI only (no tunnel)</string>
     <string name="protection_dpi_local_preset_label">byedpi preset (CLI args, listen injected)</string>
