@@ -48,6 +48,8 @@ final class Protocol {
     return profileId;
   }
 
+  static final int MAX_MAGIC_SCAN_BYTES = 512 * 1024;
+
   static HandshakeResult readHandshake(InputStream in) throws IOException {
     skipUntilMagic(in);
     Handshake hs = readHandshakeBody(in);
@@ -69,6 +71,9 @@ final class Protocol {
     byte[] buf = new byte[5];
     int n = 0;
     while (true) {
+      if (n >= MAX_MAGIC_SCAN_BYTES) {
+        throw new IOException("volter magic not found within " + MAX_MAGIC_SCAN_BYTES + " bytes");
+      }
       int b = in.read();
       if (b == -1) throw new EOFException();
       System.arraycopy(buf, 1, buf, 0, 4);

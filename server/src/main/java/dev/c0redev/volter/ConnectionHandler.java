@@ -36,7 +36,8 @@ final class ConnectionHandler implements Runnable {
     private static final HttpClient CLUSTER_FWD = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5))
         .build();
-    private static final int HANDSHAKE_TIMEOUT_MS = 5_000;
+    private static final int HANDSHAKE_TIMEOUT_MS = 12_000;
+    private static final int HANDSHAKE_MARK_READ_LIMIT = 2 * 1024 * 1024;
     private static final SecureRandom HELLO_RND = new SecureRandom();
     
     private static final String PROBE_HANDSHAKE_TOKEN = "probe-bad-token";
@@ -64,8 +65,8 @@ final class ConnectionHandler implements Runnable {
         try {
             var xor = new XorStream(XorStream.keyFromToken(cfg.token()));
             s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
-            rawIn = new BufferedInputStream(s.getInputStream(), 64 * 1024);
-            rawIn.mark(64 * 1024);
+            rawIn = new BufferedInputStream(s.getInputStream(), 128 * 1024);
+            rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
             rawOut = s.getOutputStream();
             InputStream in = xor.wrapInput(rawIn);
 
@@ -144,8 +145,9 @@ final class ConnectionHandler implements Runnable {
         }
         try {
             rawIn.reset();
-            rawIn.mark(64 * 1024);
-        } catch (IOException ignored) {
+            rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
+        } catch (IOException e) {
+            log.warning("camouflage reset failed (mark overrun?): " + e.getMessage());
             return false;
         }
         byte[] sig = new byte[8];
