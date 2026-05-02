@@ -1,0 +1,11 @@
+Third-party notices
+===================
+
+byedpi (https://github.com/hufrea/byedpi)
+-----------------------------------------
+The `internal/dpiengine` package implements a minimal SOCKS5 relay and
+TCP desynchronization (split, TTL delay, disorder) inspired by the MIT-licensed
+byedpi / ciadpi family of tools. This repository’s implementation is original
+Go code; behavioral alignment references upstream documentation and sources.
+
+See upstream license in the byedpi repository (MIT License).

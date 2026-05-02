@@ -29,6 +29,9 @@ data class ProtectionOptions(
     val tlsProfileId: String? = null,
     val ja3TargetHash: String? = null,
     val standaloneDpiOnly: Boolean = false,
+    /** "" | "embedded" | "external" — пусто = встроенный движок. */
+    val dpiLocalEngine: String? = null,
+    val dpiLocalEmbedded: DpiLocalEmbedded? = null,
     val dpiLocalPreset: String? = null,
     val dpiVolunteer: Boolean = false,
     val dpiVolterTransportObfuscate: Boolean = false,
@@ -63,6 +66,11 @@ data class ProtectionOptions(
         tlsProfileId?.let { j.put("tlsProfileId", it) }
         ja3TargetHash?.let { j.put("ja3TargetHash", it) }
         if (standaloneDpiOnly) j.put("standaloneDpiOnly", true)
+        dpiLocalEngine?.trim()?.takeIf { it.isNotEmpty() }?.let { j.put("dpiLocalEngine", it) }
+        dpiLocalEmbedded?.let { o ->
+            val sub = o.toJson()
+            if (sub.length() > 0) j.put("dpiLocalEmbedded", sub)
+        }
         dpiLocalPreset?.let { j.put("dpiLocalPreset", it) }
         if (dpiVolunteer) j.put("dpiVolunteer", true)
         if (dpiVolterTransportObfuscate) j.put("dpiVolterTransportObfuscate", true)
@@ -105,6 +113,8 @@ data class ProtectionOptions(
             tlsProfileId = j.optNullableString("tlsProfileId"),
             ja3TargetHash = j.optNullableString("ja3TargetHash"),
             standaloneDpiOnly = j.optBoolean("standaloneDpiOnly", false),
+            dpiLocalEngine = j.optNullableString("dpiLocalEngine"),
+            dpiLocalEmbedded = DpiLocalEmbedded.fromJson(j.optJSONObject("dpiLocalEmbedded")),
             dpiLocalPreset = j.optNullableString("dpiLocalPreset"),
             dpiVolunteer = j.optBoolean("dpiVolunteer", false),
             dpiVolterTransportObfuscate = j.optBoolean("dpiVolterTransportObfuscate", false),

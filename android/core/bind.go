@@ -19,6 +19,7 @@ import (
 	"crypto/x509"
 
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/dpiengine"
 	"dev.c0redev.volter/internal/ice"
 	"dev.c0redev.volter/internal/meshstatus"
 	"dev.c0redev.volter/internal/netcfg"
@@ -111,6 +112,8 @@ type session struct {
 
 	stateMu sync.Mutex
 	err     string
+
+	socksListen string
 }
 
 var (
@@ -414,19 +417,10 @@ func StartStandaloneDpi(cfgJSON string, configDir string) string {
 		return jsonString(startResult{Handle: 0, Error: err.Error()})
 	}
 
-	preset := "--disorder 1 --ttl 8"
-	if cfg.Protection != nil {
-		if p := strings.TrimSpace(cfg.Protection.DpiLocalPreset); p != "" {
-			preset = p
-		}
-	}
-
-	bin := proxy.FindByedpiInDir(strings.TrimSpace(configDir))
-
 	s := &session{
 		done:       make(chan struct{}),
 		logsCh:     make(chan string, 500),
-		readyOnLog: []string{"proxy: byedpi слушает"},
+		readyOnLog: []string{},
 	}
 	handle := nextID.Add(1)
 	sessions.Store(handle, s)
@@ -436,25 +430,66 @@ func StartStandaloneDpi(cfgJSON string, configDir string) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
-	_, stop, err := proxy.StartByedpiLocalSocks(ctx, preset, bin)
+	if config.StandaloneDpiUseExternalBin(&cfg) {
+		preset := "--disorder 1 --ttl 8"
+		if cfg.Protection != nil {
+			if p := strings.TrimSpace(cfg.Protection.DpiLocalPreset); p != "" {
+				preset = config.ClampDpiLocalPreset(p)
+			}
+		}
+		s.readyOnLog = []string{"proxy: byedpi слушает"}
+		bin := proxy.FindByedpiInDir(strings.TrimSpace(configDir))
+		socksAddr, stop, err := proxy.StartByedpiLocalSocks(ctx, preset, bin)
+		if err != nil {
+			sessions.Delete(handle)
+			restoreLogs()
+			cancel()
+			return jsonString(startResult{Handle: 0, Error: err.Error()})
+		}
+		s.socksListen = socksAddr
+
+		go func() {
+			defer close(s.done)
+			defer sessions.Delete(handle)
+			defer restoreLogs()
+			defer stop()
+			<-ctx.Done()
+		}()
+
+		s.ready.Store(true)
+		return jsonString(startResult{Handle: handle, SocksListen: socksAddr})
+	}
+
+	s.readyOnLog = []string{"dpiengine: SOCKS"}
+	var emb config.DpiLocalEmbedded
+	if cfg.Protection != nil && cfg.Protection.DpiLocalEmbedded != nil {
+		emb = config.MergeDpiLocalEmbeddedDefaults(cfg.Protection.DpiLocalEmbedded)
+	} else {
+		emb = config.MergeDpiLocalEmbeddedDefaults(nil)
+	}
+	dopts := dpiengine.Options{
+		SplitAfter: emb.SplitAfter,
+		TTLMillis:  emb.TTLMillis,
+		Disorder:   emb.Disorder,
+	}
+	socksAddr, err := dpiengine.Serve(ctx, dopts)
 	if err != nil {
 		sessions.Delete(handle)
 		restoreLogs()
 		cancel()
 		return jsonString(startResult{Handle: 0, Error: err.Error()})
 	}
+	s.socksListen = socksAddr
 
 	go func() {
 		defer close(s.done)
 		defer sessions.Delete(handle)
 		defer restoreLogs()
-		defer stop()
 		<-ctx.Done()
 	}()
 
 	s.ready.Store(true)
-
-	return jsonString(startResult{Handle: handle})
+	return jsonString(startResult{Handle: handle, SocksListen: socksAddr})
 }
 
 func Stop(handle int64) bool {
@@ -517,10 +552,11 @@ func PollState(handle int64) string {
 	s.stateMu.Unlock()
 
 	return jsonString(stateResult{
-		Ready:    s.ready.Load(),
-		Running:  running,
-		Error:    errStr,
-		Watchdog: s.watchdogTriggered.Load(),
+		Ready:       s.ready.Load(),
+		Running:     running,
+		Error:       errStr,
+		Watchdog:    s.watchdogTriggered.Load(),
+		SocksListen: s.socksListen,
 	})
 }
 

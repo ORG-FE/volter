@@ -29,14 +29,15 @@ import (
 )
 
 const (
-	success      = "10"
-	errCol       = "9"
-	dim          = "8"
-	pingGreen    = "2"
-	pingYellow   = "11"
-	pingRed      = "1"
-	probeTimeout = 5 * time.Second
-	tabCount     = 8
+	success                  = "10"
+	errCol                   = "9"
+	dim                      = "8"
+	pingGreen                = "2"
+	pingYellow               = "11"
+	pingRed                  = "1"
+	probeTimeout             = 5 * time.Second
+	tabCount                 = 8
+	protectionFormFieldCount = 20
 )
 
 type tab int
@@ -682,6 +683,17 @@ func newProtectionInputs(opts config.ProtectionOptions) []textinput.Model {
 		flushPolicy = "once"
 	}
 	pp := opts.PreambleProfile
+	stand := "false"
+	if opts.StandaloneDpiOnly {
+		stand = "true"
+	}
+	eng := strings.TrimSpace(opts.DpiLocalEngine)
+	if strings.EqualFold(eng, "external") {
+		eng = "external"
+	} else {
+		eng = "embedded"
+	}
+	mergedEmb := config.MergeDpiLocalEmbeddedDefaults(opts.DpiLocalEmbedded)
 	return []textinput.Model{
 		ti("default|enhanced", obf),
 		ti("0-12", strconv.Itoa(opts.JunkCount)),
@@ -697,6 +709,12 @@ func newProtectionInputs(opts config.ProtectionOptions) []textinput.Model {
 		ti("once|perChunk", flushPolicy),
 		ti("none|rotate|tls_record|tls_ch_shape|smb1_shape|mc_frame", pp),
 		ti("preambleRotate true|false", strconv.FormatBool(opts.PreambleRotate)),
+		ti("standaloneDpi true|false", stand),
+		ti("embedded|external", eng),
+		ti("splitAfter", strconv.Itoa(mergedEmb.SplitAfter)),
+		ti("ttlMillis", strconv.Itoa(mergedEmb.TTLMillis)),
+		ti("disorder true|false", strconv.FormatBool(mergedEmb.Disorder)),
+		ti("dpiLocalPreset", strings.TrimSpace(opts.DpiLocalPreset)),
 	}
 }
 
@@ -784,26 +802,53 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 	} else {
 		flushPolicy = "once"
 	}
+	standalone := false
+	dpiEngineStr := ""
+	splitA, ttl := 1, 8
+	disorder := false
+	presetLine := ""
+	if len(inputs) >= protectionFormFieldCount {
+		standalone = strings.ToLower(strings.TrimSpace(inputs[14].Value())) == "true"
+		if strings.ToLower(strings.TrimSpace(inputs[15].Value())) == "external" {
+			dpiEngineStr = "external"
+		} else {
+			dpiEngineStr = "embedded"
+		}
+		splitA = clamp(atoi(inputs[16].Value()), 1, 65536)
+		ttl = clamp(atoi(inputs[17].Value()), 1, 60000)
+		disorder = strings.ToLower(strings.TrimSpace(inputs[18].Value())) == "true"
+		presetLine = strings.TrimSpace(inputs[19].Value())
+	}
+	defEmb := config.DpiLocalEmbedded{SplitAfter: 1, TTLMillis: 8, Disorder: false}
+	curEmb := config.DpiLocalEmbedded{SplitAfter: splitA, TTLMillis: ttl, Disorder: disorder}
+	var embPtr *config.DpiLocalEmbedded
+	if curEmb != defEmb {
+		embPtr = &curEmb
+	}
 	return config.ProtectionOptions{
-		Obfuscation:     obf,
-		JunkCount:       clamp(atoi(inputs[1].Value()), 0, 12),
-		JunkMin:         clamp(atoi(inputs[2].Value()), 64, 1024),
-		JunkMax:         clamp(atoi(inputs[3].Value()), 64, 1024),
-		PadS1:           clamp(atoi(inputs[4].Value()), 0, 64),
-		PadS2:           clamp(atoi(inputs[5].Value()), 0, 64),
-		PadS3:           clamp(atoi(inputs[6].Value()), 0, 64),
-		PadS4:           clamp(atoi(inputs[7].Value()), 0, 64),
-		PreCheck:        strings.ToLower(strings.TrimSpace(inputs[8].Value())) == "true",
-		MagicSplit:      magicSplit,
-		JunkStyle:       junkStyle,
-		FlushPolicy:     flushPolicy,
-		PreambleProfile: preambleProfile,
-		PreambleRotate:  preambleRotate,
+		Obfuscation:       obf,
+		JunkCount:         clamp(atoi(inputs[1].Value()), 0, 12),
+		JunkMin:           clamp(atoi(inputs[2].Value()), 64, 1024),
+		JunkMax:           clamp(atoi(inputs[3].Value()), 64, 1024),
+		PadS1:             clamp(atoi(inputs[4].Value()), 0, 64),
+		PadS2:             clamp(atoi(inputs[5].Value()), 0, 64),
+		PadS3:             clamp(atoi(inputs[6].Value()), 0, 64),
+		PadS4:             clamp(atoi(inputs[7].Value()), 0, 64),
+		PreCheck:          strings.ToLower(strings.TrimSpace(inputs[8].Value())) == "true",
+		MagicSplit:        magicSplit,
+		JunkStyle:         junkStyle,
+		FlushPolicy:       flushPolicy,
+		PreambleProfile:   preambleProfile,
+		PreambleRotate:    preambleRotate,
+		StandaloneDpiOnly: standalone,
+		DpiLocalEngine:    dpiEngineStr,
+		DpiLocalEmbedded:  embPtr,
+		DpiLocalPreset:    presetLine,
 	}
 }
 
 func applyProtectionPresetToInputs(inputs []textinput.Model, preset config.ProtectionOptions) []textinput.Model {
-	if len(inputs) < 14 {
+	if len(inputs) < protectionFormFieldCount {
 		return inputs
 	}
 	set := func(i int, v string) {
@@ -1351,7 +1396,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "3":
 					preset = protectionPresetAutoByMetrics()
 				}
-				if m.protectionEditing && len(m.protectionInputs) == 14 {
+				if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount {
 					m.protectionInputs = applyProtectionPresetToInputs(m.protectionInputs, preset)
 					return m, nil
 				}
@@ -1541,7 +1586,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			if m.protectionEditing && len(m.protectionInputs) == 14 {
+			if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount {
 				m.protectionFormFocus = (m.protectionFormFocus + 1) % len(m.protectionInputs)
 				for i := range m.protectionInputs {
 					if i == m.protectionFormFocus {
@@ -1602,7 +1647,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			if m.protectionEditing && len(m.protectionInputs) == 14 {
+			if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount {
 				m.protectionFormFocus = (m.protectionFormFocus + len(m.protectionInputs) - 1) % len(m.protectionInputs)
 				for i := range m.protectionInputs {
 					if i == m.protectionFormFocus {
@@ -1696,7 +1741,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setMeshViewportContent()
 				return m, nil
 			}
-			if m.protectionEditing && len(m.protectionInputs) == 14 {
+			if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount {
 				opts := protectionOptsFromInputs(m.protectionInputs)
 				if m.protectionTarget == "" {
 					_ = config.SaveProtection(opts)
@@ -2126,8 +2171,11 @@ func (m *Model) protectionView() string {
 
 	b.WriteString("\n")
 	b.WriteString(sectionTitle.Render("Настройки защиты") + "\n")
-	if m.protectionEditing && len(m.protectionInputs) == 14 {
-		labels := []string{"obfuscation", "junkCount", "junkMin", "junkMax", "padS1", "padS2", "padS3", "padS4", "preCheck", "magicSplit", "junkStyle", "flushPolicy", "preambleProfile", "preambleRotate"}
+	if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount {
+		labels := []string{
+			"obfuscation", "junkCount", "junkMin", "junkMax", "padS1", "padS2", "padS3", "padS4", "preCheck", "magicSplit", "junkStyle", "flushPolicy", "preambleProfile", "preambleRotate",
+			"standaloneDpiOnly", "dpiLocalEngine", "splitAfter", "ttlMillis", "disorder", "dpiLocalPreset",
+		}
 		for i := range m.protectionInputs {
 			b.WriteString("  ")
 			b.WriteString(kvLabel.Render(labels[i]+":") + " ")
@@ -2179,6 +2227,21 @@ func (m *Model) protectionView() string {
 		b.WriteString(kvValue.Render(orEmpty(opts.PreambleProfile, "-")) + "   ")
 		b.WriteString(kvLabel.Render("preambleRotate:") + " ")
 		b.WriteString(kvValue.Render(fmt.Sprintf("%v", opts.PreambleRotate)) + "\n")
+		de := config.MergeDpiLocalEmbeddedDefaults(opts.DpiLocalEmbedded)
+		eng := strings.TrimSpace(opts.DpiLocalEngine)
+		if eng == "" {
+			eng = "embedded"
+		}
+		b.WriteString("  ")
+		b.WriteString(kvLabel.Render("standaloneDpiOnly:") + " ")
+		b.WriteString(kvValue.Render(fmt.Sprintf("%v", opts.StandaloneDpiOnly)) + "   ")
+		b.WriteString(kvLabel.Render("dpiLocalEngine:") + " ")
+		b.WriteString(kvValue.Render(eng) + "\n")
+		b.WriteString("  ")
+		b.WriteString(kvLabel.Render("embedded split/ttl/disorder:") + " ")
+		b.WriteString(kvValue.Render(fmt.Sprintf("%d / %d / %v", de.SplitAfter, de.TTLMillis, de.Disorder)) + "   ")
+		b.WriteString(kvLabel.Render("dpiLocalPreset:") + " ")
+		b.WriteString(kvValue.Render(orEmpty(opts.DpiLocalPreset, "-")) + "\n")
 		b.WriteString("  ")
 		b.WriteString(hintKey.Render("E") + " ")
 		b.WriteString(hintText.Render("редактировать  ") + hintKey.Render("1/2/3") + " ")

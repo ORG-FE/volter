@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Volter</string>
+    <string name="notif_fg_standalone_socks">SOCKS %1$s — set proxy in apps or Wi‑Fi</string>
+    <string name="notif_fg_standalone">Anti-DPI standalone (open app for SOCKS)</string>
 
     <string name="nav_home">Home</string>
     <string name="nav_configs">Profiles</string>
@@ -141,6 +143,9 @@
     <string name="home_cloud_configs">Cloud profiles</string>
     <string name="home_logs_buffer">Log lines in buffer</string>
     <string name="home_recent_logs">Recent logs</string>
+    <string name="home_socks_title">SOCKS5 — point apps or Wi‑Fi proxy here</string>
+    <string name="home_socks_hint">Standalone anti-DPI has no TUN; apps must use this SOCKS address manually.</string>
+    <string name="home_socks_copy">Copy address</string>
     <string name="home_disconnect_cd">Disconnect VPN</string>
     <string name="home_refresh_cd">Refresh configs</string>
 
@@ -290,7 +295,14 @@
     <string name="protection_magic_split_label">magicSplit (0 = off)</string>
     <string name="protection_precheck">Pre-check connection</string>
     <string name="protection_antidpi_section_title">Anti-DPI (local)</string>
-    <string name="protection_antidpi_section_hint">Without Volter VPN: local SOCKS via ciadpi/byedpi. Put binary in app config dir or PATH; optional preset overrides default flags.</string>
+    <string name="protection_antidpi_section_hint">Without Volter VPN: local SOCKS. Embedded: built-in Go engine. External: ciadpi/byedpi binary in app config or PATH. Preset with external mode only (unless you set engine to External explicitly).</string>
+    <string name="protection_dpi_engine_title">Local anti-DPI engine</string>
+    <string name="protection_dpi_engine_embedded">Embedded (Go)</string>
+    <string name="protection_dpi_engine_external">External (ciadpi)</string>
+    <string name="protection_dpi_split_after">split after bytes</string>
+    <string name="protection_dpi_ttl_ms">TTL delay (ms)</string>
+    <string name="protection_dpi_disorder">Disorder (send 2nd segment first)</string>
+    <string name="protection_dpi_local_preset_label_embedded">External preset (used only in External mode; set engine to External to apply)</string>
     <string name="protection_standalone_dpi_only">Standalone anti-DPI only (no tunnel)</string>
     <string name="protection_dpi_local_preset_label">byedpi preset (CLI args, listen injected)</string>
     <string name="protection_save">Save</string>

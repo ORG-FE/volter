@@ -9,6 +9,7 @@ object CoreBridge {
     data class StartResult(
         val handle: Long,
         val error: String?,
+        val socksListen: String? = null,
     )
 
     data class State(
@@ -16,6 +17,7 @@ object CoreBridge {
         val running: Boolean,
         val error: String?,
         val watchdog: Boolean = false,
+        val socksListen: String? = null,
     )
 
     data class ProbeResult(
@@ -55,8 +57,9 @@ object CoreBridge {
         val j = JSONObject(raw)
         val handle = j.optLong("handle", 0L)
         val err = nullableErr(j, "error")
-        VolterLog.i("Core.startTun -> handle=$handle err=${err ?: "null"}")
-        return StartResult(handle = handle, error = err)
+        val socks = nullableOpt(j, "socksListen")
+        VolterLog.i("Core.startTun -> handle=$handle err=${err ?: "null"} socks=${socks ?: "null"}")
+        return StartResult(handle = handle, error = err, socksListen = socks)
     }
 
     fun stop(handle: Long): Boolean {
@@ -73,11 +76,12 @@ object CoreBridge {
         val running = j.optBoolean("running", false)
         val ready = j.optBoolean("ready", false)
         val watchdog = j.optBoolean("watchdog", false)
-        VolterLog.v("pollState h=$handle ready=$ready running=$running watchdog=$watchdog err=${err ?: "null"}")
+        val socksListen = nullableOpt(j, "socksListen")
+        VolterLog.v("pollState h=$handle ready=$ready running=$running watchdog=$watchdog socks=${socksListen ?: "null"} err=${err ?: "null"}")
         if (!err.isNullOrBlank() && (err.equals("no session", ignoreCase = true) || err.equals("bad handle", ignoreCase = true))) {
             VolterLog.w("pollState missing session h=$handle (stale handle or core already stopped)")
         }
-        return State(ready = ready, running = running, error = err, watchdog = watchdog)
+        return State(ready = ready, running = running, error = err, watchdog = watchdog, socksListen = socksListen)
     }
 
     fun pollLogs(handle: Long, max: Int = 200): List<String> {
@@ -100,8 +104,9 @@ object CoreBridge {
         val j = JSONObject(raw)
         val handle = j.optLong("handle", 0L)
         val err = nullableErr(j, "error")
-        VolterLog.i("Core.startProxy -> handle=$handle err=${err ?: "null"}")
-        return StartResult(handle = handle, error = err)
+        val socks = nullableOpt(j, "socksListen")
+        VolterLog.i("Core.startProxy -> handle=$handle err=${err ?: "null"} socks=${socks ?: "null"}")
+        return StartResult(handle = handle, error = err, socksListen = socks)
     }
 
     fun startStandaloneDpi(cfgJson: String, configDir: String): StartResult {
@@ -110,8 +115,9 @@ object CoreBridge {
         val j = JSONObject(raw)
         val handle = j.optLong("handle", 0L)
         val err = nullableErr(j, "error")
-        VolterLog.i("Core.startStandaloneDpi -> handle=$handle err=${err ?: "null"}")
-        return StartResult(handle = handle, error = err)
+        val socks = nullableOpt(j, "socksListen")
+        VolterLog.i("Core.startStandaloneDpi -> handle=$handle err=${err ?: "null"} socks=${socks ?: "null"}")
+        return StartResult(handle = handle, error = err, socksListen = socks)
     }
 
     fun probeVolter(server: String, token: String, timeoutMs: Long): ProbeResult {
@@ -197,6 +203,12 @@ object CoreBridge {
     }
 
     private fun nullableErr(j: JSONObject, key: String): String? {
+        if (!j.has(key) || j.isNull(key)) return null
+        val s = j.optString(key, "")
+        return s.takeIf { it.isNotEmpty() && it != "null" }
+    }
+
+    private fun nullableOpt(j: JSONObject, key: String): String? {
         if (!j.has(key) || j.isNull(key)) return null
         val s = j.optString(key, "")
         return s.takeIf { it.isNotEmpty() && it != "null" }

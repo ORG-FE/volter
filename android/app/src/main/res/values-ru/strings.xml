@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Volter</string>
+    <string name="notif_fg_standalone_socks">SOCKS %1$s — укажи прокси в приложениях или Wi‑Fi</string>
+    <string name="notif_fg_standalone">Только anti-DPI (без TUN), открой приложение за адресом SOCKS</string>
     <string name="nav_home">Главная</string>
     <string name="nav_configs">Профили</string>
     <string name="nav_logs">Логи</string>
@@ -138,6 +140,9 @@
     <string name="home_cloud_configs">Облачные профили</string>
     <string name="home_logs_buffer">Логов в буфере</string>
     <string name="home_recent_logs">Последние логи</string>
+    <string name="home_socks_title">SOCKS5 — укажи прокси приложениям или Wi‑Fi</string>
+    <string name="home_socks_hint">В режиме только anti-DPI туннеля нет; трафик пойдёт только если приложение использует этот SOCKS.</string>
+    <string name="home_socks_copy">Скопировать адрес</string>
     <string name="home_disconnect_cd">Отключить VPN</string>
     <string name="home_refresh_cd">Обновить конфиги</string>
 
@@ -285,7 +290,14 @@
     <string name="protection_magic_split_label">magicSplit (0 = выкл)</string>
     <string name="protection_precheck">Предпроверка</string>
     <string name="protection_antidpi_section_title">Anti-DPI (локально)</string>
-    <string name="protection_antidpi_section_hint">Без VPN Volter: локальный SOCKS через ciadpi/byedpi. Бинарник в каталог конфига приложения или PATH; пресет подставляет свои флаги вместо дефолта.</string>
+    <string name="protection_antidpi_section_hint">Без VPN Volter: локальный SOCKS. Встроенный — Go-движок в приложении. Внешний — ciadpi/byedpi из каталога конфига или PATH. Строка пресета для режима «Внешний» (или пока движок не указан явно как «Встроенный»).</string>
+    <string name="protection_dpi_engine_title">Локальный anti-DPI</string>
+    <string name="protection_dpi_engine_embedded">Встроенный (Go)</string>
+    <string name="protection_dpi_engine_external">Внешний (ciadpi)</string>
+    <string name="protection_dpi_split_after">разбить после байт</string>
+    <string name="protection_dpi_ttl_ms">задержка TTL (мс)</string>
+    <string name="protection_dpi_disorder">Disorder (второй кусок первым)</string>
+    <string name="protection_dpi_local_preset_label_embedded">Пресет для внешнего движка (используется только в режиме «Внешний»)</string>
     <string name="protection_standalone_dpi_only">Только anti-DPI без туннеля</string>
     <string name="protection_dpi_local_preset_label">Пресет byedpi (аргументы CLI, bind задаётся отдельно)</string>
     <string name="protection_save">Сохранить</string>

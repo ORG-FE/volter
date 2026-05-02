@@ -31,6 +31,7 @@ const val ACTION_CORE_SESSION = "dev.c0redev.volter.ACTION_CORE_SESSION"
 const val EXTRA_CORE_HANDLE = "core_handle"
 const val EXTRA_CORE_MODE = "core_mode"
 const val EXTRA_CORE_ERROR = "core_error"
+const val EXTRA_CORE_SOCKS_LISTEN = "core_socks_listen"
 
 class VolterVpnService : VpnService() {
     private var coreHandle: Long = -1
@@ -108,7 +109,7 @@ class VolterVpnService : VpnService() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun ensureForeground(status: String) {
+    private fun ensureForeground(contentText: CharSequence) {
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
             val ch = NotificationChannel(
@@ -121,7 +122,7 @@ class VolterVpnService : VpnService() {
 
         val notif = Notification.Builder(this, NOTIF_CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(status)
+            .setContentText(contentText)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
             .build()
@@ -206,11 +207,14 @@ class VolterVpnService : VpnService() {
             stopSelf()
             return
         }
-        VolterLog.i("startStandaloneDpi ok handle=$coreHandle")
+        VolterLog.i("startStandaloneDpi ok handle=$coreHandle socks=${res.socksListen}")
         trafficWallStartMs = System.currentTimeMillis()
         activeVpnMode = "dpi_standalone"
-        broadcastSession(coreHandle, "dpi_standalone")
-        ensureForeground("dpi_standalone")
+        broadcastSession(coreHandle, "dpi_standalone", res.socksListen)
+        val fgText = res.socksListen?.takeIf { it.isNotBlank() }?.let { socks ->
+            getString(R.string.notif_fg_standalone_socks, socks)
+        } ?: getString(R.string.notif_fg_standalone)
+        ensureForeground(fgText)
     }
 
     private fun startProxyInternal(cfg: Config, settings: ClientSettings, configDir: String) {
@@ -445,12 +449,13 @@ class VolterVpnService : VpnService() {
         }.getOrNull()
     }
 
-    private fun broadcastSession(handle: Long, mode: String) {
-        VolterLog.i("broadcastSession handle=$handle mode=$mode")
+    private fun broadcastSession(handle: Long, mode: String, socksListen: String? = null) {
+        VolterLog.i("broadcastSession handle=$handle mode=$mode socks=${socksListen ?: "null"}")
         val i = Intent(ACTION_CORE_SESSION).apply {
             setPackage(packageName)
             putExtra(EXTRA_CORE_HANDLE, handle)
             putExtra(EXTRA_CORE_MODE, mode)
+            if (!socksListen.isNullOrBlank()) putExtra(EXTRA_CORE_SOCKS_LISTEN, socksListen)
         }
         sendBroadcast(i)
     }

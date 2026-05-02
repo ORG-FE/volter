@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
+	"dev.c0redev.volter/internal/dpi"
 	"dev.c0redev.volter/internal/protocol"
 )
 
@@ -79,60 +81,137 @@ type RelayOptions struct {
 }
 
 type ProtectionOptions struct {
-	Obfuscation                 string   `json:"obfuscation,omitempty"`
-	PreambleProfile             string   `json:"preambleProfile,omitempty"`
-	PreambleRotate              bool     `json:"preambleRotate,omitempty"`
-	ProbeObfsProfileID          byte     `json:"-"`
-	JunkCount                   int      `json:"junkCount,omitempty"`
-	JunkMin                     int      `json:"junkMin,omitempty"`
-	JunkMax                     int      `json:"junkMax,omitempty"`
-	PadS1                       int      `json:"padS1,omitempty"`
-	PadS2                       int      `json:"padS2,omitempty"`
-	PadS3                       int      `json:"padS3,omitempty"`
-	PadS4                       int      `json:"padS4,omitempty"`
-	PreCheck                    bool     `json:"preCheck,omitempty"`
-	MagicSplit                  string   `json:"magicSplit,omitempty"`
-	JunkStyle                   string   `json:"junkStyle,omitempty"`
-	FlushPolicy                 string   `json:"flushPolicy,omitempty"`
-	ObfSeed                     string   `json:"obfSeed,omitempty"`
-	CapsVersion                 int      `json:"capsVersion,omitempty"`
-	TransportMask               int      `json:"transportMask,omitempty"`
-	FeatureBits                 int      `json:"featureBits,omitempty"`
-	ClientNonce                 string   `json:"clientNonce,omitempty"`
-	ClientTsSec                 int64    `json:"clientTsSec,omitempty"`
-	RelayHop                    int      `json:"relayHop,omitempty"`
-	RelayMaxHop                 int      `json:"relayMaxHop,omitempty"`
-	RelayBudgetKbps             int      `json:"relayBudgetKbps,omitempty"`
-	PeerID                      string   `json:"peerId,omitempty"`
-	RelayNonce                  string   `json:"relayNonce,omitempty"`
-	RelaySig                    string   `json:"relaySig,omitempty"`
-	SessionID                   string   `json:"sessionId,omitempty"`
-	ResumeToken                 string   `json:"resumeToken,omitempty"`
-	RouteID                     string   `json:"routeId,omitempty"`
-	HopIndex                    int      `json:"hopIndex,omitempty"`
-	ChurnEpochSec               int      `json:"churnEpochSec,omitempty"`
-	FlushJitterMaxMs            int      `json:"flushJitterMaxMs,omitempty"`
-	BurstSmoothingMaxMs         int      `json:"burstSmoothingMaxMs,omitempty"`
-	ShapeMaxKbps                int      `json:"shapeMaxKbps,omitempty"`
-	ShapeJitterMaxMs            int      `json:"shapeJitterMaxMs,omitempty"`
-	ShapeExpMeanMs              int      `json:"shapeExpMeanMs,omitempty"`
-	ClusterHTTPKey              string   `json:"clusterHttpKey,omitempty"`
-	ClusterMapPath              string   `json:"clusterMapPath,omitempty"`
-	ClusterSessionsPath         string   `json:"clusterSessionsPath,omitempty"`
-	ClusterClientsPath          string   `json:"clusterClientsPath,omitempty"`
-	ClusterPreferredServer      string   `json:"clusterPreferredServer,omitempty"`
-	ClusterInvitePath           string   `json:"clusterInvitePath,omitempty"`
-	ClusterPeerHandshakePath    string   `json:"clusterPeerHandshakePath,omitempty"`
-	TlsProfileID                string   `json:"tlsProfileId,omitempty"`
-	Ja3TargetHash               string   `json:"ja3TargetHash,omitempty"`
-	StandaloneDpiOnly           bool     `json:"standaloneDpiOnly,omitempty"`
-	DpiVolunteer                bool     `json:"dpiVolunteer,omitempty"`
-	DpiVolterTransportObfuscate bool     `json:"dpiVolterTransportObfuscate,omitempty"`
-	DpiProbeURLs                []string `json:"dpiProbeUrls,omitempty"`
-	AntiDpiWithVpn              bool     `json:"antiDpiWithVpn,omitempty"`
-	DpiLocalPreset              string   `json:"dpiLocalPreset,omitempty"`
-	RouteMode                   string   `json:"routeMode,omitempty"`
-	RoutePlannerV2              bool     `json:"routePlannerV2,omitempty"`
+	Obfuscation              string `json:"obfuscation,omitempty"`
+	PreambleProfile          string `json:"preambleProfile,omitempty"`
+	PreambleRotate           bool   `json:"preambleRotate,omitempty"`
+	ProbeObfsProfileID       byte   `json:"-"`
+	JunkCount                int    `json:"junkCount,omitempty"`
+	JunkMin                  int    `json:"junkMin,omitempty"`
+	JunkMax                  int    `json:"junkMax,omitempty"`
+	PadS1                    int    `json:"padS1,omitempty"`
+	PadS2                    int    `json:"padS2,omitempty"`
+	PadS3                    int    `json:"padS3,omitempty"`
+	PadS4                    int    `json:"padS4,omitempty"`
+	PreCheck                 bool   `json:"preCheck,omitempty"`
+	MagicSplit               string `json:"magicSplit,omitempty"`
+	JunkStyle                string `json:"junkStyle,omitempty"`
+	FlushPolicy              string `json:"flushPolicy,omitempty"`
+	ObfSeed                  string `json:"obfSeed,omitempty"`
+	CapsVersion              int    `json:"capsVersion,omitempty"`
+	TransportMask            int    `json:"transportMask,omitempty"`
+	FeatureBits              int    `json:"featureBits,omitempty"`
+	ClientNonce              string `json:"clientNonce,omitempty"`
+	ClientTsSec              int64  `json:"clientTsSec,omitempty"`
+	RelayHop                 int    `json:"relayHop,omitempty"`
+	RelayMaxHop              int    `json:"relayMaxHop,omitempty"`
+	RelayBudgetKbps          int    `json:"relayBudgetKbps,omitempty"`
+	PeerID                   string `json:"peerId,omitempty"`
+	RelayNonce               string `json:"relayNonce,omitempty"`
+	RelaySig                 string `json:"relaySig,omitempty"`
+	SessionID                string `json:"sessionId,omitempty"`
+	ResumeToken              string `json:"resumeToken,omitempty"`
+	RouteID                  string `json:"routeId,omitempty"`
+	HopIndex                 int    `json:"hopIndex,omitempty"`
+	ChurnEpochSec            int    `json:"churnEpochSec,omitempty"`
+	FlushJitterMaxMs         int    `json:"flushJitterMaxMs,omitempty"`
+	BurstSmoothingMaxMs      int    `json:"burstSmoothingMaxMs,omitempty"`
+	ShapeMaxKbps             int    `json:"shapeMaxKbps,omitempty"`
+	ShapeJitterMaxMs         int    `json:"shapeJitterMaxMs,omitempty"`
+	ShapeExpMeanMs           int    `json:"shapeExpMeanMs,omitempty"`
+	ClusterHTTPKey           string `json:"clusterHttpKey,omitempty"`
+	ClusterMapPath           string `json:"clusterMapPath,omitempty"`
+	ClusterSessionsPath      string `json:"clusterSessionsPath,omitempty"`
+	ClusterClientsPath       string `json:"clusterClientsPath,omitempty"`
+	ClusterPreferredServer   string `json:"clusterPreferredServer,omitempty"`
+	ClusterInvitePath        string `json:"clusterInvitePath,omitempty"`
+	ClusterPeerHandshakePath string `json:"clusterPeerHandshakePath,omitempty"`
+	TlsProfileID             string `json:"tlsProfileId,omitempty"`
+	Ja3TargetHash            string `json:"ja3TargetHash,omitempty"`
+	StandaloneDpiOnly        bool   `json:"standaloneDpiOnly,omitempty"`
+	// DpiLocalEngine: "" | "embedded" | "external". Пусто = embedded (встроенный Go-движок).
+	DpiLocalEngine              string            `json:"dpiLocalEngine,omitempty"`
+	DpiLocalEmbedded            *DpiLocalEmbedded `json:"dpiLocalEmbedded,omitempty"`
+	DpiVolunteer                bool              `json:"dpiVolunteer,omitempty"`
+	DpiVolterTransportObfuscate bool              `json:"dpiVolterTransportObfuscate,omitempty"`
+	DpiProbeURLs                []string          `json:"dpiProbeUrls,omitempty"`
+	AntiDpiWithVpn              bool              `json:"antiDpiWithVpn,omitempty"`
+	DpiLocalPreset              string            `json:"dpiLocalPreset,omitempty"`
+	RouteMode                   string            `json:"routeMode,omitempty"`
+	RoutePlannerV2              bool              `json:"routePlannerV2,omitempty"`
+}
+
+// DpiLocalEmbedded задаёт локальный anti-DPI без внешнего ciadpi (порт byedpi-style split/ttl/disorder).
+type DpiLocalEmbedded struct {
+	SplitAfter int  `json:"splitAfter,omitempty"`
+	TTLMillis  int  `json:"ttlMillis,omitempty"`
+	Disorder   bool `json:"disorder,omitempty"`
+}
+
+func DpiLocalEngineIsExternal(p *ProtectionOptions) bool {
+	if p == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(p.DpiLocalEngine), "external")
+}
+
+// DpiLocalEngineIsEmbedded — явный выбор встроенного движка (поле dpiLocalEngine = "embedded").
+func DpiLocalEngineIsEmbedded(p *ProtectionOptions) bool {
+	if p == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(p.DpiLocalEngine), "embedded")
+}
+
+// StandaloneDpiUseExternalBin — использовать внешний ciadpi/byedpi вместо встроенного dpiengine.
+func StandaloneDpiUseExternalBin(cfg *Config) bool {
+	if cfg == nil || cfg.Protection == nil {
+		return false
+	}
+	p := cfg.Protection
+	if DpiLocalEngineIsExternal(p) {
+		return true
+	}
+	if DpiLocalEngineIsEmbedded(p) {
+		return false
+	}
+	return strings.TrimSpace(p.DpiLocalPreset) != ""
+}
+
+func MergeDpiLocalEmbeddedDefaults(e *DpiLocalEmbedded) DpiLocalEmbedded {
+	out := DpiLocalEmbedded{SplitAfter: 1, TTLMillis: 8}
+	if e != nil {
+		if e.SplitAfter > 0 {
+			out.SplitAfter = e.SplitAfter
+		}
+		if e.TTLMillis > 0 {
+			out.TTLMillis = e.TTLMillis
+		}
+		out.Disorder = e.Disorder
+	}
+	if out.SplitAfter > 65536 {
+		out.SplitAfter = 65536
+	}
+	if out.TTLMillis > 60_000 {
+		out.TTLMillis = 60_000
+	}
+	return out
+}
+
+// ClampDpiLocalPreset режет строку пресета для внешнего byedpi по числу рун (как dpi.MaxGossipPresetRunes).
+func ClampDpiLocalPreset(s string) string {
+	if utf8.RuneCountInString(s) <= dpi.MaxGossipPresetRunes {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:dpi.MaxGossipPresetRunes])
+}
+
+// SanitizeProtectionInPlace лимиты полей protection перед сохранением или после загрузки.
+func SanitizeProtectionInPlace(p *ProtectionOptions) {
+	if p == nil {
+		return
+	}
+	p.DpiLocalPreset = ClampDpiLocalPreset(p.DpiLocalPreset)
 }
 
 func Dir() (string, error) {
@@ -183,6 +262,7 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return Config{}, err
 	}
+	SanitizeProtectionInPlace(c.Protection)
 	return c, nil
 }
 
@@ -232,6 +312,7 @@ func ApplyCloudConnectDefaults(cfg *Config, serverMode string, probeIPv6 bool) {
 }
 
 func Save(name string, c Config) error {
+	SanitizeProtectionInPlace(c.Protection)
 	dir, err := Dir()
 	if err != nil {
 		return err
@@ -342,10 +423,12 @@ func LoadProtection() (ProtectionOptions, error) {
 	if err := json.Unmarshal(b, &p); err != nil {
 		return ProtectionOptions{}, err
 	}
+	SanitizeProtectionInPlace(&p)
 	return p, nil
 }
 
 func SaveProtection(p ProtectionOptions) error {
+	SanitizeProtectionInPlace(&p)
 	dir, err := Dir()
 	if err != nil {
 		return err

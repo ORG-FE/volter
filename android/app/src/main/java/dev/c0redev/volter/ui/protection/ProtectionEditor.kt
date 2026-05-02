@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.annotation.StringRes
 import dev.c0redev.volter.R
+import dev.c0redev.volter.domain.model.DpiLocalEmbedded
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.ProtectionPresets
 import dev.c0redev.volter.domain.model.SessionRecord
@@ -186,10 +187,40 @@ fun ProtectionEditor(
                     checked = draft.standaloneDpiOnly,
                     onCheckedChange = { set(draft.copy(standaloneDpiOnly = it)) },
                 )
+                Segmented(
+                    title = stringResource(R.string.protection_dpi_engine_title),
+                    options = listOf(
+                        false to stringResource(R.string.protection_dpi_engine_embedded),
+                        true to stringResource(R.string.protection_dpi_engine_external),
+                    ),
+                    selected = draft.engineExternal,
+                    onSelect = { set(draft.copy(engineExternal = it)) },
+                )
+                if (!draft.engineExternal) {
+                    NumberRow(
+                        items = listOf(
+                            NumberItem(R.string.protection_dpi_split_after, draft.dpiSplitAfter, 1, 65536) {
+                                set(draft.copy(dpiSplitAfter = it))
+                            },
+                            NumberItem(R.string.protection_dpi_ttl_ms, draft.dpiTtlMillis, 1, 60_000) {
+                                set(draft.copy(dpiTtlMillis = it))
+                            },
+                        ),
+                    )
+                    ToggleRow(
+                        title = stringResource(R.string.protection_dpi_disorder),
+                        checked = draft.dpiDisorder,
+                        onCheckedChange = { set(draft.copy(dpiDisorder = it)) },
+                    )
+                }
                 StyledTextField(
                     value = draft.dpiLocalPreset,
                     onValueChange = { set(draft.copy(dpiLocalPreset = it)) },
-                    label = stringResource(R.string.protection_dpi_local_preset_label),
+                    label = if (draft.engineExternal) {
+                        stringResource(R.string.protection_dpi_local_preset_label)
+                    } else {
+                        stringResource(R.string.protection_dpi_local_preset_label_embedded)
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (showActions) {
@@ -209,6 +240,22 @@ fun ProtectionEditor(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Segmented(title: String, options: List<Pair<Boolean, String>>, selected: Boolean, onSelect: (Boolean) -> Unit) {
+    Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (value, label) ->
+            FilterChip(
+                selected = selected == value,
+                onClick = { onSelect(value) },
+                label = { Text(label) },
+                shape = RoundedCornerShape(VolterSpacing.chipRadius),
+            )
         }
     }
 }
@@ -279,6 +326,11 @@ private data class ProtectionDraft(
     val preambleProfile: String = "",
     val preambleRotate: Boolean = false,
     val standaloneDpiOnly: Boolean = false,
+    /** false = встроенный Go-движок, true = внешний ciadpi/byedpi. */
+    val engineExternal: Boolean = false,
+    val dpiSplitAfter: Int = 1,
+    val dpiTtlMillis: Int = 8,
+    val dpiDisorder: Boolean = false,
     val dpiLocalPreset: String = "",
 ) {
     fun clean(): ProtectionDraft {
@@ -300,12 +352,23 @@ private data class ProtectionDraft(
                 "rotate", "tls_record", "tls_ch_shape", "smb1_shape", "mc_frame" -> preambleProfile
                 else -> ""
             },
+            dpiSplitAfter = dpiSplitAfter.coerceIn(1, 65536),
+            dpiTtlMillis = dpiTtlMillis.coerceIn(1, 60_000),
         )
     }
 
     fun toOptions(base: ProtectionOptions?): ProtectionOptions {
         val b = base ?: ProtectionOptions()
         val d = clean()
+        val emb = DpiLocalEmbedded(
+            splitAfter = d.dpiSplitAfter,
+            ttlMillis = d.dpiTtlMillis,
+            disorder = d.dpiDisorder,
+        )
+        val embOut =
+            if (emb.splitAfter == 1 && emb.ttlMillis == 8 && !emb.disorder) null else emb
+        val engine =
+            if (d.engineExternal) "external" else "embedded"
         return b.copy(
             obfuscation = d.obfuscation,
             junkCount = d.junkCount,
@@ -322,6 +385,8 @@ private data class ProtectionDraft(
             preambleProfile = d.preambleProfile.takeIf { s -> s.isNotBlank() },
             preambleRotate = d.preambleRotate,
             standaloneDpiOnly = d.standaloneDpiOnly,
+            dpiLocalEngine = engine,
+            dpiLocalEmbedded = embOut,
             dpiLocalPreset = d.dpiLocalPreset.trim().takeIf { it.isNotEmpty() },
         )
     }
@@ -343,6 +408,15 @@ private data class ProtectionDraft(
             preambleProfile = p?.preambleProfile ?: "",
             preambleRotate = p?.preambleRotate ?: false,
             standaloneDpiOnly = p?.standaloneDpiOnly ?: false,
+            engineExternal = when {
+                p?.dpiLocalEngine.equals("external", ignoreCase = true) == true -> true
+                p?.dpiLocalEngine.equals("embedded", ignoreCase = true) == true -> false
+                !p?.dpiLocalPreset.isNullOrBlank() -> true // совместимость: пресет без явного embedded → внешний бинарник
+                else -> false
+            },
+            dpiSplitAfter = p?.dpiLocalEmbedded?.splitAfter ?: 1,
+            dpiTtlMillis = p?.dpiLocalEmbedded?.ttlMillis ?: 8,
+            dpiDisorder = p?.dpiLocalEmbedded?.disorder ?: false,
             dpiLocalPreset = p?.dpiLocalPreset ?: "",
         ).clean()
     }

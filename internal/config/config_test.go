@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"dev.c0redev.volter/internal/dpi"
 	"dev.c0redev.volter/internal/protocol"
 )
 
@@ -171,6 +174,69 @@ func TestMergeProbeObfsIntoProtection(t *testing.T) {
 	out2 := MergeProbeObfsIntoProtection(nil, caps)
 	if out2.ProbeObfsProfileID != 9 || out2.PreambleProfile != protocol.PreambleRotate || !out2.PreambleRotate {
 		t.Fatalf("got %+v", out2)
+	}
+}
+
+func TestClampDpiLocalPreset(t *testing.T) {
+	short := "-ttl 8 --foo"
+	if ClampDpiLocalPreset(short) != short {
+		t.Fatal("short string changed")
+	}
+	var huge strings.Builder
+	for i := 0; i < dpi.MaxGossipPresetRunes+50; i++ {
+		huge.WriteByte('a')
+	}
+	out := ClampDpiLocalPreset(huge.String())
+	if utf8.RuneCountInString(out) != dpi.MaxGossipPresetRunes {
+		t.Fatalf("rune count got %d want %d", utf8.RuneCountInString(out), dpi.MaxGossipPresetRunes)
+	}
+	multi := strings.Repeat("ж", dpi.MaxGossipPresetRunes+10)
+	out2 := ClampDpiLocalPreset(multi)
+	if utf8.RuneCountInString(out2) != dpi.MaxGossipPresetRunes {
+		t.Fatalf("multibyte rune count got %d", utf8.RuneCountInString(out2))
+	}
+}
+
+func TestMergeDpiLocalEmbeddedDefaults(t *testing.T) {
+	got := MergeDpiLocalEmbeddedDefaults(nil)
+	if got.SplitAfter != 1 || got.TTLMillis != 8 || got.Disorder {
+		t.Fatalf("nil defaults %+v", got)
+	}
+	got = MergeDpiLocalEmbeddedDefaults(&DpiLocalEmbedded{SplitAfter: 0, TTLMillis: 0})
+	if got.SplitAfter != 1 || got.TTLMillis != 8 {
+		t.Fatalf("zeros should fall back %+v", got)
+	}
+	got = MergeDpiLocalEmbeddedDefaults(&DpiLocalEmbedded{SplitAfter: 100, TTLMillis: 20, Disorder: true})
+	if got.SplitAfter != 100 || got.TTLMillis != 20 || !got.Disorder {
+		t.Fatalf("nonzero merge %+v", got)
+	}
+	got = MergeDpiLocalEmbeddedDefaults(&DpiLocalEmbedded{SplitAfter: 100_000, TTLMillis: 100_000})
+	if got.SplitAfter != 65536 || got.TTLMillis != 60_000 {
+		t.Fatalf("caps %+v", got)
+	}
+}
+
+func TestStandaloneDpiUseExternalBin(t *testing.T) {
+	ext := func(s string) *ProtectionOptions {
+		return &ProtectionOptions{DpiLocalEngine: s}
+	}
+	for _, tc := range []struct {
+		name string
+		cfg  *Config
+		want bool
+	}{
+		{"nil", nil, false},
+		{"no protection", &Config{Server: "x", Token: "t"}, false},
+		{"external", &Config{Server: "x", Token: "t", Protection: ext("external")}, true},
+		{"embedded", &Config{Server: "x", Token: "t", Protection: &ProtectionOptions{DpiLocalEngine: "embedded", DpiLocalPreset: "--foo"}}, false},
+		{"legacy preset only", &Config{Server: "x", Token: "t", Protection: &ProtectionOptions{DpiLocalPreset: "-p 1080"}}, true},
+		{"empty engine no preset", &Config{Server: "x", Token: "t", Protection: &ProtectionOptions{}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := StandaloneDpiUseExternalBin(tc.cfg); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
 	}
 }
 

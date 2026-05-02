@@ -16,6 +16,7 @@ import dev.c0redev.volter.BuildConfig
 import dev.c0redev.volter.EXTRA_CORE_ERROR
 import dev.c0redev.volter.EXTRA_CORE_HANDLE
 import dev.c0redev.volter.EXTRA_CORE_MODE
+import dev.c0redev.volter.EXTRA_CORE_SOCKS_LISTEN
 import dev.c0redev.volter.VolterLog
 import dev.c0redev.volter.VolterVpnService
 import dev.c0redev.volter.core.CoreBridge
@@ -87,6 +88,8 @@ data class ConnectionState(
     val ready: Boolean = false,
     val mode: String? = null,
     val error: String? = null,
+    /** SOCKS5 адрес локального anti-DPI (standalone без TUN). */
+    val socksListen: String? = null,
 )
 
 class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
@@ -229,7 +232,8 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             val handle = intent.getLongExtra(EXTRA_CORE_HANDLE, -1L)
             val mode = intent.getStringExtra(EXTRA_CORE_MODE)
             val error = intent.getStringExtra(EXTRA_CORE_ERROR)
-            VolterLog.i("ACTION_CORE_SESSION handle=$handle mode=$mode err=${error ?: "null"}")
+            val socksExtra = intent.getStringExtra(EXTRA_CORE_SOCKS_LISTEN)?.takeIf { it.isNotBlank() }
+            VolterLog.i("ACTION_CORE_SESSION handle=$handle mode=$mode socks=${socksExtra ?: "null"} err=${error ?: "null"}")
             if (!error.isNullOrBlank()) {
                 val normalized = error.trim()
                 val hideNoSession = normalized.equals("no session", ignoreCase = true) || normalized.equals("bad handle", ignoreCase = true)
@@ -240,7 +244,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                 if (!hideNoSession) {
                     clearActiveProfileUi()
                     _connectingProfileName.value = null
-                    _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = normalized)
+                    _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = normalized, socksListen = null)
                     _logs.value = (_logs.value + listOf("ERR\t$normalized")).takeLast(500)
                     _uiMessages.tryEmit(normalized)
                     val draft = activeMetric
@@ -248,7 +252,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     clearActiveProfileUi()
                     _connectingProfileName.value = null
-                    _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null)
+                    _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null, socksListen = null)
                     val draft = activeMetric
                     if (draft != null) finalizeActiveMetric(Instant.now(), handshakeOk = draft.handshakeOk, errorType = classifyErr(normalized))
                 }
@@ -260,7 +264,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             }
             coreHandle = handle
             _connectingProfileName.value = null
-            _connection.value = ConnectionState(connected = true, ready = false, mode = mode, error = null)
+            _connection.value = ConnectionState(connected = true, ready = false, mode = mode, error = null, socksListen = socksExtra)
             startLogPolling(handle, mode)
         }
     }
@@ -758,7 +762,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         pollJob = null
         ++pollGeneration
         coreHandle = -1
-        _connection.value = ConnectionState(connected = false, ready = false, mode = "tun", error = null)
+        _connection.value = ConnectionState(connected = false, ready = false, mode = "tun", error = null, socksListen = null)
         runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
         runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
         delay(300)
@@ -803,7 +807,13 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                 val noSession = state.error.equals("no session", ignoreCase = true) || state.error.equals("bad handle", ignoreCase = true)
                 val visibleError = if (noSession) null else state.error
                 if (gen == pollGeneration) {
-                    _connection.value = ConnectionState(connected = state.running, ready = state.ready, mode = mode, error = visibleError)
+                    _connection.value = ConnectionState(
+                        connected = state.running,
+                        ready = state.ready,
+                        mode = mode,
+                        error = visibleError,
+                        socksListen = state.socksListen,
+                    )
                 }
                 val cfg = activeConfig
                 val startedAt = activeStartedAt
@@ -836,7 +846,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                             finalizeActiveMetric(Instant.now(), state.ready, "watchdog")
                             pollJob = null
                             coreHandle = -1
-                            _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null)
+                            _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null, socksListen = null)
                             VolterLog.w("watchdog session end, reconnect name=$n rc=$rc")
                             viewModelScope.launch(Dispatchers.IO) {
                                 reconnectAfterWatchdog(n, c, rc)
@@ -847,7 +857,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                         if (gen == pollGeneration) {
                             coreHandle = -1
                             clearActiveProfileUi()
-                            _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null)
+                            _connection.value = ConnectionState(connected = false, ready = false, mode = mode, error = null, socksListen = null)
                             pollJob = null
                             VolterLog.w("poll exit noSession gen=$gen handle=$handle")
                         } else {
