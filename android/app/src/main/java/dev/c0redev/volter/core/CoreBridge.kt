@@ -202,6 +202,42 @@ object CoreBridge {
         }
     }
 
+    data class ClusterRefreshResult(
+        val ok: Boolean,
+        val mapOk: Boolean,
+        val sessionsOk: Boolean,
+        val clientsOk: Boolean,
+        val error: String?,
+        val serverUsed: String?,
+    )
+
+    fun refreshClusterServers(cfgJson: String, configDir: String): ClusterRefreshResult {
+        val raw = try {
+            val c = Class.forName("core.Core")
+            val m = c.getMethod("refreshClusterServers", String::class.java, String::class.java)
+            m.invoke(null, cfgJson, configDir) as String
+        } catch (e: Exception) {
+            VolterLog.w("refreshClusterServers: ${e.message}")
+            return ClusterRefreshResult(
+                ok = false,
+                mapOk = false,
+                sessionsOk = false,
+                clientsOk = false,
+                error = e.message,
+                serverUsed = null,
+            )
+        }
+        val j = JSONObject(raw)
+        return ClusterRefreshResult(
+            ok = j.optBoolean("ok", false),
+            mapOk = j.optBoolean("mapOk", false),
+            sessionsOk = j.optBoolean("sessionsOk", false),
+            clientsOk = j.optBoolean("clientsOk", false),
+            error = nullableErr(j, "error"),
+            serverUsed = nullableOpt(j, "serverUsed"),
+        )
+    }
+
     private fun nullableErr(j: JSONObject, key: String): String? {
         if (!j.has(key) || j.isNull(key)) return null
         val s = j.optString(key, "")

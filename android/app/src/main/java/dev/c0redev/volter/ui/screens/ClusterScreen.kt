@@ -1,16 +1,25 @@
 package dev.c0redev.volter.ui.screens
 
 import android.content.res.Resources
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,7 +28,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -30,7 +41,9 @@ import dev.c0redev.volter.core.CoreBridge
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
+import java.io.File
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 private data class ClusterViewState(
@@ -45,6 +58,8 @@ private data class ClusterViewState(
 @OptIn(ExperimentalLayoutApi::class)
 fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val configDir = remember { File(context.filesDir, "volter").absolutePath }
     val localCfgs = vm.localConfigs.collectAsState().value
     val activeName = vm.activeProfileName.collectAsState().value
     val activeCfg = localCfgs.firstOrNull { it.name == activeName }?.config
@@ -61,6 +76,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             ),
         )
     }
+    var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         while (true) {
             state = parseClusterState(CoreBridge.meshStatus(), context.resources)
@@ -76,11 +92,60 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
     ) {
         item {
-            Text(
-                text = stringResource(R.string.nav_cluster),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.nav_cluster),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Button(
+                    onClick = {
+                        val cfg = activeCfg ?: return@Button
+                        scope.launch {
+                            refreshing = true
+                            try {
+                                val r = CoreBridge.refreshClusterServers(cfg.toJson().toString(), configDir)
+                                state = parseClusterState(CoreBridge.meshStatus(), context.resources)
+                                if (!r.ok) {
+                                    val msg = r.error?.takeIf { it.isNotBlank() }
+                                        ?: buildList {
+                                            if (!r.mapOk) add("map")
+                                            if (!r.sessionsOk) add("sessions")
+                                            if (!r.clientsOk) add("clients")
+                                        }.joinToString().ifBlank { "?" }
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.cluster_refresh_failed_fmt, msg),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            } finally {
+                                refreshing = false
+                            }
+                        }
+                    },
+                    enabled = activeCfg != null && !refreshing,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (refreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null)
+                        }
+                        Text(stringResource(R.string.cluster_refresh_servers))
+                    }
+                }
+            }
         }
         item {
             SectionCard {

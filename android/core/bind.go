@@ -616,6 +616,35 @@ func MeshStatus() string {
 	return jsonString(meshstatus.Gather())
 }
 
+func RefreshClusterServers(cfgJSON string, configDir string) string {
+	_ = configDir
+	cfgJSON = strings.TrimSpace(cfgJSON)
+	if cfgJSON == "" {
+		b, _ := json.Marshal(vpn.ClusterRefreshResult{Error: "empty cfgJSON"})
+		return string(b)
+	}
+	var cfg config.Config
+	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
+		b, _ := json.Marshal(vpn.ClusterRefreshResult{Error: err.Error()})
+		return string(b)
+	}
+	addrs, err := resolveServerAddrs(cfg.Server)
+	if err != nil || len(addrs) == 0 {
+		b, _ := json.Marshal(vpn.ClusterRefreshResult{Error: "bad server addr"})
+		return string(b)
+	}
+	uninstall := installSocketProtect()
+	defer uninstall()
+	opt := vpn.Options{
+		ServerAddrs: addrs,
+		Token:       cfg.Token,
+		Protection:  cfg.Protection,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return vpn.RefreshClusterEndpointsJSON(ctx, opt)
+}
+
 func QuicDialTargetIPs(server string, quicServer string) string {
 	server = strings.TrimSpace(server)
 	quicServer = strings.TrimSpace(quicServer)

@@ -45,6 +45,8 @@
     <string name="cluster_mesh_clients_empty">В снимке DHT пока нет узлов</string>
     <string name="cluster_client_line_fmt">• %1$s</string>
     <string name="cluster_summary_waiting">Данные кластера появятся после синка mesh</string>
+    <string name="cluster_refresh_servers">Запросить серверы кластера</string>
+    <string name="cluster_refresh_failed_fmt">Не удалось запросить кластер: %1$s</string>
     <string name="cluster_status_unavailable">Статус mesh недоступен</string>
     <string name="action_share">Поделиться</string>
     <string name="action_copy">Копировать</string>

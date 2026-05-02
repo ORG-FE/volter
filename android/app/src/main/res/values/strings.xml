@@ -16,6 +16,8 @@
     <string name="cluster_mesh_clients_empty">No client nodes in DHT snapshot yet</string>
     <string name="cluster_client_line_fmt">• %1$s</string>
     <string name="cluster_summary_waiting">Cluster data will appear after mesh sync</string>
+    <string name="cluster_refresh_servers">Refresh cluster list</string>
+    <string name="cluster_refresh_failed_fmt">Cluster refresh failed: %1$s</string>
     <string name="cluster_status_unavailable">Mesh status unavailable</string>
 
     <string name="action_share">Share</string>
