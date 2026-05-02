@@ -32,15 +32,17 @@ import (
 )
 
 type startResult struct {
-	Handle uint64 `json:"handle"`
-	Error  string `json:"error,omitempty"`
+	Handle      uint64 `json:"handle"`
+	Error       string `json:"error,omitempty"`
+	SocksListen string `json:"socksListen,omitempty"`
 }
 
 type stateResult struct {
-	Ready    bool   `json:"ready"`
-	Running  bool   `json:"running"`
-	Error    string `json:"error,omitempty"`
-	Watchdog bool   `json:"watchdog,omitempty"`
+	Ready       bool   `json:"ready"`
+	Running     bool   `json:"running"`
+	Error       string `json:"error,omitempty"`
+	Watchdog    bool   `json:"watchdog,omitempty"`
+	SocksListen string `json:"socksListen,omitempty"`
 }
 
 type probeResult struct {
