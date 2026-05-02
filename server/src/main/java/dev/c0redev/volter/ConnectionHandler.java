@@ -92,14 +92,25 @@ final class ConnectionHandler implements Runnable {
                     s.close();
                 } catch (IOException ignored) {}
             });
-            session.handle(
-                hs,
-                hr,
-                in,
-                out,
-                (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts),
-                streamPool);
+            SessionHandler.TcpHandler tcp =
+                (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts);
+            if (hs.role() == Protocol.ROLE_UDP) {
+                session.handle(hs, hr, in, out, tcp, streamPool);
+                handedOff = true;
+                return;
+            }
             handedOff = true;
+            streamPool.submit(() -> {
+                try {
+                    session.handle(hs, hr, in, out, tcp, streamPool);
+                } catch (IOException e) {
+                    log.fine("session ended: " + e.getMessage());
+                } finally {
+                    try {
+                        s.close();
+                    } catch (IOException ignored) {}
+                }
+            });
             return;
         } catch (EOFException ignored) {
             if (tryCamouflage(s, rawIn, rawOut)) {
