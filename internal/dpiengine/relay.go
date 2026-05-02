@@ -27,7 +27,6 @@ func sleepJittered(baseMs, jitterMax int) {
 func relayPipe(client, remote net.Conn, opts Options) {
 	go func() {
 		_, _ = io.Copy(client, remote)
-		_ = client.Close()
 		_ = remote.Close()
 	}()
 
