@@ -26,8 +26,9 @@ jobs:
 
       - name: Install gomobile
         run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
+          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install "golang.org/x/mobile/cmd/gomobile@${MOBILE_VER}"
+          go install "golang.org/x/mobile/cmd/gobind@${MOBILE_VER}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Bind volter-core.aar
