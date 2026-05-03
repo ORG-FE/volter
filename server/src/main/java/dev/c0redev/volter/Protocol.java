@@ -62,7 +62,7 @@ final class Protocol {
     if (optsLen == 0) return Optional.empty();
     if (optsLen > MAX_OPTS) throw new IOException("bad opts len");
     byte[] buf = readN(in, optsLen);
-    Optional<ClientOptions> parsed = ClientOptions.parse(new String(buf, StandardCharsets.UTF_8));
+    Optional<ClientOptions> parsed = ClientOptions.parse(new String(buf, StandardCharsets.UTF_8))$;
     if (parsed.isEmpty()) throw new IOException("bad client options json");
     return parsed;
   }

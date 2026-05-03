@@ -81,55 +81,55 @@ type RelayOptions struct {
 }
 
 type ProtectionOptions struct {
-	Obfuscation              string `json:"obfuscation,omitempty"`
-	PreambleProfile          string `json:"preambleProfile,omitempty"`
-	PreambleRotate           bool   `json:"preambleRotate,omitempty"`
-	ProbeObfsProfileID       byte   `json:"-"`
-	JunkCount                int    `json:"junkCount,omitempty"`
-	JunkMin                  int    `json:"junkMin,omitempty"`
-	JunkMax                  int    `json:"junkMax,omitempty"`
-	PadS1                    int    `json:"padS1,omitempty"`
-	PadS2                    int    `json:"padS2,omitempty"`
-	PadS3                    int    `json:"padS3,omitempty"`
-	PadS4                    int    `json:"padS4,omitempty"`
-	PreCheck                 bool   `json:"preCheck,omitempty"`
-	MagicSplit               string `json:"magicSplit,omitempty"`
-	JunkStyle                string `json:"junkStyle,omitempty"`
-	FlushPolicy              string `json:"flushPolicy,omitempty"`
-	ObfSeed                  string `json:"obfSeed,omitempty"`
-	CapsVersion              int    `json:"capsVersion,omitempty"`
-	TransportMask            int    `json:"transportMask,omitempty"`
-	FeatureBits              int    `json:"featureBits,omitempty"`
-	ClientNonce              string `json:"clientNonce,omitempty"`
-	ClientTsSec              int64  `json:"clientTsSec,omitempty"`
-	RelayHop                 int    `json:"relayHop,omitempty"`
-	RelayMaxHop              int    `json:"relayMaxHop,omitempty"`
-	RelayBudgetKbps          int    `json:"relayBudgetKbps,omitempty"`
-	PeerID                   string `json:"peerId,omitempty"`
-	RelayNonce               string `json:"relayNonce,omitempty"`
-	RelaySig                 string `json:"relaySig,omitempty"`
-	SessionID                string `json:"sessionId,omitempty"`
-	ResumeToken              string `json:"resumeToken,omitempty"`
-	RouteID                  string `json:"routeId,omitempty"`
-	HopIndex                 int    `json:"hopIndex,omitempty"`
-	ChurnEpochSec            int    `json:"churnEpochSec,omitempty"`
-	FlushJitterMaxMs         int    `json:"flushJitterMaxMs,omitempty"`
-	BurstSmoothingMaxMs      int    `json:"burstSmoothingMaxMs,omitempty"`
-	ShapeMaxKbps             int    `json:"shapeMaxKbps,omitempty"`
-	ShapeJitterMaxMs         int    `json:"shapeJitterMaxMs,omitempty"`
-	ShapeExpMeanMs           int    `json:"shapeExpMeanMs,omitempty"`
-	ClusterHTTPKey           string `json:"clusterHttpKey,omitempty"`
-	ClusterMapPath           string `json:"clusterMapPath,omitempty"`
-	ClusterSessionsPath      string `json:"clusterSessionsPath,omitempty"`
-	ClusterClientsPath       string `json:"clusterClientsPath,omitempty"`
-	ClusterPreferredServer   string `json:"clusterPreferredServer,omitempty"`
-	ClusterInvitePath        string `json:"clusterInvitePath,omitempty"`
-	ClusterPeerHandshakePath string `json:"clusterPeerHandshakePath,omitempty"`
-	ClusterRouteAssist        bool   `json:"clusterRouteAssist,omitempty"`
-	ClusterAssistTargetNodeID string `json:"clusterAssistTargetNodeId,omitempty"`
-	TlsProfileID             string `json:"tlsProfileId,omitempty"`
-	Ja3TargetHash            string `json:"ja3TargetHash,omitempty"`
-	StandaloneDpiOnly        bool   `json:"standaloneDpiOnly,omitempty"`
+	Obfuscation                 string            `json:"obfuscation,omitempty"`
+	PreambleProfile             string            `json:"preambleProfile,omitempty"`
+	PreambleRotate              bool              `json:"preambleRotate,omitempty"`
+	ProbeObfsProfileID          byte              `json:"-"`
+	JunkCount                   int               `json:"junkCount,omitempty"`
+	JunkMin                     int               `json:"junkMin,omitempty"`
+	JunkMax                     int               `json:"junkMax,omitempty"`
+	PadS1                       int               `json:"padS1,omitempty"`
+	PadS2                       int               `json:"padS2,omitempty"`
+	PadS3                       int               `json:"padS3,omitempty"`
+	PadS4                       int               `json:"padS4,omitempty"`
+	PreCheck                    bool              `json:"preCheck,omitempty"`
+	MagicSplit                  string            `json:"magicSplit,omitempty"`
+	JunkStyle                   string            `json:"junkStyle,omitempty"`
+	FlushPolicy                 string            `json:"flushPolicy,omitempty"`
+	ObfSeed                     string            `json:"obfSeed,omitempty"`
+	CapsVersion                 int               `json:"capsVersion,omitempty"`
+	TransportMask               int               `json:"transportMask,omitempty"`
+	FeatureBits                 int               `json:"featureBits,omitempty"`
+	ClientNonce                 string            `json:"clientNonce,omitempty"`
+	ClientTsSec                 int64             `json:"clientTsSec,omitempty"`
+	RelayHop                    int               `json:"relayHop,omitempty"`
+	RelayMaxHop                 int               `json:"relayMaxHop,omitempty"`
+	RelayBudgetKbps             int               `json:"relayBudgetKbps,omitempty"`
+	PeerID                      string            `json:"peerId,omitempty"`
+	RelayNonce                  string            `json:"relayNonce,omitempty"`
+	RelaySig                    string            `json:"relaySig,omitempty"`
+	SessionID                   string            `json:"sessionId,omitempty"`
+	ResumeToken                 string            `json:"resumeToken,omitempty"`
+	RouteID                     string            `json:"routeId,omitempty"`
+	HopIndex                    int               `json:"hopIndex,omitempty"`
+	ChurnEpochSec               int               `json:"churnEpochSec,omitempty"`
+	FlushJitterMaxMs            int               `json:"flushJitterMaxMs,omitempty"`
+	BurstSmoothingMaxMs         int               `json:"burstSmoothingMaxMs,omitempty"`
+	ShapeMaxKbps                int               `json:"shapeMaxKbps,omitempty"`
+	ShapeJitterMaxMs            int               `json:"shapeJitterMaxMs,omitempty"`
+	ShapeExpMeanMs              int               `json:"shapeExpMeanMs,omitempty"`
+	ClusterHTTPKey              string            `json:"clusterHttpKey,omitempty"`
+	ClusterMapPath              string            `json:"clusterMapPath,omitempty"`
+	ClusterSessionsPath         string            `json:"clusterSessionsPath,omitempty"`
+	ClusterClientsPath          string            `json:"clusterClientsPath,omitempty"`
+	ClusterPreferredServer      string            `json:"clusterPreferredServer,omitempty"`
+	ClusterInvitePath           string            `json:"clusterInvitePath,omitempty"`
+	ClusterPeerHandshakePath    string            `json:"clusterPeerHandshakePath,omitempty"`
+	ClusterRouteAssist          bool              `json:"clusterRouteAssist,omitempty"`
+	ClusterAssistTargetNodeID   string            `json:"clusterAssistTargetNodeId,omitempty"`
+	TlsProfileID                string            `json:"tlsProfileId,omitempty"`
+	Ja3TargetHash               string            `json:"ja3TargetHash,omitempty"`
+	StandaloneDpiOnly           bool              `json:"standaloneDpiOnly,omitempty"`
 	DpiLocalEngine              string            `json:"dpiLocalEngine,omitempty"`
 	DpiLocalEmbedded            *DpiLocalEmbedded `json:"dpiLocalEmbedded,omitempty"`
 	DpiVolunteer                bool              `json:"dpiVolunteer,omitempty"`
@@ -392,6 +392,7 @@ type ClientSettings struct {
 	Mode        string `json:"mode,omitempty"`
 	SystemProxy bool   `json:"systemProxy,omitempty"`
 	ProxyListen string `json:"proxyListen,omitempty"`
+	LastProfile string `json:"lastProfile,omitempty"`
 }
 
 func LoadClientSettings() (ClientSettings, error) {

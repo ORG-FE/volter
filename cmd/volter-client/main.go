@@ -67,7 +67,9 @@ func main() {
 func run() error {
 	var (
 		tui            = flag.Bool("tui", false, "run TUI")
+		trayMode       = flag.Bool("tray", false, "system tray (pick profile, connect/disconnect)")
 		installDesktop = flag.Bool("install-desktop", false, "install Linux desktop integration")
+		profileName    = flag.String("profile", "", "load named JSON profile from config dir (with --server/--token from file)")
 		server         = flag.String("server", "", "host:port or host")
 		ports          = flag.String("ports", "", "csv ports for multiport")
 		token          = flag.String("token", "", "token")
@@ -95,6 +97,10 @@ func run() error {
 		return installDesktopIntegration()
 	}
 
+	if *trayMode {
+		return runTray()
+	}
+
 	autoInstallDesktopIntegration()
 
 	if *key != "" {
@@ -103,6 +109,53 @@ func run() error {
 			return errors.New("bad --key, expected volter://...")
 		}
 		*server, *token = s, t
+	}
+
+	var profileCfg *config.Config
+	if pn := strings.TrimSpace(*profileName); pn != "" {
+		pc, err := config.LoadByName(pn)
+		if err != nil {
+			return fmt.Errorf("profile %q: %w", pn, err)
+		}
+		profileCfg = &pc
+		*server = pc.Server
+		*token = pc.Token
+		if strings.TrimSpace(pc.Transport) != "" {
+			*transport = pc.Transport
+		}
+		if strings.TrimSpace(pc.QuicServer) != "" {
+			*quicServer = pc.QuicServer
+		}
+		if strings.TrimSpace(pc.QuicServerName) != "" {
+			*quicServerName = pc.QuicServerName
+		}
+		if strings.TrimSpace(pc.QuicCertPinSHA256) != "" {
+			*quicCertPin = pc.QuicCertPinSHA256
+		}
+		if strings.TrimSpace(pc.QuicCaCert) != "" {
+			*quicCaCertFile = pc.QuicCaCert
+		}
+		if pc.QuicSkipVerify != nil {
+			*quicSkipVerify = *pc.QuicSkipVerify
+		}
+		*quicTrace = pc.QuicTraceLog
+		if strings.TrimSpace(pc.Routes) != "" {
+			*routes = pc.Routes
+		}
+		if strings.TrimSpace(pc.Exclude) != "" {
+			*exclude = pc.Exclude
+		}
+		if strings.TrimSpace(pc.TunCIDR6) != "" {
+			*tunCIDR6 = pc.TunCIDR6
+		}
+		st, _ := config.LoadClientSettings()
+		if st.Mode == "proxy" {
+			*proxy = true
+		}
+		if st.ProxyListen != "" {
+			*proxyListen = st.ProxyListen
+		}
+		*systemProxy = st.SystemProxy
 	}
 
 	if *tui || (*server == "" && *token == "") {
@@ -142,9 +195,17 @@ func run() error {
 	}
 
 	prot, _ := config.LoadProtection()
+	if profileCfg != nil && profileCfg.Protection != nil {
+		prot = *profileCfg.Protection
+	}
 	var quicRoots *x509.CertPool
 	if p := strings.TrimSpace(*quicCaCertFile); p != "" {
-		pool, err := config.LoadQUICCAPool(p)
+		dir, derr := config.Dir()
+		if derr != nil {
+			return fmt.Errorf("config dir: %w", derr)
+		}
+		caPath := config.ResolveQUICCAPath(dir, p)
+		pool, err := config.LoadQUICCAPool(caPath)
 		if err != nil {
 			return err
 		}
@@ -163,6 +224,10 @@ func run() error {
 		QuicCaCert:        strings.TrimSpace(*quicCaCertFile),
 	}, probeCaps)
 	protEff := config.MergeProbeObfsIntoProtection(&prot, probeCaps)
+	var relayOpt *config.RelayOptions
+	if profileCfg != nil {
+		relayOpt = profileCfg.Relay
+	}
 	opts := runOpts{
 		serverIP:          sip,
 		token:             *token,
@@ -180,6 +245,7 @@ func run() error {
 		routeCIDRs:        routeCIDRs,
 		excludeCIDRs:      excludeCIDRs,
 		protection:        protEff,
+		relay:             relayOpt,
 		proxy:             *proxy,
 		proxyListen:       *proxyListen,
 		systemProxy:       *systemProxy,
