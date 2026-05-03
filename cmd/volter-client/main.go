@@ -66,8 +66,8 @@ func main() {
 
 func run() error {
 	var (
-		tui            = flag.Bool("tui", false, "run TUI")
-		trayMode       = flag.Bool("tray", false, "system tray (pick profile, connect/disconnect)")
+		tui            = flag.Bool("tui", false, "terminal UI (default is tray when no --server/--token)")
+		trayMode       = flag.Bool("tray", false, "system tray only (same as default without connection args)")
 		installDesktop = flag.Bool("install-desktop", false, "install Linux desktop integration")
 		profileName    = flag.String("profile", "", "load named JSON profile from config dir (with --server/--token from file)")
 		server         = flag.String("server", "", "host:port or host")
@@ -158,10 +158,12 @@ func run() error {
 		*systemProxy = st.SystemProxy
 	}
 
-	if *tui || (*server == "" && *token == "") {
+	if *tui {
 		return runTUI()
 	}
-
+	if *server == "" && *token == "" {
+		return runTray()
+	}
 	if *server == "" || *token == "" {
 		return errors.New("need --server and --token")
 	}
