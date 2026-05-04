@@ -305,6 +305,16 @@ func trayLaunchTUI(autoConnect string) {
 	socketPath := ipc.GetSocketPath()
 	home := os.Getenv("HOME")
 
+	if runtime.GOOS == "windows" {
+		args := []string{exe, "-tui", "-ipc-socket=" + socketPath}
+		if autoConnect != "" {
+			args = append(args, "-auto-connect="+autoConnect)
+		}
+		// cmd /C start "" <exe> <args...>
+		_ = exec.Command("cmd", append([]string{"/C", "start", ""}, args...)...).Start()
+		return
+	}
+
 	usePkexec := false
 	if runtime.GOOS == "linux" {
 		if _, err := exec.LookPath("pkexec"); err == nil {

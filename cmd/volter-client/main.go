@@ -102,6 +102,9 @@ func run() error {
 	}
 
 	if *trayMode {
+		if runtime.GOOS == "windows" {
+			detachConsole()
+		}
 		return runTray()
 	}
 
@@ -170,6 +173,9 @@ func run() error {
 		return runTUI(*ipcSocket, *autoConnect)
 	}
 	if *server == "" && *token == "" {
+		if runtime.GOOS == "windows" {
+			detachConsole()
+		}
 		return runTray()
 	}
 	if *server == "" || *token == "" {
