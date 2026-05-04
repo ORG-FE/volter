@@ -9,13 +9,17 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/ipc"
 	"dev.c0redev.volter/internal/metrics"
 	"dev.c0redev.volter/internal/netcfg"
 	"dev.c0redev.volter/internal/probe"
@@ -47,7 +51,7 @@ func (w *logWriter) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
-func runTUI() error {
+func runTUI(ipcSocketPath string, autoConnect string) error {
 	logCh := make(chan string, 200)
 	log.SetOutput(&logWriter{ch: logCh})
 	defer func() {
@@ -55,12 +59,122 @@ func runTUI() error {
 		close(logCh)
 	}()
 
+	if runtime.GOOS == "linux" {
+		_ = ipc.InitState()
+	}
+
+	var ipcClient *ipc.Client
+	ipcCommandCh := make(chan string, 10)
+	ipcStatusCh := make(chan string, 10)
+
+	if runtime.GOOS == "linux" && ipcSocketPath != "" {
+		client, err := ipc.NewClient(ipcSocketPath)
+		if err != nil {
+			log.Printf("TUI: Failed to connect to IPC socket %s: %v", ipcSocketPath, err)
+		} else {
+			ipcClient = client
+			defer ipcClient.Close()
+			go tuiIPCListener(ipcClient, ipcCommandCh)
+			go tuiStatusListener(ipcStatusCh, ipcClient)
+		}
+	}
+
 	watchdogCh := make(chan struct{}, 1)
+	var (
+		stopMu        sync.Mutex
+		headlessStop  func()
+		headlessProf  string
+		headlessAlive bool
+	)
+	
+	var initialState tui.State
+	if runtime.GOOS == "linux" {
+		state := ipc.GetState()
+		initialState = tui.State{
+			Connected: state.Connected,
+			Profile:   state.Profile,
+		}
+	}
+	
 	opts := tui.Opts{
 		ConnectFn: func(cfg config.Config, configName string, reconnectCount int, settings config.ClientSettings) (stop func(), err error) {
-			return connectVPN(cfg, configName, reconnectCount, settings, watchdogCh)
+			log.Printf("Connecting to %s...", configName)
+			stopFn, err := connectVPN(cfg, configName, reconnectCount, settings, watchdogCh)
+			if err != nil {
+				log.Printf("Connection failed: %v", err)
+				if runtime.GOOS == "linux" {
+					ipc.SetConnected(false, configName)
+				}
+				if ipcClient != nil {
+					log.Printf("TUI: Sending disconnected status to IPC")
+					go func(err error) {
+						sendErr := ipcClient.Send(ipc.Message{
+							Type:      ipc.MsgTypeStatus,
+							Profile:   configName,
+							Connected: false,
+							Error:     err.Error(),
+						})
+						if sendErr != nil {
+							log.Printf("TUI: Failed to send status to IPC: %v", sendErr)
+						}
+					}(err)
+				}
+			} else {
+				log.Printf("Connected to %s", configName)
+				stopMu.Lock()
+				headlessStop = stopFn
+				headlessProf = configName
+				headlessAlive = true
+				stopMu.Unlock()
+				if runtime.GOOS == "linux" {
+					ipc.SetConnected(true, configName)
+				}
+				if ipcClient != nil {
+					log.Printf("TUI: Sending connected status to IPC")
+					go func() {
+						sendErr := ipcClient.Send(ipc.Message{
+							Type:      ipc.MsgTypeStatus,
+							Profile:   configName,
+							Connected: true,
+						})
+						if sendErr != nil {
+							log.Printf("TUI: Failed to send status to IPC: %v", sendErr)
+						}
+					}()
+				}
+			}
+			return func() {
+				log.Printf("Disconnecting from %s...", configName)
+				stopFn()
+				stopMu.Lock()
+				headlessStop = nil
+				headlessProf = ""
+				headlessAlive = false
+				stopMu.Unlock()
+				log.Printf("Disconnected from %s", configName)
+				if runtime.GOOS == "linux" {
+					ipc.SetConnected(false, configName)
+				}
+				if ipcClient != nil {
+					log.Printf("TUI: Sending disconnected status to IPC")
+					go func() {
+						sendErr := ipcClient.Send(ipc.Message{
+							Type:      ipc.MsgTypeStatus,
+							Profile:   configName,
+							Connected: false,
+						})
+						if sendErr != nil {
+							log.Printf("TUI: Failed to send status to IPC: %v", sendErr)
+						}
+					}()
+				}
+			}, err
 		},
-		Version: version,
+		Version:       version,
+		IPCCommandCh:  ipcCommandCh,
+		InitialState:  initialState,
+		AutoConnect:   autoConnect,
+		IPCStatusCh:   ipcStatusCh,
 	}
 	p := tea.NewProgram(tui.NewModel(opts), tea.WithAltScreen())
 	go func() {
@@ -74,7 +188,167 @@ func runTUI() error {
 		}
 	}()
 	_, err := p.Run()
-	return err
+	if err != nil {
+		close(ipcCommandCh)
+		close(ipcStatusCh)
+		return err
+	}
+
+	stopMu.Lock()
+	keepHeadless := headlessAlive && headlessStop != nil
+	stopMu.Unlock()
+	if !keepHeadless {
+		close(ipcCommandCh)
+		close(ipcStatusCh)
+		return nil
+	}
+
+	signal.Ignore(syscall.SIGHUP)
+	log.Printf("TUI closed; switching to headless mode")
+	return runHeadless(ipcCommandCh, ipcClient, &stopMu, &headlessStop, &headlessProf, &headlessAlive)
+}
+
+func runHeadless(commandCh <-chan string, ipcClient *ipc.Client, stopMu *sync.Mutex, stopFn *func(), profile *string, alive *bool) error {
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	for {
+		select {
+		case <-sigCh:
+			stopMu.Lock()
+			if *stopFn != nil {
+				(*stopFn)()
+				*stopFn = nil
+				*profile = ""
+				*alive = false
+			}
+			stopMu.Unlock()
+			return nil
+		case cmd, ok := <-commandCh:
+			if !ok {
+				return nil
+			}
+			switch {
+			case cmd == "disconnect":
+				stopMu.Lock()
+				if *stopFn != nil {
+					(*stopFn)()
+				}
+				*stopFn = nil
+				*profile = ""
+				*alive = false
+				stopMu.Unlock()
+				if runtime.GOOS == "linux" {
+					ipc.SetConnected(false, "")
+				}
+				if ipcClient != nil {
+					go func() {
+						_ = ipcClient.Send(ipc.Message{Type: ipc.MsgTypeStatus, Connected: false})
+					}()
+				}
+			case strings.HasPrefix(cmd, "connect:"):
+				name := strings.TrimPrefix(cmd, "connect:")
+				cfg, err := config.LoadByName(name)
+				if err != nil {
+					if ipcClient != nil {
+						go func() {
+							_ = ipcClient.Send(ipc.Message{Type: ipc.MsgTypeStatus, Profile: name, Connected: false, Error: err.Error()})
+						}()
+					}
+					continue
+				}
+				st, _ := config.LoadClientSettings()
+				stopMu.Lock()
+				if *stopFn != nil {
+					(*stopFn)()
+					*stopFn = nil
+					*profile = ""
+					*alive = false
+				}
+				stopMu.Unlock()
+				newStop, err := connectVPN(cfg, name, 0, st, make(chan struct{}, 1))
+				if err != nil {
+					if runtime.GOOS == "linux" {
+						ipc.SetConnected(false, name)
+					}
+					if ipcClient != nil {
+						go func() {
+							_ = ipcClient.Send(ipc.Message{Type: ipc.MsgTypeStatus, Profile: name, Connected: false, Error: err.Error()})
+						}()
+					}
+					continue
+				}
+				stopMu.Lock()
+				*stopFn = newStop
+				*profile = name
+				*alive = true
+				stopMu.Unlock()
+				if runtime.GOOS == "linux" {
+					ipc.SetConnected(true, name)
+				}
+				if ipcClient != nil {
+					go func() {
+						_ = ipcClient.Send(ipc.Message{Type: ipc.MsgTypeStatus, Profile: name, Connected: true})
+					}()
+				}
+			case cmd == "quit":
+				stopMu.Lock()
+				if *stopFn != nil {
+					(*stopFn)()
+					*stopFn = nil
+					*profile = ""
+					*alive = false
+				}
+				stopMu.Unlock()
+				return nil
+			}
+		}
+	}
+}
+
+func tuiIPCListener(client *ipc.Client, commandCh chan<- string) {
+	for {
+		msg, err := client.Receive()
+		if err != nil {
+			return
+		}
+		switch msg.Type {
+		case ipc.MsgTypeDisconnect:
+			select {
+			case commandCh <- "disconnect":
+			default:
+			}
+		case ipc.MsgTypeConnect:
+			select {
+			case commandCh <- "connect:" + msg.Profile:
+			default:
+			}
+		case ipc.MsgTypeQuit:
+			select {
+			case commandCh <- "quit":
+			default:
+			}
+		}
+	}
+}
+
+func tuiStatusListener(commandCh <-chan string, ipcClient *ipc.Client) {
+	for cmd := range commandCh {
+		if strings.HasPrefix(cmd, "status:disconnected:") {
+			profile := strings.TrimPrefix(cmd, "status:disconnected:")
+			if ipcClient != nil {
+				ipcClient.Send(ipc.Message{
+					Type:      ipc.MsgTypeStatus,
+					Profile:   profile,
+					Connected: false,
+				})
+			}
+			if runtime.GOOS == "linux" {
+				ipc.SetConnected(false, profile)
+			}
+		}
+	}
 }
 
 const probeTimeout = 5 * time.Second

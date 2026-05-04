@@ -6,8 +6,8 @@
   <vendor>Volter</vendor>
   <vendor_url>https://github.com/ORG-FE/volter</vendor_url>
   <action id="dev.c0redev.volter.pkexec">
-    <description>Run Volter VPN</description>
-    <message>Authentication is required to run Volter VPN with network privileges.</message>
+    <description>Run Volter VPN with network privileges</description>
+    <message>Authentication is required to run Volter VPN with network privileges for TUN interface.</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

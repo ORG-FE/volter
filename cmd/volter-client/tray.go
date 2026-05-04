@@ -2,17 +2,16 @@ package main
 
 import (
 	_ "embed"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/ipc"
 	"fyne.io/systray"
 )
 
@@ -26,9 +25,8 @@ var (
 	trayMu         sync.Mutex
 	trayConnected  bool
 	trayConnLabel  string
-	trayStop       func()
-	trayChild      *exec.Cmd
 	trayConnecting bool
+	ipcServer      *ipc.Server
 )
 
 func runTray() error {
@@ -37,7 +35,12 @@ func runTray() error {
 }
 
 func trayOnExit() {
-	trayDisconnectAll()
+	if ipcServer != nil {
+		_ = ipcServer.Broadcast(ipc.Message{
+			Type: ipc.MsgTypeQuit,
+		})
+		ipcServer.Close()
+	}
 }
 
 func trayOnReady() {
@@ -47,7 +50,51 @@ func trayOnReady() {
 		systray.SetIcon(trayIconPNG)
 	}
 	systray.SetTooltip("Volter VPN")
+
+	if runtime.GOOS == "linux" {
+		_ = ipc.InitState()
+		st := ipc.GetState()
+		trayMu.Lock()
+		trayConnected = st.Connected
+		trayConnLabel = st.Profile
+		trayMu.Unlock()
+	}
+	
+	if runtime.GOOS == "linux" {
+		socketPath := ipc.GetSocketPath()
+		server, err := ipc.NewServer(socketPath, trayHandleIPCMessage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to start IPC server: %v\n", err)
+		} else {
+			ipcServer = server
+			go ipcServer.Start()
+		}
+	}
+	
 	trayRefreshMenu()
+}
+
+func trayHandleIPCMessage(msg ipc.Message) {
+	switch msg.Type {
+	case ipc.MsgTypeStatus:
+		trayMu.Lock()
+		trayConnected = msg.Connected
+		trayConnLabel = msg.Profile
+		trayMu.Unlock()
+		trayRefreshMenu()
+		if msg.Connected {
+			trayNotify("Volter", "Подключено: "+msg.Profile)
+		} else if msg.Error != "" {
+			trayNotify("Volter", "Ошибка: "+msg.Error)
+		}
+	case ipc.MsgTypeDisconnect:
+		trayMu.Lock()
+		trayConnected = false
+		trayConnLabel = ""
+		trayMu.Unlock()
+		trayRefreshMenu()
+		trayNotify("Volter", "Отключено")
+	}
 }
 
 func trayNotify(title, msg string) {
@@ -64,21 +111,16 @@ func trayNotify(title, msg string) {
 
 func trayDisconnectAll() {
 	trayMu.Lock()
-	stop := trayStop
-	child := trayChild
-	trayStop = nil
-	trayChild = nil
 	trayConnected = false
 	trayConnLabel = ""
 	trayMu.Unlock()
 
-	if stop != nil {
-		stop()
+	if ipcServer != nil {
+		_ = ipcServer.Broadcast(ipc.Message{
+			Type: ipc.MsgTypeDisconnect,
+		})
 	}
-	if child != nil && child.Process != nil {
-		_ = child.Process.Kill()
-		go func(c *exec.Cmd) { _ = c.Wait() }(child)
-	}
+
 	trayRefreshMenu()
 }
 
@@ -175,43 +217,7 @@ func trayToggleMode() {
 }
 
 func trayOpenTUI() {
-	exe, err := os.Executable()
-	if err != nil {
-		trayNotify("Volter", err.Error())
-		return
-	}
-	switch runtime.GOOS {
-	case "windows":
-		c := exec.Command("cmd", "/c", "start", "Volter", exe, "-tui")
-		_ = c.Start()
-	case "linux":
-		cmdline := fmt.Sprintf(`exec pkexec %q -tui`, exe)
-		if term := strings.TrimSpace(os.Getenv("VOLTER_TERMINAL")); term != "" {
-			_ = exec.Command(term, "-e", "sh", "-lc", cmdline).Start()
-			return
-		}
-		candidates := []struct {
-			bin  string
-			args []string
-		}{
-			{"x-terminal-emulator", []string{"-e", "sh", "-lc", cmdline}},
-			{"konsole", []string{"-e", "sh", "-lc", cmdline}},
-			{"gnome-terminal", []string{"--", "sh", "-lc", cmdline}},
-			{"kitty", []string{"sh", "-lc", cmdline}},
-			{"alacritty", []string{"-e", "sh", "-lc", cmdline}},
-			{"foot", []string{"sh", "-lc", cmdline}},
-		}
-		for _, c := range candidates {
-			if path, err := exec.LookPath(c.bin); err == nil {
-				args := append([]string{path}, c.args...)
-				_ = exec.Command(args[0], args[1:]...).Start()
-				return
-			}
-		}
-		trayNotify("Volter", "Не найден терминал. Задай VOLTER_TERMINAL или поставь konsole/gnome-terminal.")
-	default:
-		_ = exec.Command(exe, "-tui").Start()
-	}
+	trayLaunchTUI("")
 }
 
 func trayConnectProfile(name string) {
@@ -263,99 +269,96 @@ func trayConnectProfile(name string) {
 
 	trayDisconnectAll()
 
-	if runtime.GOOS == "linux" && os.Geteuid() != 0 {
-		err := trayConnectPkexec(name)
+	if runtime.GOOS == "linux" {
+		trayConnectViaTUI(name)
 		trayMu.Lock()
 		trayConnecting = false
 		trayMu.Unlock()
-		if err != nil {
-			trayNotify("Volter", err.Error())
-		}
 		return
 	}
 
-	go func() {
-		defer func() {
-			trayMu.Lock()
-			trayConnecting = false
-			trayMu.Unlock()
-		}()
-		stop, err := connectVPN(cfg, name, 0, st, nil)
-		if err != nil {
-			trayNotify("Volter", err.Error())
-			trayMu.Lock()
-			trayConnected = false
-			trayConnLabel = ""
-			trayStop = nil
-			trayMu.Unlock()
-			trayRefreshMenu()
-			return
-		}
-		trayMu.Lock()
-		trayStop = stop
-		trayConnected = true
-		trayConnLabel = name
-		trayMu.Unlock()
-		trayRefreshMenu()
-	}()
+	trayMu.Lock()
+	trayConnecting = false
+	trayMu.Unlock()
+	trayNotify("Volter", "Use TUI to connect on this platform")
 }
 
-func trayConnectPkexec(profile string) error {
+func trayConnectViaTUI(profile string) {
+	if ipcServer != nil {
+		_ = ipcServer.Broadcast(ipc.Message{
+			Type:    ipc.MsgTypeConnect,
+			Profile: profile,
+		})
+		return
+	}
+
+	trayLaunchTUI(profile)
+}
+
+func trayLaunchTUI(autoConnect string) {
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		trayNotify("Volter", err.Error())
+		return
 	}
-	if _, err := exec.LookPath("pkexec"); err != nil {
-		return errors.New("нужен pkexec для VPN без root; запусти sudo volter-client -tray или клиент из TUI")
-	}
-	cmd := exec.Command("pkexec", exe, "--profile", profile)
-	cmd.Env = trayPkexecEnv()
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	trayMu.Lock()
-	trayChild = cmd
-	trayConnected = true
-	trayConnLabel = profile
-	trayMu.Unlock()
-	trayRefreshMenu()
 
-	go func(c *exec.Cmd) {
-		waitErr := c.Wait()
-		trayMu.Lock()
-		active := trayChild == c
-		trayMu.Unlock()
-		if !active {
+	socketPath := ipc.GetSocketPath()
+	home := os.Getenv("HOME")
+
+	usePkexec := false
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("pkexec"); err == nil {
+			usePkexec = true
+		}
+	}
+
+	var tuiArgs []string
+	if usePkexec {
+		bin := "volter-client"
+		if _, err := exec.LookPath(bin); err != nil {
+			bin = exe
+		}
+		tuiArgs = []string{"pkexec", "env", "HOME=" + home, "USER=" + os.Getenv("USER"),
+			"LOGNAME=" + os.Getenv("LOGNAME"), bin, "-tui", "-ipc-socket=" + socketPath}
+	} else {
+		tuiArgs = []string{exe, "-tui", "-ipc-socket=" + socketPath}
+	}
+	if autoConnect != "" {
+		tuiArgs = append(tuiArgs, "-auto-connect="+autoConnect)
+	}
+
+	if term := strings.TrimSpace(os.Getenv("VOLTER_TERMINAL")); term != "" {
+		_ = exec.Command(term, "-e", "sh", "-lc", "exec env HOME="+home+" "+strings.Join(quoteArgs(tuiArgs), " ")).Start()
+		return
+	}
+	candidates := []struct {
+		bin  string
+		args []string
+	}{
+		{"x-terminal-emulator", append([]string{"-e"}, tuiArgs...)},
+		{"konsole", append([]string{"-e"}, tuiArgs...)},
+		{"gnome-terminal", append([]string{"--"}, tuiArgs...)},
+		{"kitty", append([]string{"-e"}, tuiArgs...)},
+		{"alacritty", append([]string{"-e"}, tuiArgs...)},
+		{"foot", append([]string{"-e"}, tuiArgs...)},
+	}
+	for _, c := range candidates {
+		if path, err := exec.LookPath(c.bin); err == nil {
+			_ = exec.Command(path, c.args...).Start()
 			return
 		}
-		trayMu.Lock()
-		if trayChild == c {
-			trayChild = nil
-			trayConnected = false
-			trayConnLabel = ""
-		}
-		trayMu.Unlock()
-		if waitErr != nil && !strings.Contains(strings.ToLower(waitErr.Error()), "signal") {
-			trayNotify("Volter", "VPN завершился: "+waitErr.Error())
-		}
-		trayRefreshMenu()
-	}(cmd)
-	return nil
+	}
+	trayNotify("Volter", "Не найден терминал. Задай VOLTER_TERMINAL или поставь konsole/gnome-terminal.")
 }
 
-func trayPkexecEnv() []string {
-	base := os.Environ()
-	home := strings.TrimSpace(os.Getenv("HOME"))
-	if home == "" {
-		return base
+func quoteArgs(args []string) []string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		if strings.ContainsAny(a, ` '"\$`) {
+			quoted[i] = fmt.Sprintf("%q", a)
+		} else {
+			quoted[i] = a
+		}
 	}
-	cfgDir := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
-	if cfgDir == "" {
-		cfgDir = filepath.Join(home, ".config")
-	}
-	extra := []string{
-		"HOME=" + home,
-		"XDG_CONFIG_HOME=" + cfgDir,
-	}
-	return append(base, extra...)
+	return quoted
 }

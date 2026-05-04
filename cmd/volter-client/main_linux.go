@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
+	"dev.c0redev.volter/internal/ipc"
 	"dev.c0redev.volter/internal/netcfg"
 	"dev.c0redev.volter/internal/proxy"
 	"dev.c0redev.volter/internal/tun"
@@ -191,6 +192,39 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("run as root: sudo volter-client ...")
 	}
+	
+	_ = ipc.InitState()
+	
+	var ipcClient *ipc.Client
+	if opts.ipcSocket != "" {
+		client, err := ipc.NewClient(opts.ipcSocket)
+		if err != nil {
+			clientlog.Warn("Failed to connect to IPC socket: %v", err)
+		} else {
+			ipcClient = client
+			defer ipcClient.Close()
+		}
+	}
+	
+	sendStatus := func(connected bool, errMsg string) {
+		profile := opts.profileName
+		if profile == "" {
+			profile = "vpn"
+		}
+		ipc.SetConnected(connected, profile)
+		if ipcClient != nil {
+			msg := ipc.Message{
+				Type:      ipc.MsgTypeStatus,
+				Profile:   profile,
+				Connected: connected,
+			}
+			if errMsg != "" {
+				msg.Error = errMsg
+			}
+			_ = ipcClient.Send(msg)
+		}
+	}
+	
 	if opts.proxy {
 		sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
@@ -198,8 +232,11 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 		if onReady != nil {
 			onReady()
 		}
+		sendStatus(true, "")
 		tunnel.SetQUICTrace(opts.quicTraceLog)
-		return proxy.Run(sigCtx, opts.proxyListen, addrs, opts.token, opts.protection, opts.transport, opts.quicServer, opts.quicServerName, opts.quicSkipVerify, opts.quicCertPinSHA256, opts.quicTLSRoots)
+		err := proxy.Run(sigCtx, opts.proxyListen, addrs, opts.token, opts.protection, opts.transport, opts.quicServer, opts.quicServerName, opts.quicSkipVerify, opts.quicCertPinSHA256, opts.quicTLSRoots)
+		sendStatus(false, err.Error())
+		return err
 	}
 	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -315,13 +352,16 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 	select {
 	case <-ready:
 		clientlog.OK("Tunnel ready, switching routes to %s", opts.tunName)
+		sendStatus(true, "")
 		if err := netcfg.AddRoutesViaTun(opts.tunName, opts.routeCIDRs, 5); err != nil {
+			sendStatus(false, err.Error())
 			return err
 		}
 		if opts.tunCIDR6 != "" && len(opts.routeCIDRs) == 0 {
 
 			if gw, err := deriveIPv6Gateway(opts.tunCIDR6); err == nil {
 				if err := netcfg.AddDefaultViaTun6(opts.tunName, gw, 5); err != nil {
+					sendStatus(false, err.Error())
 					return err
 				}
 			}
@@ -330,17 +370,21 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 			onReady()
 		}
 	case err := <-errCh:
+		sendStatus(false, err.Error())
 		return err
 	case <-sigCtx.Done():
 		<-errCh
+		sendStatus(false, "cancelled")
 		return nil
 	}
 
 	select {
 	case <-sigCtx.Done():
 		<-errCh
+		sendStatus(false, "cancelled")
 		return nil
 	case err := <-errCh:
+		sendStatus(false, err.Error())
 		return err
 	}
 }

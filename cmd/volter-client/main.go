@@ -55,6 +55,8 @@ type runOpts struct {
 	watchdogFail      chan struct{}
 	watchdogMark      *atomic.Bool
 	relay             *config.RelayOptions
+	ipcSocket         string
+	profileName       string
 }
 
 func main() {
@@ -70,6 +72,8 @@ func run() error {
 		trayMode       = flag.Bool("tray", false, "system tray only (same as default without connection args)")
 		installDesktop = flag.Bool("install-desktop", false, "install Linux desktop integration")
 		profileName    = flag.String("profile", "", "load named JSON profile from config dir (with --server/--token from file)")
+		autoConnect    = flag.String("auto-connect", "", "auto-connect to this profile on TUI start (Linux only)")
+		ipcSocket      = flag.String("ipc-socket", "", "IPC socket path for tray communication (Linux only)")
 		server         = flag.String("server", "", "host:port or host")
 		ports          = flag.String("ports", "", "csv ports for multiport")
 		token          = flag.String("token", "", "token")
@@ -112,6 +116,7 @@ func run() error {
 	}
 
 	var profileCfg *config.Config
+	var relayOpt *config.RelayOptions
 	if pn := strings.TrimSpace(*profileName); pn != "" {
 		pc, err := config.LoadByName(pn)
 		if err != nil {
@@ -148,6 +153,9 @@ func run() error {
 		if strings.TrimSpace(pc.TunCIDR6) != "" {
 			*tunCIDR6 = pc.TunCIDR6
 		}
+		if pc.Relay != nil {
+			relayOpt = pc.Relay
+		}
 		st, _ := config.LoadClientSettings()
 		if st.Mode == "proxy" {
 			*proxy = true
@@ -159,7 +167,7 @@ func run() error {
 	}
 
 	if *tui {
-		return runTUI()
+		return runTUI(*ipcSocket, *autoConnect)
 	}
 	if *server == "" && *token == "" {
 		return runTray()
@@ -226,10 +234,6 @@ func run() error {
 		QuicCaCert:        strings.TrimSpace(*quicCaCertFile),
 	}, probeCaps)
 	protEff := config.MergeProbeObfsIntoProtection(&prot, probeCaps)
-	var relayOpt *config.RelayOptions
-	if profileCfg != nil {
-		relayOpt = profileCfg.Relay
-	}
 	opts := runOpts{
 		serverIP:          sip,
 		token:             *token,
@@ -252,6 +256,8 @@ func run() error {
 		proxyListen:       *proxyListen,
 		systemProxy:       *systemProxy,
 		dualTransport:     quicDualFromCaps(probeCaps, cfgProbe.Transport, cfgProbe.QuicServer),
+		ipcSocket:         *ipcSocket,
+		profileName:       *profileName,
 	}
 	return runPlatform(context.Background(), addrs, opts, nil)
 }

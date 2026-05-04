@@ -58,6 +58,8 @@ var tabNames = []string{"Главная", "Конфигурации", "Обла�
 
 type meshRefreshMsg struct{}
 type meshSelfTestMsg struct{ report string }
+type ipcCommandMsg struct{ command string }
+type autoConnectMsg struct{ profile string }
 
 type status int
 
@@ -70,8 +72,17 @@ const (
 type ConnectFn func(cfg config.Config, configName string, reconnectCount int, settings config.ClientSettings) (stop func(), err error)
 
 type Opts struct {
-	ConnectFn ConnectFn
-	Version   string
+	ConnectFn    ConnectFn
+	Version      string
+	IPCCommandCh <-chan string
+	InitialState State
+	AutoConnect  string
+	IPCStatusCh  chan<- string
+}
+
+type State struct {
+	Connected bool
+	Profile   string
 }
 
 type item struct {
@@ -257,6 +268,7 @@ func NewModel(opts Opts) *Model {
 		opts:               opts,
 		tab:                tabHome,
 		status:             statusDisconnected,
+		activeCfg:          "",
 		logBuf:             bytes.NewBuffer(nil),
 		logs:               []string{},
 		pingResults:        make(map[string]time.Duration),
@@ -269,6 +281,10 @@ func NewModel(opts Opts) *Model {
 		meshViewport:       viewport.New(60, 14),
 		clusterViewport:    viewport.New(60, 14),
 		protectionViewport: viewport.New(60, 14),
+	}
+	if opts.InitialState.Connected {
+		m.status = statusConnected
+		m.activeCfg = strings.TrimSpace(opts.InitialState.Profile)
 	}
 	m.clientSettings, _ = config.LoadClientSettings()
 	m.reloadCfgs()
@@ -1249,7 +1265,27 @@ func (m *Model) Init() tea.Cmd {
 	if len(m.cloudCfgs) > 0 {
 		cmds = append(cmds, runGeoFetches(m.cloudCfgs))
 	}
+	if m.opts.IPCCommandCh != nil {
+		cmds = append(cmds, m.listenIPCCommands())
+	}
+	if m.opts.AutoConnect != "" {
+		cmds = append(cmds, func() tea.Msg {
+			return autoConnectMsg{profile: m.opts.AutoConnect}
+		})
+	}
 	return tea.Batch(cmds...)
+}
+
+func (m *Model) listenIPCCommands() tea.Cmd {
+	return func() tea.Msg {
+		if m.opts.IPCCommandCh == nil {
+			return nil
+		}
+		for cmd := range m.opts.IPCCommandCh {
+			return ipcCommandMsg{command: cmd}
+		}
+		return nil
+	}
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1846,12 +1882,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if idx < len(m.cfgs) && m.status != statusConnecting {
 					if m.status == statusConnected {
+						profile := m.activeCfg
 						if m.stop != nil {
 							m.stop()
 							m.stop = nil
 						}
 						m.status = statusDisconnected
 						m.activeCfg = ""
+						m.err = ""
+						if m.opts.IPCStatusCh != nil {
+							go func() {
+								m.opts.IPCStatusCh <- "status:disconnected:" + profile
+							}()
+						}
 					} else {
 						m.status = statusConnecting
 						m.err = ""
@@ -1869,12 +1912,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if idx < len(m.cloudCfgs) && m.status != statusConnecting {
 					if m.status == statusConnected {
+						profile := m.activeCfg
 						if m.stop != nil {
 							m.stop()
 							m.stop = nil
 						}
 						m.status = statusDisconnected
 						m.activeCfg = ""
+						m.err = ""
+						if m.opts.IPCStatusCh != nil {
+							go func() {
+								m.opts.IPCStatusCh <- "status:disconnected:" + profile
+							}()
+						}
 					} else {
 						m.status = statusConnecting
 						m.err = ""
@@ -1970,6 +2020,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.meshSelfTest = msg.report
 		m.setMeshViewportContent()
 		return m, nil
+	case ipcCommandMsg:
+		listenNext := m.listenIPCCommands()
+		if msg.command == "disconnect" {
+			if m.stop != nil {
+				m.stop()
+				m.stop = nil
+			}
+			m.status = statusDisconnected
+			m.activeCfg = ""
+			m.err = ""
+			return m, listenNext
+		}
+		if strings.HasPrefix(msg.command, "connect:") {
+			profile := strings.TrimPrefix(msg.command, "connect:")
+			return m, tea.Batch(listenNext, m.tryConnect(profile))
+		}
+		if msg.command == "quit" {
+			if m.stop != nil {
+				m.stop()
+				m.stop = nil
+			}
+			return m, tea.Quit
+		}
+		return m, listenNext
+	case autoConnectMsg:
+		return m, m.tryConnect(msg.profile)
 	case tea.WindowSizeMsg:
 		m.logViewport.Width = msg.Width - 4
 		m.logViewport.Height = msg.Height - 10
@@ -2142,6 +2218,58 @@ func waitConnect(cfg config.Config, configName string, reconnectCount int, setti
 			return errMsg(err.Error())
 		}
 		return connectedMsg{stop: stop}
+	}
+}
+
+func (m *Model) tryConnect(profileName string) tea.Cmd {
+	for i, name := range m.names {
+		if name == profileName {
+			if m.status == statusConnected {
+				if m.stop != nil {
+					m.stop()
+					m.stop = nil
+				}
+				m.status = statusDisconnected
+				m.activeCfg = ""
+			}
+			m.status = statusConnecting
+			m.err = ""
+			m.activeCfg = profileName
+			m.connectCount++
+			cfg := m.cfgs[i]
+			return waitConnect(cfg, profileName, m.connectCount-1, m.clientSettings, m.opts.ConnectFn)
+		}
+	}
+	for i, name := range m.cloudNames {
+		if name == profileName {
+			if m.status == statusConnected {
+				if m.stop != nil {
+					m.stop()
+					m.stop = nil
+				}
+				m.status = statusDisconnected
+				m.activeCfg = ""
+			}
+			m.status = statusConnecting
+			m.err = ""
+			m.activeCfg = profileName
+			m.connectCount++
+			cfg := m.cloudCfgs[i]
+			if saved, err := config.LoadByName(profileName); err == nil &&
+				saved.Server == cfg.Server && saved.Token == cfg.Token {
+				cfg = saved
+			}
+			mode := ""
+			if m.cloudMode != nil {
+				mode = m.cloudMode[profileName]
+			}
+			probeV6 := m.cloudIPv6 != nil && m.cloudIPv6[profileName]
+			config.ApplyCloudConnectDefaults(&cfg, mode, probeV6)
+			return waitConnect(cfg, profileName, m.connectCount-1, m.clientSettings, m.opts.ConnectFn)
+		}
+	}
+	return func() tea.Msg {
+		return errMsg("Profile not found: " + profileName)
 	}
 }
 
