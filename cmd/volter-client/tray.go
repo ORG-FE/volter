@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	_ "embed"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/ipc"
@@ -58,6 +60,7 @@ func trayOnReady() {
 		trayConnected = st.Connected
 		trayConnLabel = st.Profile
 		trayMu.Unlock()
+		go trayStateSyncLoop()
 	}
 	
 	if runtime.GOOS == "linux" {
@@ -72,6 +75,46 @@ func trayOnReady() {
 	}
 	
 	trayRefreshMenu()
+}
+
+func trayStateSyncLoop() {
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	for range tick.C {
+		if traySyncStateFromFile() {
+			trayRefreshMenu()
+		}
+	}
+}
+
+func traySyncStateFromFile() bool {
+	type stateOnDisk struct {
+		Connected bool   `json:"connected"`
+		Profile   string `json:"profile"`
+		PID       int    `json:"pid"`
+	}
+	data, err := os.ReadFile(ipc.GetStateFile())
+	if err != nil {
+		return false
+	}
+	var st stateOnDisk
+	if json.Unmarshal(data, &st) != nil {
+		return false
+	}
+	if st.Connected && st.PID > 0 {
+		if _, err := os.Stat(fmt.Sprintf("/proc/%d", st.PID)); err != nil {
+			st.Connected = false
+			st.Profile = ""
+		}
+	}
+	trayMu.Lock()
+	defer trayMu.Unlock()
+	if trayConnected == st.Connected && trayConnLabel == st.Profile {
+		return false
+	}
+	trayConnected = st.Connected
+	trayConnLabel = st.Profile
+	return true
 }
 
 func trayHandleIPCMessage(msg ipc.Message) {
@@ -114,6 +157,9 @@ func trayDisconnectAll() {
 	trayConnected = false
 	trayConnLabel = ""
 	trayMu.Unlock()
+	if runtime.GOOS == "linux" {
+		ipc.SetConnected(false, "")
+	}
 
 	if ipcServer != nil {
 		_ = ipcServer.Broadcast(ipc.Message{
