@@ -86,7 +86,6 @@ type PathManager struct {
 	peerDial         bool
 	peerRelayUseQuic bool
 	peerRelayUseUDP  bool
-	peerUDPResolver  func(string) string
 	peerUDPEndpoints func(string) []string
 }
 
@@ -117,23 +116,12 @@ func NewPathManagerFromRelay(r *config.RelayOptions) *PathManager {
 	return m
 }
 
-func (m *PathManager) SetPeerUDPResolver(fn func(string) string) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	m.peerUDPResolver = fn
-	m.peerUDPEndpoints = nil
-	m.mu.Unlock()
-}
-
 func (m *PathManager) SetPeerUDPEndpointsResolver(fn func(string) []string) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	m.peerUDPEndpoints = fn
-	m.peerUDPResolver = nil
 	m.mu.Unlock()
 }
 
@@ -155,17 +143,11 @@ func dedupeEndpoints(list []string) []string {
 	return out
 }
 
-func pickPeerRoutes(epEndpoints func(string) []string, singleUDP func(string) string, useUDP bool, limit int) (tcpAddr, quicAddr, udpAddr string, udpEnds []string, tcpCands []string, quicCands []string) {
+func pickPeerRoutes(epEndpoints func(string) []string, useUDP bool, limit int) (tcpAddr, quicAddr, udpAddr string, udpEnds []string, tcpCands []string, quicCands []string) {
 	extraTCP := snapshotClusterPeerTCPHints()
 	resolveUDPEnds := func(id string) []string {
 		if epEndpoints != nil {
 			return dedupeEndpoints(epEndpoints(id))
-		}
-		if singleUDP == nil {
-			return nil
-		}
-		if s := strings.TrimSpace(singleUDP(id)); s != "" {
-			return []string{s}
 		}
 		return nil
 	}
@@ -319,7 +301,6 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 			return PathDecision{}, false
 		}
 		epSnap := m.peerUDPEndpoints
-		resolver := m.peerUDPResolver
 		useUDP := m.peerRelayUseUDP
 		m.mu.Unlock()
 		peerLimit := 1
@@ -328,7 +309,7 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		} else if st.failStreak >= 1 {
 			peerLimit = 2
 		}
-		tcpAddr, quicAddr, udpAddr, udpEnds, tcpCands, quicCands := pickPeerRoutes(epSnap, resolver, useUDP, peerLimit)
+		tcpAddr, quicAddr, udpAddr, udpEnds, tcpCands, quicCands := pickPeerRoutes(epSnap, useUDP, peerLimit)
 		m.mu.Lock()
 		if tcpAddr == "" && quicAddr == "" && udpAddr == "" {
 			return PathDecision{}, false

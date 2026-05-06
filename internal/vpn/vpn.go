@@ -133,7 +133,7 @@ func Run(ctx context.Context, opt Options) error {
 		(strings.TrimSpace(opt.Relay.DiscoveryURL) != "" || strings.TrimSpace(opt.Relay.DiscoverySigned) != "") {
 		go runRelayBootstrapVerify(ctx, opt.Relay)
 	}
-	if opt.Relay != nil && (len(opt.Relay.GossipPeers) > 0 || len(opt.Relay.DHTFindURLs) > 0) {
+	if shouldRunGossipMesh(opt.Relay) {
 		go runGossipMesh(ctx, opt.Relay)
 	}
 	if opt.Relay != nil && strings.TrimSpace(opt.Relay.PeerID) != "" &&
@@ -661,6 +661,13 @@ func pickAddr(addrs []string, ip net.IP, port uint16) string {
 	}
 	h := sha256.Sum256([]byte(ip.String() + ":" + fmt.Sprintf("%d", port)))
 	return addrs[int(h[0])%len(addrs)]
+}
+
+func shouldRunGossipMesh(relay *config.RelayOptions) bool {
+	if relay == nil || !relay.GossipEnabled {
+		return false
+	}
+	return len(relay.GossipPeers) > 0 || len(relay.DHTFindURLs) > 0
 }
 
 func tcpipToIP(a tcpip.Address) net.IP {

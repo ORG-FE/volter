@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/dht"
 	"dev.c0redev.volter/internal/ice"
@@ -90,8 +91,11 @@ func presenceDHTStore(ctx context.Context, relay *config.RelayOptions, val []byt
 			continue
 		}
 		sub, cancel := context.WithTimeout(ctx, 6*time.Second)
-		_, _ = dht.UDPStore(sub, seed, secret, key, 900, val)
+		_, err := dht.UDPStore(sub, seed, secret, key, 900, val)
 		cancel()
+		if err != nil {
+			clientlog.Warn("vpn: presence store seed=%s peer=%s: %v", seed, strings.TrimSpace(relay.PeerID), err)
+		}
 	}
 }
 
@@ -150,7 +154,11 @@ func fetchUdpEndpointsFromDHT(ctx context.Context, relay *config.RelayOptions, p
 		sub, cancel := context.WithTimeout(ctx, 7*time.Second)
 		val, ok, err := dht.UDPGet(sub, seed, secret, key)
 		cancel()
-		if err != nil || !ok {
+		if err != nil {
+			clientlog.Warn("vpn: presence fetch seed=%s peer=%s: %v", seed, strings.TrimSpace(peerID), err)
+			continue
+		}
+		if !ok {
 			continue
 		}
 		if ends := endpointsFromPresenceJSON(val); len(ends) > 0 {
@@ -171,8 +179,13 @@ func punchBurst(uc *net.UDPConn, hostPort string) {
 	}
 	var buf [32]byte
 	for i := 0; i < 8; i++ {
-		_, _ = crand.Read(buf[:])
-		_, _ = uc.WriteToUDP(buf[:], raddr)
+		if _, err := crand.Read(buf[:]); err != nil {
+			clientlog.Warn("vpn: nat punch random failed %s: %v", hostPort, err)
+			continue
+		}
+		if _, err := uc.WriteToUDP(buf[:], raddr); err != nil {
+			clientlog.Warn("vpn: nat punch write failed %s: %v", hostPort, err)
+		}
 		time.Sleep(18 * time.Millisecond)
 	}
 }

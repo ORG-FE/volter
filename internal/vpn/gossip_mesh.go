@@ -17,6 +17,9 @@ func runGossipMesh(ctx context.Context, relay *config.RelayOptions) {
 	if relay == nil {
 		return
 	}
+	if !relay.GossipEnabled {
+		return
+	}
 	if len(relay.GossipPeers) == 0 && len(relay.DHTFindURLs) == 0 {
 		return
 	}

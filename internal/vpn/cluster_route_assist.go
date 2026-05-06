@@ -39,21 +39,23 @@ func runClusterRouteAssist(ctx context.Context, opt Options) {
 		clientlog.Info("vpn: cluster route assist skipped (clusterPreferredServer must be host:port)")
 		return
 	}
-	var entry string
+	var entries []string
+	seen := make(map[string]struct{})
 	for _, a := range opt.ServerAddrs {
 		a = strings.TrimSpace(a)
-		if a != "" {
-			entry = a
-			break
+		if a == "" {
+			continue
 		}
+		k := strings.ToLower(a)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		entries = append(entries, a)
 	}
-	if entry == "" {
+	if len(entries) == 0 {
 		return
 	}
-	probe := tcpReachProbe(routeorch.ProbeDefaultTimeout)
-	octx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
 	invitePath := strings.TrimSpace(p.ClusterInvitePath)
 	if invitePath == "" {
 		invitePath = "/volter/cluster-invite"
@@ -63,16 +65,43 @@ func runClusterRouteAssist(ctx context.Context, opt Options) {
 		hsPath = "/volter/cluster-peer-handshake"
 	}
 	nodeID := strings.TrimSpace(p.ClusterAssistTargetNodeID)
-	if nodeID != "" {
-		st, out, detail := RunClusterRouteOrchestratorFull(octx, target, entry, probe, &routeorch.AssistConfig{
-			ClusterKey:    clusterPollHeaderKey(opt),
-			InvitePath:    invitePath,
-			HandshakePath: hsPath,
-			TargetNodeID:  nodeID,
-		})
-		clientlog.Info("vpn: cluster route assist full stage=%s outcome=%s detail=%s", st, out, detail)
-		return
+
+	runOnce := func() {
+		probe := tcpReachProbe(routeorch.ProbeDefaultTimeout)
+		for _, entry := range entries {
+			octx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			if nodeID != "" {
+				st, out, detail := RunClusterRouteOrchestratorFull(octx, target, entry, probe, &routeorch.AssistConfig{
+					ClusterKey:    clusterPollHeaderKey(opt),
+					InvitePath:    invitePath,
+					HandshakePath: hsPath,
+					TargetNodeID:  nodeID,
+				})
+				cancel()
+				clientlog.Info("vpn: cluster route assist full entry=%s stage=%s outcome=%s detail=%s", entry, st, out, detail)
+				if out == routeorch.OutcomeMigrated {
+					return
+				}
+				continue
+			}
+			st, out, detail := RunClusterRouteOrchestrator(octx, target, entry, probe)
+			cancel()
+			clientlog.Info("vpn: cluster route assist entry=%s stage=%s outcome=%s detail=%s", entry, st, out, detail)
+			if out == routeorch.OutcomeMigrated {
+				return
+			}
+		}
 	}
-	st, out, detail := RunClusterRouteOrchestrator(octx, target, entry, probe)
-	clientlog.Info("vpn: cluster route assist stage=%s outcome=%s detail=%s", st, out, detail)
+
+	runOnce()
+	tick := time.NewTicker(2 * time.Minute)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			runOnce()
+		}
+	}
 }

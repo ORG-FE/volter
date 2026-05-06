@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/dht"
 )
@@ -107,14 +108,20 @@ func flushControlQueue(ctx context.Context, relay *config.RelayOptions, q *contr
 				continue
 			}
 			sub, cancel := context.WithTimeout(ctx, 4*time.Second)
-			ok, _ := dht.UDPStore(sub, seed, relay.DhtRpcSecret, key, uint32(max(5, int(m.TTL/1000))), b)
+			ok, err := dht.UDPStore(sub, seed, relay.DhtRpcSecret, key, uint32(max(5, int(m.TTL/1000))), b)
 			cancel()
+			if err != nil {
+				clientlog.Warn("vpn: control plane store seed=%s msg=%s: %v", seed, m.ID, err)
+			}
 			if ok {
 				incrSent()
 			}
 			subHead, cancelHead := context.WithTimeout(ctx, 4*time.Second)
-			_, _ = dht.UDPStore(subHead, seed, relay.DhtRpcSecret, headKey, uint32(max(5, int(m.TTL/1000))), b)
+			_, headErr := dht.UDPStore(subHead, seed, relay.DhtRpcSecret, headKey, uint32(max(5, int(m.TTL/1000))), b)
 			cancelHead()
+			if headErr != nil {
+				clientlog.Warn("vpn: control plane head store seed=%s msg=%s: %v", seed, m.ID, headErr)
+			}
 		}
 	}
 }
@@ -133,8 +140,11 @@ func pullControlInbox(ctx context.Context, relay *config.RelayOptions, q *contro
 				continue
 			}
 			sub, cancel := context.WithTimeout(ctx, 4*time.Second)
-			val, ok, _ := dht.UDPGet(sub, seed, relay.DhtRpcSecret, key)
+			val, ok, err := dht.UDPGet(sub, seed, relay.DhtRpcSecret, key)
 			cancel()
+			if err != nil {
+				clientlog.Warn("vpn: control plane fetch seed=%s peer=%s: %v", seed, peerID, err)
+			}
 			if !ok || len(val) == 0 {
 				continue
 			}

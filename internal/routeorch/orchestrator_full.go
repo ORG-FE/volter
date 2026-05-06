@@ -59,13 +59,33 @@ func (o *Orchestrator) RunFull(ctx context.Context, target Target, entryHostPort
 			return StageProbeAssist, OutcomeFallback, "invite_status:" + resp.Status
 		}
 	}
+	probeTarget := target.Canonical()
+	if resp != nil {
+		redir := Target{HostPort: strings.TrimSpace(resp.RedirectHostPort)}.Canonical()
+		if redir != "" {
+			probeTarget = redir
+		}
+	}
 	hp := strings.TrimSpace(assist.HandshakePath)
-	_, _ = PostClusterPeerHandshake(ctx, ent, assist.ClusterKey, hp, PeerHandshakeRequest{
+	hsResp, hsErr := PostClusterPeerHandshake(ctx, ent, assist.ClusterKey, hp, PeerHandshakeRequest{
 		InviteID:      req.CorrelationID,
 		TargetNodeID:  tgt,
 		CorrelationID: req.CorrelationID,
 		DeadlineMs:    req.DeadlineMs,
 	})
+	if hsErr != nil {
+		return StageProbeAssist, OutcomeFallback, hsErr.Error()
+	}
+	if hsResp != nil {
+		s := strings.ToLower(strings.TrimSpace(hsResp.Status))
+		if s != "" && s != "accepted" {
+			return StageProbeAssist, OutcomeFallback, "handshake_status:" + hsResp.Status
+		}
+		redir := Target{HostPort: strings.TrimSpace(hsResp.RedirectHostPort)}.Canonical()
+		if redir != "" {
+			probeTarget = redir
+		}
+	}
 	wait := o.AssistWait
 	if req.DeadlineMs > 0 {
 		if d := time.Until(time.UnixMilli(req.DeadlineMs)); d > 0 && d < wait {
@@ -77,12 +97,11 @@ func (o *Orchestrator) RunFull(ctx context.Context, target Target, entryHostPort
 		return StageProbeAssist, OutcomeError, ctx.Err().Error()
 	case <-time.After(wait):
 	}
-	tCanon := target.Canonical()
 	pctx, cancel := context.WithTimeout(ctx, o.ProbeTimeout)
-	err = probe(pctx, tCanon)
+	err = probe(pctx, probeTarget)
 	cancel()
 	if err == nil {
-		return StageMigrate, OutcomeMigrated, tCanon
+		return StageMigrate, OutcomeMigrated, probeTarget
 	}
 	return StageFallback, OutcomeFallback, err.Error()
 }
