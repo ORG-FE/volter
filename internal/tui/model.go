@@ -2277,44 +2277,44 @@ const protectionAnalyticsLimit = 20
 
 func (m *Model) protectionView() string {
 	var b strings.Builder
-
-	b.WriteString(sectionTitle.Render("Аналитика") + "\n")
-	store, err := metrics.Load()
-	if err == nil && len(store.Records) > 0 {
-		start := len(store.Records) - protectionAnalyticsLimit
-		if start < 0 {
-			start = 0
-		}
-		for i := len(store.Records) - 1; i >= start; i-- {
-			r := store.Records[i]
-			hs := "-"
-			if r.HandshakeOK {
-				hs = lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("ok")
-			} else {
-				hs = lipgloss.NewStyle().Foreground(lipgloss.Color(errCol)).Render("fail")
+	if !m.protectionEditing {
+		b.WriteString(sectionTitle.Render("Аналитика") + "\n")
+		store, err := metrics.Load()
+		if err == nil && len(store.Records) > 0 {
+			start := len(store.Records) - protectionAnalyticsLimit
+			if start < 0 {
+				start = 0
 			}
-			errType := r.ErrorType
-			if errType == "" {
-				errType = "-"
+			for i := len(store.Records) - 1; i >= start; i-- {
+				r := store.Records[i]
+				hs := "-"
+				if r.HandshakeOK {
+					hs = lipgloss.NewStyle().Foreground(lipgloss.Color(success)).Render("ok")
+				} else {
+					hs = lipgloss.NewStyle().Foreground(lipgloss.Color(errCol)).Render("fail")
+				}
+				errType := r.ErrorType
+				if errType == "" {
+					errType = "-"
+				}
+				dur := r.Duration.Round(time.Second).String()
+				if r.Duration == 0 && !r.End.IsZero() {
+					dur = "-"
+				}
+				b.WriteString("  ")
+				b.WriteString(kvLabel.Render(r.Start.Format("02.01 15:04")) + " ")
+				b.WriteString(kvValue.Render(fmt.Sprintf("%s  %s  HS:%s  R:%d  RTT:%s/%s  DNS:%v/%v",
+					dur, errType, hs, r.ReconnectCount,
+					formatRTT(r.RTTBefore), formatRTT(r.RTTDuring), r.DNSOKBefore, r.DNSOKAfter)))
+				b.WriteString("\n")
 			}
-			dur := r.Duration.Round(time.Second).String()
-			if r.Duration == 0 && !r.End.IsZero() {
-				dur = "-"
-			}
+		} else {
 			b.WriteString("  ")
-			b.WriteString(kvLabel.Render(r.Start.Format("02.01 15:04")) + " ")
-			b.WriteString(kvValue.Render(fmt.Sprintf("%s  %s  HS:%s  R:%d  RTT:%s/%s  DNS:%v/%v",
-				dur, errType, hs, r.ReconnectCount,
-				formatRTT(r.RTTBefore), formatRTT(r.RTTDuring), r.DNSOKBefore, r.DNSOKAfter)))
+			b.WriteString(emptyState.Render("нет данных"))
 			b.WriteString("\n")
 		}
-	} else {
-		b.WriteString("  ")
-		b.WriteString(emptyState.Render("нет данных"))
 		b.WriteString("\n")
 	}
-
-	b.WriteString("\n")
 	b.WriteString(sectionTitle.Render("Настройки защиты") + "\n")
 	if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount {
 		labels := []string{
@@ -2410,6 +2410,18 @@ func (m *Model) protectionView() string {
 
 	full := b.String()
 	m.protectionViewport.SetContent(full)
+	if m.protectionEditing && len(m.protectionInputs) == protectionFormFieldCount && m.protectionViewport.Height > 0 {
+		focusLine := 1 + m.protectionFormFocus
+		if focusLine < m.protectionViewport.YOffset {
+			m.protectionViewport.YOffset = focusLine
+		}
+		if focusLine >= m.protectionViewport.YOffset+m.protectionViewport.Height {
+			m.protectionViewport.YOffset = focusLine - m.protectionViewport.Height + 1
+		}
+		if m.protectionViewport.YOffset < 0 {
+			m.protectionViewport.YOffset = 0
+		}
+	}
 	return m.protectionViewport.View()
 }
 
