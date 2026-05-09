@@ -39,6 +39,7 @@ func runClusterClientsPoll(ctx context.Context, serverAddr, headerKey, httpPath 
 		if strings.TrimSpace(headerKey) != "" {
 			req.Header.Set("X-Volter-Cluster-Key", strings.TrimSpace(headerKey))
 		}
+		req.Header.Set("X-Volter-Cluster-Pull", "1")
 		resp, err := cl.Do(req)
 		if err != nil {
 			return
