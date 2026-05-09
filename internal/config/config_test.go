@@ -36,6 +36,41 @@ func TestQuicSkipVerifyJSONOmitMeansLax(t *testing.T) {
 	}
 }
 
+func TestMeshConfigVolunteerIsExplicit(t *testing.T) {
+	raw := `{
+		"server":"h:1",
+		"token":"t",
+		"mesh":{
+			"enabled":true,
+			"volunteer":{"enabled":false},
+			"p2p":{"enabled":true},
+			"serverRelay":{"enabled":true},
+			"stun":{"enabled":true,"servers":["stun.l.google.com:19302"]},
+			"discovery":{"dhtRpcSeedPeers":["1.2.3.4:4001"]}
+		}
+	}`
+	var c Config
+	if err := json.Unmarshal([]byte(raw), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Mesh == nil || !c.Mesh.Enabled {
+		t.Fatalf("mesh must be enabled: %+v", c.Mesh)
+	}
+	if c.Mesh.Volunteer.Enabled {
+		t.Fatalf("volunteer must stay explicitly disabled: %+v", c.Mesh.Volunteer)
+	}
+	if !c.Mesh.P2P.Enabled || !c.Mesh.ServerRelay.Enabled || !c.Mesh.STUN.Enabled {
+		t.Fatalf("mesh route blocks lost: %+v", c.Mesh)
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"relay"`) {
+		t.Fatalf("new configs must not emit legacy relay: %s", string(b))
+	}
+}
+
 func TestSaveLoadDelete(t *testing.T) {
 	dir := t.TempDir()
 	os.Setenv("XDG_CONFIG_HOME", dir)

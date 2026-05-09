@@ -21,7 +21,7 @@ final class SessionHandler {
   private final Runnable onDone;
   private static final int RELAY_HOP_HARD_LIMIT = 2;
   private static final PeerRelayGuard PEER_GUARD = new PeerRelayGuard();
-  private static volatile RelayRegistry relayRegistry;
+  private static volatile ServerRelayService relayService;
 
   SessionHandler(Config cfg, UdpSessions udp, String remote, Runnable onDone) {
     this.cfg = cfg;
@@ -82,8 +82,10 @@ final class SessionHandler {
         sendHopAck(out, routeId, hopIndex, 0, "peer relay disabled by policy");
         throw new IOException("peer relay disabled by policy");
       }
-      RelayRegistry registry = relayRegistry(cfg);
-      if (!registry.tryAcquire(remote)) {
+      ServerRelayService service = relayService(cfg);
+      Protocol.ClientOptions opt = hr.opts().orElse(null);
+      RelayRegistry.RelayLease lease = service.acquire(remote, opt);
+      if (lease == null) {
         sendHopAck(out, routeId, hopIndex, 0, "relay capacity exceeded");
         throw new IOException("relay capacity exceeded");
       }
@@ -91,18 +93,17 @@ final class SessionHandler {
       int relayMaxHop = hr.opts().map(Protocol.ClientOptions::relayMaxHop).orElse(RELAY_HOP_HARD_LIMIT);
       int capHop = Math.min(RELAY_HOP_HARD_LIMIT, relayMaxHop);
       if (relayHop >= capHop) {
-        registry.release(remote);
+        service.release(lease);
         sendHopAck(out, routeId, hopIndex, 0, "relay hop limit exceeded");
         throw new IOException("relay hop limit exceeded");
       }
-      Protocol.ClientOptions opt = hr.opts().orElse(null);
       if (opt != null && opt.relayBudgetKbps() > cfg.relayMaxBudgetKbps()) {
-        registry.release(remote);
+        service.release(lease);
         sendHopAck(out, routeId, hopIndex, 0, "relay budget too high");
         throw new IOException("relay budget too high");
       }
       if (!PEER_GUARD.allow(opt, cfg.token())) {
-        registry.release(remote);
+        service.release(lease);
         sendHopAck(out, routeId, hopIndex, 0, "relay identity rejected");
         throw new IOException("relay identity rejected");
       }
@@ -111,7 +112,7 @@ final class SessionHandler {
       try {
         tcpHandler.onTcp(c, in, hr.opts());
       } finally {
-        registry.release(remote);
+        service.release(lease);
       }
       return;
     }
@@ -146,14 +147,14 @@ final class SessionHandler {
     }
   }
 
-  private static RelayRegistry relayRegistry(Config cfg) {
-    RelayRegistry r = relayRegistry;
-    if (r != null) return r;
+  private static ServerRelayService relayService(Config cfg) {
+    ServerRelayService s = relayService;
+    if (s != null) return s;
     synchronized (SessionHandler.class) {
-      if (relayRegistry == null) {
-        relayRegistry = new RelayRegistry(cfg.relayMaxPerRemote(), cfg.relayMaxTotal());
+      if (relayService == null) {
+        relayService = new ServerRelayService(cfg);
       }
-      return relayRegistry;
+      return relayService;
     }
   }
 }

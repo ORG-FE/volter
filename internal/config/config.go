@@ -31,6 +31,7 @@ type Config struct {
 	Exclude       string             `json:"exclude,omitempty"`
 	TunCIDR6      string             `json:"tunCIDR6,omitempty"`
 	Protection    *ProtectionOptions `json:"protection,omitempty"`
+	Mesh          *MeshConfig        `json:"mesh,omitempty"`
 	Relay         *RelayOptions      `json:"relay,omitempty"`
 }
 
@@ -40,6 +41,9 @@ type RelayOptions struct {
 	AllowedClasses        []string `json:"allowedClasses,omitempty"`
 	MaxConcurrent         int      `json:"maxConcurrent,omitempty"`
 	BudgetKbps            int      `json:"budgetKbps,omitempty"`
+	PeerRelayBudgetKbps   int      `json:"peerRelayBudgetKbps,omitempty"`
+	MaxPeerHops           int      `json:"maxPeerHops,omitempty"`
+	HealthMaxAgeSec       int      `json:"healthMaxAgeSec,omitempty"`
 	DiscoverySigned       string   `json:"discoverySigned,omitempty"`
 	DiscoveryURL          string   `json:"discoveryURL,omitempty"`
 	GossipEnabled         bool     `json:"gossipEnabled,omitempty"`
@@ -59,6 +63,7 @@ type RelayOptions struct {
 	PeerPathFromDiscovery bool     `json:"peerPathFromDiscovery,omitempty"`
 	PeerRelayUseQUIC      bool     `json:"peerRelayUseQuic,omitempty"`
 	PeerRelayUseUDP       bool     `json:"peerRelayUseUdp,omitempty"`
+	PeerRelayUseTCP       *bool    `json:"peerRelayUseTcp,omitempty"`
 	PeerRelayUDPListen    string   `json:"peerRelayUdpListen,omitempty"`
 	PeerRelayUDPAdvertise string   `json:"peerRelayUdpAdvertise,omitempty"`
 	PeerQuicServerName    string   `json:"peerQuicServerName,omitempty"`
@@ -290,6 +295,7 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	SanitizeProtectionInPlace(c.Protection)
+	MigrateLegacyRelayToMeshInPlace(&c)
 	return c, nil
 }
 
@@ -340,6 +346,7 @@ func ApplyCloudConnectDefaults(cfg *Config, serverMode string, probeIPv6 bool) {
 
 func Save(name string, c Config) error {
 	SanitizeProtectionInPlace(c.Protection)
+	MigrateLegacyRelayToMeshInPlace(&c)
 	dir, err := Dir()
 	if err != nil {
 		return err

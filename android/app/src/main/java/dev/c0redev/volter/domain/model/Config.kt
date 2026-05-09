@@ -18,8 +18,20 @@ data class Config(
     val tunCIDR6: String? = null,
     val dualTransport: Boolean? = null,
     val protection: ProtectionOptions? = null,
+    val mesh: MeshConfig = MeshConfig(),
     val relay: RelayOptions? = null,
 ) {
+    fun migratedLegacyRelayToMesh(): Config {
+        if (mesh.enabled || relay == null || !relay.hasMeshProfileData()) return this
+        return copy(mesh = relay.toMesh(mesh), relay = relay.legacyCarryOver())
+    }
+
+    fun canonicalProfile(): Config = migratedLegacyRelayToMesh()
+
+    fun withMeshKeepingCarryOver(next: MeshConfig): Config {
+        return copy(mesh = next, relay = relay?.legacyCarryOver())
+    }
+
     fun withCloudDefaults(serverMode: String, probeIPv6: Boolean): Config {
         val noPin = quicCertPinSHA256.isNullOrBlank()
         var skip = quicSkipVerify
@@ -83,6 +95,7 @@ data class Config(
         tunCIDR6?.let { j.put("tunCIDR6", it) }
         dualTransport?.let { j.put("dualTransport", it) }
         protection?.let { j.put("protection", it.toJson()) }
+        if (mesh != MeshConfig()) j.put("mesh", mesh.toJson())
         relay?.let { j.put("relay", it.toJson()) }
         return j
     }
@@ -116,7 +129,7 @@ data class Config(
         }
 
         fun fromJson(j: JSONObject): Config {
-            return Config(
+            val cfg = Config(
                 server = j.getString("server"),
                 token = j.getString("token"),
                 quicServer = j.optString("quicServer", "").takeIf { it.isNotBlank() },
@@ -134,8 +147,10 @@ data class Config(
                     else -> j.optBoolean("dualTransport", true)
                 },
                 protection = j.optJSONObject("protection")?.let { ProtectionOptions.fromJson(it) },
+                mesh = j.optJSONObject("mesh")?.let { MeshConfig.fromJson(it) } ?: MeshConfig(),
                 relay = j.optJSONObject("relay")?.let { RelayOptions.fromJson(it) },
             )
+            return cfg.migratedLegacyRelayToMesh()
         }
 
         fun sanitizeName(raw: String): String {
@@ -170,14 +185,14 @@ data class Config(
         fun parseShareUri(raw: String): Pair<String, Config>? {
             val cfg = parseVolterUriConfig(raw) ?: return null
             val name = parseVolterUriName(raw)?.ifBlank { "imported" } ?: "imported"
-            return sanitizeName(name) to cfg.copy(protection = null, relay = null)
+            return sanitizeName(name) to cfg.copy(protection = null, mesh = cfg.mesh.publicCopy(), relay = null)
         }
 
         fun buildShareUri(name: String, cfg: Config): String {
             val payload = JSONObject()
             payload.put("v", 1)
             payload.put("n", sanitizeName(name))
-            payload.put("c", cfg.copy(protection = null, relay = null).toJson())
+            payload.put("c", cfg.copy(protection = null, mesh = cfg.mesh.publicCopy(), relay = null).toJson())
             val b = Base64.encodeToString(payload.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             return "volter://$b"
         }
@@ -210,7 +225,7 @@ data class Config(
             return runCatching { ProtectionOptions.fromJson(p) }.getOrNull()
         }
 
-        fun parseConnectionConfig(s: String): Config? = parseVolterUriConfig(s.trim())?.copy(protection = null)
+        fun parseConnectionConfig(s: String): Config? = parseVolterUriConfig(s.trim())?.copy(protection = null, mesh = MeshConfig(), relay = null)
 
         private fun parseVolterUriName(raw: String): String? {
             val j = decodeVolterUriPayload(raw) ?: return null

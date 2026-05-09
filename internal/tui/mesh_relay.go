@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 )
 
-const meshRelayInputCount = 37
+const meshRelayInputCount = 43
 
 var meshRelayLabels = []string{
 	"peerId",
@@ -47,9 +47,15 @@ var meshRelayLabels = []string{
 	"peerPathFromDiscovery t/f",
 	"peerRelayUseQuic t/f",
 	"peerRelayUseUdp t/f",
+	"peerRelayUseTcp t/f",
 	"dhtPublishSrflx t/f",
 	"symmetricNatHolePunch t/f",
 	"pathAggressive t/f",
+	"allowedClasses (,)",
+	"maxConcurrent",
+	"budgetKbps",
+	"peerRelayBudgetKbps",
+	"maxPeerHops",
 }
 
 func splitCommaList(s string) []string {
@@ -104,6 +110,12 @@ func newMeshRelayInputs(r *config.RelayOptions) []textinput.Model {
 		}
 		return "false"
 	}
+	boolPtrStr := func(b *bool, def bool) string {
+		if b == nil {
+			return boolStr(def)
+		}
+		return boolStr(*b)
+	}
 	return []textinput.Model{
 		ti("", z.PeerID),
 		ti("https://...", z.DiscoveryURL),
@@ -139,9 +151,15 @@ func newMeshRelayInputs(r *config.RelayOptions) []textinput.Model {
 		ti("true", boolStr(z.PeerPathFromDiscovery)),
 		ti("false", boolStr(z.PeerRelayUseQUIC)),
 		ti("true", boolStr(z.PeerRelayUseUDP)),
+		ti("true", boolPtrStr(z.PeerRelayUseTCP, true)),
 		ti("true", boolStr(z.DhtPublishSrflx)),
 		ti("true", boolStr(z.SymmetricNatHolePunch)),
 		ti("true", boolStr(z.PathAggressive)),
+		ti("", join(z.AllowedClasses)),
+		ti("0", strconv.Itoa(z.MaxConcurrent)),
+		ti("0", strconv.Itoa(z.BudgetKbps)),
+		ti("0", strconv.Itoa(z.PeerRelayBudgetKbps)),
+		ti("1", strconv.Itoa(z.MaxPeerHops)),
 	}
 }
 
@@ -187,12 +205,20 @@ func meshRelayFromInputs(inputs []textinput.Model) (config.RelayOptions, string)
 		PeerPathFromDiscovery: parseBoolLoose(get(31)),
 		PeerRelayUseQUIC:      parseBoolLoose(get(32)),
 		PeerRelayUseUDP:       parseBoolLoose(get(33)),
-		DhtPublishSrflx:       parseBoolLoose(get(34)),
-		SymmetricNatHolePunch: parseBoolLoose(get(35)),
-		PathAggressive:        parseBoolLoose(get(36)),
+		PeerRelayUseTCP:       boolPtr(parseBoolLoose(get(34))),
+		DhtPublishSrflx:       parseBoolLoose(get(35)),
+		SymmetricNatHolePunch: parseBoolLoose(get(36)),
+		PathAggressive:        parseBoolLoose(get(37)),
+		AllowedClasses:        splitCommaList(get(38)),
+		MaxConcurrent:         atoiField(get(39)),
+		BudgetKbps:            atoiField(get(40)),
+		PeerRelayBudgetKbps:   atoiField(get(41)),
+		MaxPeerHops:           atoiField(get(42)),
 	}
 	return out, ""
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 func relayMergeKeepAdvanced(old *config.RelayOptions, nu *config.RelayOptions) {
 	if old == nil || nu == nil {
@@ -209,6 +235,9 @@ func relayMergeKeepAdvanced(old *config.RelayOptions, nu *config.RelayOptions) {
 	}
 	if nu.BudgetKbps == 0 && old.BudgetKbps != 0 {
 		nu.BudgetKbps = old.BudgetKbps
+	}
+	if nu.PeerRelayBudgetKbps == 0 && old.PeerRelayBudgetKbps != 0 {
+		nu.PeerRelayBudgetKbps = old.PeerRelayBudgetKbps
 	}
 	if len(nu.GeoAllowCountries) == 0 && len(old.GeoAllowCountries) > 0 {
 		nu.GeoAllowCountries = old.GeoAllowCountries
@@ -257,6 +286,7 @@ func mergeCfgPreserveRelayProtection(oldName string, cfg config.Config) config.C
 		return cfg
 	}
 	cfg.Relay = old.Relay
+	cfg.Mesh = old.Mesh
 	cfg.Protection = old.Protection
 	return cfg
 }

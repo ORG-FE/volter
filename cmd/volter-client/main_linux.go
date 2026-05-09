@@ -11,11 +11,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
-	"dev.c0redev.volter/internal/ipc"
+	"dev.c0redev.volter/internal/metrics"
 	"dev.c0redev.volter/internal/netcfg"
 	"dev.c0redev.volter/internal/proxy"
 	"dev.c0redev.volter/internal/tun"
@@ -24,6 +25,21 @@ import (
 	"github.com/xjasonlyu/tun2socks/v2/core/device"
 	"github.com/xjasonlyu/tun2socks/v2/core/device/fdbased"
 )
+
+func trayPkexecEnv() []string {
+	env := os.Environ()
+	keep := []string{"HOME", "USER", "LOGNAME", "PATH", "DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "XDG_CURRENT_DESKTOP", "DESKTOP_SESSION", "LANG", "LC_ALL"}
+	out := make([]string, 0, len(keep))
+	for _, key := range keep {
+		if v := os.Getenv(key); v != "" {
+			out = append(out, key+"="+v)
+		}
+	}
+	if len(out) == 0 {
+		return env
+	}
+	return out
+}
 
 func autoInstallDesktopIntegration() {
 	if os.Getenv("VOLTER_SKIP_DESKTOP_INSTALL") == "1" {
@@ -155,7 +171,8 @@ const embeddedPolicy = `<?xml version="1.0" encoding="UTF-8"?>
     <message>Authentication is required to run Volter VPN with network privileges.</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
-      <allow_inactive>auth_admin</allow_inactive>
+      <!-- Держим авторизацию в активной локальной сессии (меньше повторных запросов пароля для того же действия). -->
+      <allow_inactive>auth_admin_keep</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/volter-client</annotate>
@@ -188,55 +205,108 @@ func dedupeIPs(ips []net.IP) []net.IP {
 	return out
 }
 
+func linuxPkexecStartProfile(profile string) (*exec.Cmd, error) {
+	if strings.TrimSpace(os.Getenv("VOLTER_NO_PKEXEC")) == "1" {
+		return nil, fmt.Errorf("VOLTER_NO_PKEXEC=1: pkexec отключён")
+	}
+	pk, err := exec.LookPath("pkexec")
+	if err != nil {
+		return nil, fmt.Errorf("pkexec не найден (нужен polkit): %w", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(pk, exe, "--profile", profile)
+	cmd.Env = trayPkexecEnv()
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("pkexec: %w", err)
+	}
+	return cmd, nil
+}
+
+func linuxPkexecReplayArgv(argv []string) error {
+	if strings.TrimSpace(os.Getenv("VOLTER_NO_PKEXEC")) == "1" {
+		return fmt.Errorf("нужны права root для TUN; снимите VOLTER_NO_PKEXEC чтобы использовать pkexec")
+	}
+	pk, err := exec.LookPath("pkexec")
+	if err != nil {
+		return fmt.Errorf("pkexec не найден (нужен polkit): %w", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	args := append([]string{exe}, argv...)
+	cmd := exec.Command(pk, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = trayPkexecEnv()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pkexec: %w", err)
+	}
+	return nil
+}
+
+func waitForTUNIface(name string, maxWait time.Duration) {
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		if _, err := net.InterfaceByName(name); err == nil {
+			return
+		}
+		time.Sleep(120 * time.Millisecond)
+	}
+	clientlog.Warn("интерфейс %q не появился за %v — в TUI всё равно включается «Подключено»", name, maxWait)
+}
+
+func connectTUIViaPkexecProfile(profile string, record *metrics.SessionRecord, start time.Time) (stop func(), err error) {
+	cmd, err := linuxPkexecStartProfile(profile)
+	if err != nil {
+		return nil, err
+	}
+	waitForTUNIface("volter0", 20*time.Second)
+	record.HandshakeOK = true
+	clientlog.OK("TUI: VPN через polkit (профиль %s, отдельный процесс)", profile)
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	return func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-done
+		record.End = time.Now()
+		record.Duration = time.Since(start)
+		record.ErrorType = "graceful"
+		record.DNSOKAfter = checkDNS()
+		if store, loadErr := metrics.Load(); loadErr == nil {
+			_ = store.Append(*record)
+		}
+	}, nil
+}
+
 func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func()) error {
 	if os.Geteuid() != 0 {
-		return fmt.Errorf("run as root: sudo volter-client ...")
-	}
-	
-	_ = ipc.InitState()
-	
-	var ipcClient *ipc.Client
-	if opts.ipcSocket != "" {
-		client, err := ipc.NewClient(opts.ipcSocket)
-		if err != nil {
-			clientlog.Warn("Failed to connect to IPC socket: %v", err)
+		if opts.proxy {
 		} else {
-			ipcClient = client
-			defer ipcClient.Close()
+			return linuxPkexecReplayArgv(os.Args[1:])
 		}
 	}
-	
-	sendStatus := func(connected bool, errMsg string) {
-		profile := opts.profileName
-		if profile == "" {
-			profile = "vpn"
-		}
-		ipc.SetConnected(connected, profile)
-		if ipcClient != nil {
-			msg := ipc.Message{
-				Type:      ipc.MsgTypeStatus,
-				Profile:   profile,
-				Connected: connected,
-			}
-			if errMsg != "" {
-				msg.Error = errMsg
-			}
-			_ = ipcClient.Send(msg)
-		}
-	}
-	
 	if opts.proxy {
 		sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
+		if err := meshProxyModeError(opts.mesh); err != nil {
+			return err
+		}
 		clientlog.Info("proxy mode: listening on %s", opts.proxyListen)
 		if onReady != nil {
 			onReady()
 		}
-		sendStatus(true, "")
 		tunnel.SetQUICTrace(opts.quicTraceLog)
-		err := proxy.Run(sigCtx, opts.proxyListen, addrs, opts.token, opts.protection, opts.transport, opts.quicServer, opts.quicServerName, opts.quicSkipVerify, opts.quicCertPinSHA256, opts.quicTLSRoots)
-		sendStatus(false, err.Error())
-		return err
+		return proxy.Run(sigCtx, opts.proxyListen, addrs, opts.token, opts.protection, opts.transport, opts.quicServer, opts.quicServerName, opts.quicSkipVerify, opts.quicCertPinSHA256, opts.quicTLSRoots)
 	}
 	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -327,6 +397,8 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 			DualTransport:     opts.dualTransport,
 			PathManager:       tunnel.NewPathManagerFromRelay(opts.relay),
 			Relay:             opts.relay,
+			Mesh:              opts.mesh,
+			RouteController:   vpn.NewRouteController(),
 			Ready:             func() { close(ready) },
 			Protection:        opts.protection,
 		}
@@ -352,16 +424,13 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 	select {
 	case <-ready:
 		clientlog.OK("Tunnel ready, switching routes to %s", opts.tunName)
-		sendStatus(true, "")
 		if err := netcfg.AddRoutesViaTun(opts.tunName, opts.routeCIDRs, 5); err != nil {
-			sendStatus(false, err.Error())
 			return err
 		}
 		if opts.tunCIDR6 != "" && len(opts.routeCIDRs) == 0 {
 
 			if gw, err := deriveIPv6Gateway(opts.tunCIDR6); err == nil {
 				if err := netcfg.AddDefaultViaTun6(opts.tunName, gw, 5); err != nil {
-					sendStatus(false, err.Error())
 					return err
 				}
 			}
@@ -370,21 +439,17 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 			onReady()
 		}
 	case err := <-errCh:
-		sendStatus(false, err.Error())
 		return err
 	case <-sigCtx.Done():
 		<-errCh
-		sendStatus(false, "cancelled")
 		return nil
 	}
 
 	select {
 	case <-sigCtx.Done():
 		<-errCh
-		sendStatus(false, "cancelled")
 		return nil
 	case err := <-errCh:
-		sendStatus(false, err.Error())
 		return err
 	}
 }

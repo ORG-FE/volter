@@ -27,6 +27,17 @@ func WriteVP02MessageTo(c *net.UDPConn, addr *net.UDPAddr, p []byte) error {
 	})
 }
 
+type UDPFrameWriter interface {
+	WriteTo([]byte, *net.UDPAddr) (int, error)
+}
+
+func WriteVP02MessageToPeer(w UDPFrameWriter, addr *net.UDPAddr, p []byte) error {
+	return writeVP02Message(p, func(b []byte) error {
+		_, err := w.WriteTo(b, addr)
+		return err
+	})
+}
+
 func writeVP02Message(p []byte, send func([]byte) error) error {
 	if len(p) == 0 {
 		return errors.New("peerudp: empty payload")

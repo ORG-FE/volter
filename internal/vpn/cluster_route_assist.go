@@ -71,7 +71,7 @@ func runClusterRouteAssist(ctx context.Context, opt Options) {
 		for _, entry := range entries {
 			octx, cancel := context.WithTimeout(ctx, 60*time.Second)
 			if nodeID != "" {
-				st, out, detail := RunClusterRouteOrchestratorFull(octx, target, entry, probe, &routeorch.AssistConfig{
+				st, out, detail, dir := RunClusterRouteOrchestratorFullDirective(octx, target, entry, probe, &routeorch.AssistConfig{
 					ClusterKey:    clusterPollHeaderKey(opt),
 					InvitePath:    invitePath,
 					HandshakePath: hsPath,
@@ -80,6 +80,9 @@ func runClusterRouteAssist(ctx context.Context, opt Options) {
 				cancel()
 				clientlog.Info("vpn: cluster route assist full entry=%s stage=%s outcome=%s detail=%s", entry, st, out, detail)
 				if out == routeorch.OutcomeMigrated {
+					if opt.RouteController != nil && dir.Endpoint != "" {
+						opt.RouteController.Apply(dir)
+					}
 					return
 				}
 				continue

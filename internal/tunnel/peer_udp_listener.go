@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"dev.c0redev.volter/internal/config"
-	"dev.c0redev.volter/internal/ice"
 	"dev.c0redev.volter/internal/peertransport"
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/sockprotect"
@@ -27,16 +26,21 @@ const peerRelayHopHardLimit = 2
 
 type PeerRelayUDPOptions struct {
 	Addr          string
+	Socket        *PeerSocket
 	Token         string
 	MaxConcurrent int
+	BudgetKbps    int
 	StunServers   []string
 	OnSrflx       func(string)
 }
 
 type PeerUDPRelay struct {
-	uc    *net.UDPConn
-	token string
-	sem   chan struct{}
+	ps         *PeerSocket
+	ownsSocket bool
+	token      string
+	budgetKbps int
+	sem        chan struct{}
+	closeOnce  sync.Once
 
 	mu    sync.Mutex
 	peers map[string]*peerUDPState
@@ -60,7 +64,7 @@ type peerUDPSession struct {
 }
 
 func ListenPeerRelayUDP(ctx context.Context, opt PeerRelayUDPOptions) (*PeerUDPRelay, error) {
-	if opt.Addr == "" {
+	if opt.Socket == nil && opt.Addr == "" {
 		return nil, errors.New("peer udp: empty listen addr")
 	}
 	if opt.Token == "" {
@@ -70,37 +74,28 @@ func ListenPeerRelayUDP(ctx context.Context, opt PeerRelayUDPOptions) (*PeerUDPR
 	if maxConcurrent <= 0 {
 		maxConcurrent = 32
 	}
-	lc := net.ListenConfig{}
-	if p := sockprotect.Protect; p != nil {
-		lc.Control = func(network, address string, c syscall.RawConn) error {
-			var err error
-			e := c.Control(func(fd uintptr) {
-				err = p(fd)
-			})
-			if e != nil {
-				return e
-			}
-			return err
+	ps := opt.Socket
+	owns := false
+	if ps == nil {
+		var err error
+		ps, err = ListenPeerSocket(ctx, opt.Addr)
+		if err != nil {
+			return nil, err
 		}
-	}
-	pc, err := lc.ListenPacket(ctx, "udp", opt.Addr)
-	if err != nil {
-		return nil, err
-	}
-	uc, ok := pc.(*net.UDPConn)
-	if !ok {
-		_ = pc.Close()
-		return nil, errors.New("peer udp: listen not udp")
+		owns = true
 	}
 	r := &PeerUDPRelay{
-		uc:    uc,
-		token: opt.Token,
-		sem:   make(chan struct{}, maxConcurrent),
-		peers: make(map[string]*peerUDPState),
+		ps:         ps,
+		ownsSocket: owns,
+		token:      opt.Token,
+		budgetKbps: opt.BudgetKbps,
+		sem:        make(chan struct{}, maxConcurrent),
+		peers:      make(map[string]*peerUDPState),
 	}
+	ps.SetVP02Handler(r.dispatch)
 	if opt.OnSrflx != nil {
 		sub, cancel := context.WithTimeout(ctx, 5*time.Second)
-		if sr, err := ice.GatherSrflxOnUDP(sub, uc, opt.StunServers); err == nil {
+		if sr, err := GatherSrflxOnPeerSocket(sub, ps, opt.StunServers); err == nil {
 			opt.OnSrflx(net.JoinHostPort(sr.IP.String(), strconv.Itoa(int(sr.Port))))
 		}
 		cancel()
@@ -109,33 +104,28 @@ func ListenPeerRelayUDP(ctx context.Context, opt PeerRelayUDPOptions) (*PeerUDPR
 		<-ctx.Done()
 		_ = r.Close()
 	}()
-	go r.readLoop()
 	return r, nil
 }
 
 func (r *PeerUDPRelay) Addr() net.Addr {
-	if r == nil || r.uc == nil {
+	if r == nil || r.ps == nil {
 		return nil
 	}
-	return r.uc.LocalAddr()
+	return r.ps.Addr()
 }
 
 func (r *PeerUDPRelay) Close() error {
-	if r == nil || r.uc == nil {
+	if r == nil || r.ps == nil {
 		return nil
 	}
-	return r.uc.Close()
-}
-
-func (r *PeerUDPRelay) readLoop() {
-	buf := make([]byte, 65536)
-	for {
-		n, raddr, err := r.uc.ReadFromUDP(buf)
-		if err != nil {
-			return
+	var err error
+	r.closeOnce.Do(func() {
+		r.ps.SetVP02Handler(nil)
+		if r.ownsSocket {
+			err = r.ps.Close()
 		}
-		r.dispatch(raddr, buf[:n])
-	}
+	})
+	return err
 }
 
 func (r *PeerUDPRelay) dispatch(raddr *net.UDPAddr, pkt []byte) {
@@ -214,12 +204,37 @@ func (r *PeerUDPRelay) handleSession(s *peerUDPSession) {
 		return
 	}
 	defer target.Close()
+	if needHopAck(&opts) {
+		bw := bufio.NewWriter(s)
+		if err := protocol.WriteHopAck(bw, protocol.HopAck{
+			RouteID: opts.RouteID,
+			HopIdx:  hopIndexByte(opts.HopIndex),
+			NodeID:  opts.PeerID,
+			Status:  1,
+		}); err != nil {
+			return
+		}
+	}
 
-	bucket := NewByteBucket(opts.RelayBudgetKbps)
+	budget := opts.RelayBudgetKbps
+	if r.budgetKbps > 0 && (budget <= 0 || budget > r.budgetKbps) {
+		budget = r.budgetKbps
+	}
+	bucket := NewByteBucket(budget)
 	errc := make(chan error, 2)
 	go func() { errc <- copyRelay(target, br, bucket) }()
 	go func() { errc <- copyRelay(s, target, bucket) }()
 	<-errc
+}
+
+func hopIndexByte(v int) byte {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return byte(v)
 }
 
 func allowPeerRelayOptions(opts *config.ProtectionOptions, token string) bool {
@@ -241,7 +256,13 @@ func allowPeerRelayOptions(opts *config.ProtectionOptions, token string) bool {
 	_, _ = mac.Write([]byte("|"))
 	_, _ = mac.Write([]byte(opts.RelayNonce))
 	want := mac.Sum(nil)
-	got, err := base64.RawStdEncoding.DecodeString(opts.RelaySig)
+	got, err := base64.RawURLEncoding.DecodeString(opts.RelaySig)
+	if err != nil {
+		got, err = base64.URLEncoding.DecodeString(opts.RelaySig)
+	}
+	if err != nil {
+		got, err = base64.RawStdEncoding.DecodeString(opts.RelaySig)
+	}
 	if err != nil {
 		got, err = base64.StdEncoding.DecodeString(opts.RelaySig)
 	}
@@ -316,7 +337,7 @@ func (s *peerUDPSession) Write(p []byte) (int, error) {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if err := peertransport.WriteVP02MessageTo(s.relay.uc, s.raddr, p); err != nil {
+	if err := peertransport.WriteVP02MessageToPeer(s.relay.ps, s.raddr, p); err != nil {
 		return 0, err
 	}
 	return len(p), nil
@@ -339,7 +360,7 @@ func (s *peerUDPSession) Close() error {
 	return nil
 }
 
-func (s *peerUDPSession) LocalAddr() net.Addr              { return s.relay.uc.LocalAddr() }
+func (s *peerUDPSession) LocalAddr() net.Addr              { return s.relay.ps.Addr() }
 func (s *peerUDPSession) RemoteAddr() net.Addr             { return s.raddr }
 func (s *peerUDPSession) SetDeadline(time.Time) error      { return nil }
 func (s *peerUDPSession) SetReadDeadline(time.Time) error  { return nil }

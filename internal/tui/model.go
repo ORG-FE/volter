@@ -376,8 +376,8 @@ func (m *Model) meshFullContent() string {
 		name := m.meshRelayEffectiveTarget()
 		var r *config.RelayOptions
 		if name != "" {
-			if cfg, err := config.LoadByName(name); err == nil && cfg.Relay != nil {
-				r = cfg.Relay
+			if cfg, err := config.LoadByName(name); err == nil {
+				r = config.EffectiveRelayOptions(&cfg)
 			}
 		}
 		b.WriteString(relaySummaryShort(r))
@@ -393,7 +393,7 @@ func (m *Model) meshFullContent() string {
 	b.WriteString(meshstatus.Format(meshstatus.Gather()))
 	if strings.TrimSpace(m.meshSelfTest) != "" {
 		b.WriteString("\n\n")
-		b.WriteString(sectionTitle.Render("Self-test relay/STUN") + "\n")
+		b.WriteString(sectionTitle.Render("Self-test mesh") + "\n")
 		b.WriteString("  " + m.meshSelfTest + "\n")
 	}
 	return b.String()
@@ -1232,11 +1232,11 @@ func runMeshSelfTest(cfg config.Config, profileName string) tea.Cmd {
 		if err != nil {
 			lines = append(lines, "probeErr="+err.Error())
 		}
-		if cfg.Relay == nil {
-			lines = append(lines, "relay=missing")
+		r := config.EffectiveRelayOptions(&cfg)
+		if r == nil {
+			lines = append(lines, "mesh=missing")
 			return meshSelfTestMsg{report: strings.Join(lines, " | ")}
 		}
-		r := cfg.Relay
 		peerReady :=
 			strings.TrimSpace(r.PeerID) != "" &&
 				len(r.DhtRpcSeedPeers) > 0 &&
@@ -1502,8 +1502,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				name := m.meshRelayEffectiveTarget()
 				var r *config.RelayOptions
 				if name != "" {
-					if cfg, err := config.LoadByName(name); err == nil && cfg.Relay != nil {
-						r = cfg.Relay
+					if cfg, err := config.LoadByName(name); err == nil {
+						r = config.EffectiveRelayOptions(&cfg)
 					}
 				}
 				m.meshInputs = newMeshRelayInputs(r)
@@ -1777,12 +1777,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = err.Error()
 					return m, nil
 				}
-				var old *config.RelayOptions
-				if cfg.Relay != nil {
-					old = cfg.Relay
-				}
+				old := config.EffectiveRelayOptions(&cfg)
 				relayMergeKeepAdvanced(old, &nu)
-				cfg.Relay = &nu
+				if cfg.Mesh != nil && cfg.Mesh.Enabled {
+					cfg.Mesh = config.RelayOptionsToMesh(&nu, cfg.Mesh)
+					cfg.Relay = nil
+				} else {
+					cfg.Relay = &nu
+				}
 				if err := config.Save(name, cfg); err != nil {
 					m.err = err.Error()
 					return m, nil
@@ -2772,24 +2774,10 @@ func (m *Model) exportPeerTicket() (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	peerID := "peer-" + config.SanitizeName(name)
-	pubKey := "mesh-key"
-	addrs := []string{cfg.Server}
-	if cfg.Relay != nil {
-		if strings.TrimSpace(cfg.Relay.PeerID) != "" {
-			peerID = strings.TrimSpace(cfg.Relay.PeerID)
-		}
-		if strings.TrimSpace(cfg.Relay.BootstrapPubKey) != "" {
-			pubKey = strings.TrimSpace(cfg.Relay.BootstrapPubKey)
-		}
-		if strings.TrimSpace(cfg.Relay.PeerRelayUDPAdvertise) != "" {
-			addrs = append(addrs, strings.TrimSpace(cfg.Relay.PeerRelayUDPAdvertise))
-		}
-		if strings.TrimSpace(cfg.Relay.PeerRelayUDPListen) != "" {
-			addrs = append(addrs, strings.TrimSpace(cfg.Relay.PeerRelayUDPListen))
-		}
+	t, err := peerTicketFromConfig(cfg, 24*time.Hour)
+	if err != nil {
+		return "", "", err
 	}
-	t := config.CreatePeerTicket(peerID, pubKey, addrs, 24*time.Hour)
 	if err := config.UpsertPeerTicket(t); err != nil {
 		return "", "", err
 	}
@@ -2799,6 +2787,33 @@ func (m *Model) exportPeerTicket() (string, string, error) {
 		return "", "", err
 	}
 	return uri, p, nil
+}
+
+func peerTicketFromConfig(cfg config.Config, ttl time.Duration) (config.PeerTicket, error) {
+	relay := config.EffectiveRelayOptions(&cfg)
+	if relay == nil {
+		return config.PeerTicket{}, fmt.Errorf("peer ticket requires mesh relay config")
+	}
+	peerID := strings.TrimSpace(relay.PeerID)
+	pubKey := strings.TrimSpace(relay.BootstrapPubKey)
+	advertise := strings.TrimSpace(relay.PeerRelayUDPAdvertise)
+	listen := strings.TrimSpace(relay.PeerRelayUDPListen)
+	switch {
+	case peerID == "":
+		return config.PeerTicket{}, fmt.Errorf("peer ticket requires peerId")
+	case pubKey == "":
+		return config.PeerTicket{}, fmt.Errorf("peer ticket requires bootstrapPubKey")
+	case advertise == "" && listen == "":
+		return config.PeerTicket{}, fmt.Errorf("peer ticket requires peer UDP endpoint")
+	}
+	var addrs []string
+	if advertise != "" {
+		addrs = append(addrs, advertise)
+	}
+	if listen != "" {
+		addrs = append(addrs, listen)
+	}
+	return config.CreatePeerTicket(peerID, pubKey, addrs, ttl), nil
 }
 
 func (m *Model) importPeerTicket() (string, error) {

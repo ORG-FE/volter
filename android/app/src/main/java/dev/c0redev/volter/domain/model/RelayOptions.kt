@@ -14,6 +14,9 @@ data class RelayOptions(
     val allowedClasses: List<String>? = null,
     val maxConcurrent: Int? = null,
     val budgetKbps: Int? = null,
+    val peerRelayBudgetKbps: Int? = null,
+    val maxPeerHops: Int? = null,
+    val healthMaxAgeSec: Int? = null,
     val discoverySigned: String? = null,
     val discoveryURL: String? = null,
     val gossipEnabled: Boolean? = null,
@@ -33,6 +36,7 @@ data class RelayOptions(
     val peerPathFromDiscovery: Boolean? = null,
     val peerRelayUseQuic: Boolean? = null,
     val peerRelayUseUdp: Boolean? = null,
+    val peerRelayUseTcp: Boolean? = null,
     val peerRelayUdpListen: String? = null,
     val peerRelayUdpAdvertise: String? = null,
     val peerQuicServerName: String? = null,
@@ -60,6 +64,9 @@ data class RelayOptions(
         j.putStringListIfNonempty("allowedClasses", allowedClasses)
         maxConcurrent?.takeIf { it != 0 }?.let { j.put("maxConcurrent", it) }
         budgetKbps?.takeIf { it != 0 }?.let { j.put("budgetKbps", it) }
+        peerRelayBudgetKbps?.takeIf { it != 0 }?.let { j.put("peerRelayBudgetKbps", it) }
+        maxPeerHops?.takeIf { it != 0 }?.let { j.put("maxPeerHops", it) }
+        healthMaxAgeSec?.takeIf { it != 0 }?.let { j.put("healthMaxAgeSec", it) }
         discoverySigned?.takeIf { it.isNotBlank() }?.let { j.put("discoverySigned", it) }
         discoveryURL?.takeIf { it.isNotBlank() }?.let { j.put("discoveryURL", it) }
         gossipEnabled?.let { j.put("gossipEnabled", it) }
@@ -79,6 +86,7 @@ data class RelayOptions(
         peerPathFromDiscovery?.let { j.put("peerPathFromDiscovery", it) }
         peerRelayUseQuic?.let { j.put("peerRelayUseQuic", it) }
         peerRelayUseUdp?.let { j.put("peerRelayUseUdp", it) }
+        peerRelayUseTcp?.let { j.put("peerRelayUseTcp", it) }
         peerRelayUdpListen?.takeIf { it.isNotBlank() }?.let { j.put("peerRelayUdpListen", it) }
         peerRelayUdpAdvertise?.takeIf { it.isNotBlank() }?.let { j.put("peerRelayUdpAdvertise", it) }
         peerQuicServerName?.takeIf { it.isNotBlank() }?.let { j.put("peerQuicServerName", it) }
@@ -110,6 +118,9 @@ data class RelayOptions(
                 allowedClasses = list("allowedClasses"),
                 maxConcurrent = j.optNullableInt("maxConcurrent"),
                 budgetKbps = j.optNullableInt("budgetKbps"),
+                peerRelayBudgetKbps = j.optNullableInt("peerRelayBudgetKbps"),
+                maxPeerHops = j.optNullableInt("maxPeerHops"),
+                healthMaxAgeSec = j.optNullableInt("healthMaxAgeSec"),
                 discoverySigned = j.optNullableString("discoverySigned"),
                 discoveryURL = j.optNullableString("discoveryURL"),
                 gossipEnabled = j.optNullableBoolean("gossipEnabled"),
@@ -129,6 +140,7 @@ data class RelayOptions(
                 peerPathFromDiscovery = j.optNullableBoolean("peerPathFromDiscovery"),
                 peerRelayUseQuic = j.optNullableBoolean("peerRelayUseQuic"),
                 peerRelayUseUdp = j.optNullableBoolean("peerRelayUseUdp"),
+                peerRelayUseTcp = j.optNullableBoolean("peerRelayUseTcp"),
                 peerRelayUdpListen = j.optNullableString("peerRelayUdpListen"),
                 peerRelayUdpAdvertise = j.optNullableString("peerRelayUdpAdvertise"),
                 peerQuicServerName = j.optNullableString("peerQuicServerName"),
@@ -162,6 +174,9 @@ fun RelayOptions.withUserOverlay(user: RelayOptions?): RelayOptions {
         allowedClasses = user.allowedClasses ?: allowedClasses,
         maxConcurrent = user.maxConcurrent ?: maxConcurrent,
         budgetKbps = user.budgetKbps ?: budgetKbps,
+        peerRelayBudgetKbps = user.peerRelayBudgetKbps ?: peerRelayBudgetKbps,
+        maxPeerHops = user.maxPeerHops ?: maxPeerHops,
+        healthMaxAgeSec = user.healthMaxAgeSec ?: healthMaxAgeSec,
         discoverySigned = user.discoverySigned ?: discoverySigned,
         discoveryURL = user.discoveryURL ?: discoveryURL,
         gossipEnabled = user.gossipEnabled ?: gossipEnabled,
@@ -181,6 +196,7 @@ fun RelayOptions.withUserOverlay(user: RelayOptions?): RelayOptions {
         peerPathFromDiscovery = user.peerPathFromDiscovery ?: peerPathFromDiscovery,
         peerRelayUseQuic = user.peerRelayUseQuic ?: peerRelayUseQuic,
         peerRelayUseUdp = user.peerRelayUseUdp ?: peerRelayUseUdp,
+        peerRelayUseTcp = user.peerRelayUseTcp ?: peerRelayUseTcp,
         peerRelayUdpListen = user.peerRelayUdpListen ?: peerRelayUdpListen,
         peerRelayUdpAdvertise = user.peerRelayUdpAdvertise ?: peerRelayUdpAdvertise,
         peerQuicServerName = user.peerQuicServerName ?: peerQuicServerName,
@@ -201,4 +217,110 @@ fun RelayOptions.withUserOverlay(user: RelayOptions?): RelayOptions {
         dhtPublishSrflx = user.dhtPublishSrflx ?: dhtPublishSrflx,
         symmetricNatHolePunch = user.symmetricNatHolePunch ?: symmetricNatHolePunch,
     )
+}
+
+fun RelayOptions.hasProfileData(): Boolean {
+    return hasMeshProfileData() || hasCarryOverData()
+}
+
+fun RelayOptions.hasMeshProfileData(): Boolean {
+    return !peerId.isNullOrBlank() ||
+        !discoveryURL.isNullOrBlank() ||
+        !bootstrapPubKey.isNullOrBlank() ||
+        !stunServers.isNullOrEmpty() ||
+        !gossipPeers.isNullOrEmpty() ||
+        !dhtFindUrls.isNullOrEmpty() ||
+        !dhtRpcListenUdp.isNullOrBlank() ||
+        !dhtRpcSecret.isNullOrBlank() ||
+        !dhtRpcSeedPeers.isNullOrEmpty() ||
+        !peerRelayUdpListen.isNullOrBlank() ||
+        !peerRelayUdpAdvertise.isNullOrBlank()
+}
+
+fun RelayOptions.hasCarryOverData(): Boolean {
+    return !turnUrls.isNullOrEmpty() ||
+        !discoverySigned.isNullOrBlank() ||
+        !emergencyPolicyURL.isNullOrBlank() ||
+        !emergencyPolicyPubKey.isNullOrBlank() ||
+        !geoAllowCountries.isNullOrEmpty() ||
+        !geoDenyCountries.isNullOrEmpty() ||
+        !stakeRegistryURL.isNullOrBlank() ||
+        !stakeRegistryPubKey.isNullOrBlank() ||
+        !stakeReputationFile.isNullOrBlank() ||
+        !stakeBonusHttpUrl.isNullOrBlank() ||
+        !stakeMerkleFile.isNullOrBlank() ||
+        !stakeMerkleRootUrl.isNullOrBlank()
+}
+
+fun RelayOptions.toMesh(base: MeshConfig = MeshConfig()): MeshConfig {
+    return base.copy(
+        enabled = true,
+        volunteer = base.volunteer.copy(
+            enabled = !peerRelayUdpListen.isNullOrBlank() || !peerRelayUdpAdvertise.isNullOrBlank(),
+            peerId = peerId,
+            privateKey = privateKey,
+            udpListen = peerRelayUdpListen,
+            udpAdvertise = peerRelayUdpAdvertise,
+            maxConcurrent = maxConcurrent ?: 0,
+            budgetKbps = peerRelayBudgetKbps ?: budgetKbps ?: 0,
+        ),
+        p2p = base.p2p.copy(
+            enabled = peerPathFromDiscovery == true,
+            useUdp = peerRelayUseUdp == true,
+            useQuic = peerRelayUseQuic == true,
+            useTcp = peerRelayUseTcp != false,
+            quicServerName = peerQuicServerName,
+        ),
+        serverRelay = base.serverRelay.copy(
+            enabled = true,
+            allowedClasses = allowedClasses,
+            discoveryUrl = discoveryURL,
+            bootstrapPubKey = bootstrapPubKey,
+        ),
+        stun = base.stun.copy(
+            enabled = !stunServers.isNullOrEmpty() || dhtPublishSrflx == true || symmetricNatHolePunch == true,
+            servers = stunServers,
+            publishSrflx = dhtPublishSrflx == true,
+            symmetricNatHolePunch = symmetricNatHolePunch == true,
+        ),
+        discovery = base.discovery.copy(
+            gossipEnabled = gossipEnabled == true,
+            gossipPeers = gossipPeers,
+            gossipIntervalSec = gossipIntervalSec ?: 0,
+            gossipMaxAgeSec = gossipMaxAgeSec ?: 0,
+            dhtFindUrls = dhtFindUrls,
+            dhtRpcListenUdp = dhtRpcListenUdp,
+            dhtRpcSecret = dhtRpcSecret,
+            dhtRpcSeedPeers = dhtRpcSeedPeers,
+            dhtRpcIntervalSec = dhtRpcIntervalSec ?: 0,
+            dhtRpcFindK = dhtRpcFindK ?: 0,
+            dhtIterativeRounds = dhtIterativeRounds ?: 0,
+            dhtIterativeAlpha = dhtIterativeAlpha ?: 0,
+        ),
+        policy = base.policy.copy(
+            budgetKbps = budgetKbps ?: base.policy.budgetKbps,
+            maxPeerHops = maxPeerHops ?: base.policy.maxPeerHops,
+            pathAggressive = pathAggressive == true,
+            pathCooldownMs = pathCooldownMs ?: base.policy.pathCooldownMs,
+            healthMaxAgeSec = healthMaxAgeSec ?: base.policy.healthMaxAgeSec,
+        ),
+    )
+}
+
+fun RelayOptions.legacyCarryOver(): RelayOptions? {
+    val out = RelayOptions(
+        turnUrls = turnUrls,
+        discoverySigned = discoverySigned,
+        emergencyPolicyURL = emergencyPolicyURL,
+        emergencyPolicyPubKey = emergencyPolicyPubKey,
+        geoAllowCountries = geoAllowCountries,
+        geoDenyCountries = geoDenyCountries,
+        stakeRegistryURL = stakeRegistryURL,
+        stakeRegistryPubKey = stakeRegistryPubKey,
+        stakeReputationFile = stakeReputationFile,
+        stakeBonusHttpUrl = stakeBonusHttpUrl,
+        stakeMerkleFile = stakeMerkleFile,
+        stakeMerkleRootUrl = stakeMerkleRootUrl,
+    )
+    return out.takeIf { it.hasCarryOverData() }
 }

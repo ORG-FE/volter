@@ -15,6 +15,7 @@ import (
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/dht"
 	"dev.c0redev.volter/internal/ice"
+	"dev.c0redev.volter/internal/tunnel"
 )
 
 var lastPublishedSrflx atomic.Value
@@ -125,6 +126,13 @@ func publishSrflxToDHT(ctx context.Context, relay *config.RelayOptions, hostPort
 	publishMergedPresenceCandidates(ctx, relay, hostPort, nil)
 }
 
+func publishVolunteerSrflxToDHT(ctx context.Context, mesh *config.MeshConfig, relay *config.RelayOptions, hostPort string) {
+	if !meshAllowsPresencePublish(mesh) {
+		return
+	}
+	publishSrflxToDHT(ctx, relay, hostPort)
+}
+
 func endpointsFromPresenceJSON(raw []byte) []string {
 	var rec dhtPresenceRecord
 	if err := json.Unmarshal(raw, &rec); err != nil {
@@ -190,7 +198,29 @@ func punchBurst(uc *net.UDPConn, hostPort string) {
 	}
 }
 
-func runSymmetricNatHolePunch(ctx context.Context, relay *config.RelayOptions) {
+func punchBurstPeerSocket(ps *tunnel.PeerSocket, hostPort string) {
+	hostPort = strings.TrimSpace(hostPort)
+	if ps == nil || hostPort == "" {
+		return
+	}
+	raddr, err := net.ResolveUDPAddr("udp", hostPort)
+	if err != nil {
+		return
+	}
+	var buf [32]byte
+	for i := 0; i < 8; i++ {
+		if _, err := crand.Read(buf[:]); err != nil {
+			clientlog.Warn("vpn: nat punch random failed %s: %v", hostPort, err)
+			continue
+		}
+		if _, err := ps.WriteTo(buf[:], raddr); err != nil {
+			clientlog.Warn("vpn: nat punch write failed %s: %v", hostPort, err)
+		}
+		time.Sleep(18 * time.Millisecond)
+	}
+}
+
+func runSymmetricNatHolePunch(ctx context.Context, relay *config.RelayOptions, ps *tunnel.PeerSocket) {
 	if relay == nil || !relay.SymmetricNatHolePunch || len(dhtRPCSeeds(relay)) == 0 ||
 		strings.TrimSpace(relay.PeerID) == "" {
 		return
@@ -198,6 +228,28 @@ func runSymmetricNatHolePunch(ctx context.Context, relay *config.RelayOptions) {
 	round := func() {
 		sub, cancel := context.WithTimeout(ctx, 14*time.Second)
 		defer cancel()
+		if ps != nil {
+			r, err := tunnel.GatherSrflxOnPeerSocket(sub, ps, relay.StunServers)
+			if err != nil {
+				return
+			}
+			srflx := net.JoinHostPort(r.IP.String(), strconv.Itoa(int(r.Port)))
+			setLastClientSrflx(srflx)
+			publishMergedPresenceCandidates(sub, relay, srflx, nil)
+			for _, n := range dht.DefaultTable().Nearest(16) {
+				if !strings.EqualFold(strings.TrimSpace(n.Class), "peer") {
+					continue
+				}
+				pid := strings.TrimSpace(n.ID)
+				if pid == "" {
+					continue
+				}
+				for _, hp := range fetchUdpEndpointsFromDHT(sub, relay, pid) {
+					punchBurstPeerSocket(ps, hp)
+				}
+			}
+			return
+		}
 		uc, err := net.ListenUDP("udp", &net.UDPAddr{IP: nil, Port: 0})
 		if err != nil {
 			return

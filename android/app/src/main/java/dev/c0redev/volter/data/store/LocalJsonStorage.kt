@@ -48,12 +48,12 @@ class LocalJsonStorage(private val context: Context) {
         if (!f.exists()) return null
         val text = f.readText()
         val j = JSONObject(text)
-        return Config.fromJson(j)
+        return Config.fromJson(j).canonicalProfile()
     }
 
     fun saveConfig(name: String, config: Config) {
         val f = configFileFor(name)
-        val j = config.toJson()
+        val j = config.canonicalProfile().toJson()
         f.writeText(j.toString(2))
     }
 

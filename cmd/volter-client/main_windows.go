@@ -140,6 +140,8 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 			DualTransport:     opts.dualTransport,
 			PathManager:       tunnel.NewPathManagerFromRelay(opts.relay),
 			Relay:             opts.relay,
+			Mesh:              opts.mesh,
+			RouteController:   vpn.NewRouteController(),
 			Ready:             func() { close(ready) },
 			Protection:        opts.protection,
 		}
@@ -280,6 +282,9 @@ func configureTunWindowsV6(name, cidr string) error {
 func runProxy(ctx context.Context, addrs []string, opts runOpts, onReady func()) error {
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if err := meshProxyModeError(opts.mesh); err != nil {
+		return err
+	}
 	if opts.systemProxy {
 		if err := sysproxy.Set(opts.proxyListen); err != nil {
 			return err

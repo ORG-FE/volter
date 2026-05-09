@@ -13,6 +13,7 @@ import android.net.IpPrefix
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.IBinder
+import android.system.Os
 import androidx.core.app.ServiceCompat
 import dev.c0redev.volter.core.CoreBridge
 import dev.c0redev.volter.domain.model.ClientSettings
@@ -20,6 +21,7 @@ import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.traffic.VpnTrafficRecorder
 import org.json.JSONObject
 import java.io.File
+import java.io.FileDescriptor
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.URI
@@ -38,6 +40,7 @@ class VolterVpnService : VpnService() {
     private var tunFd: Int = -1
     private var tunPfd: ParcelFileDescriptor? = null
     private val sessionAbort = AtomicBoolean(false)
+    private val sessionGeneration = java.util.concurrent.atomic.AtomicLong(0)
     private var trafficWallStartMs: Long = 0L
     private var activeVpnMode: String? = null
 
@@ -45,6 +48,7 @@ class VolterVpnService : VpnService() {
         if (intent?.action == ACTION_STOP) {
             VolterLog.i("onStartCommand ACTION_STOP stopSelf")
             sessionAbort.set(true)
+            sessionGeneration.incrementAndGet()
             stopActive()
             stopSelf()
             return START_NOT_STICKY
@@ -78,6 +82,7 @@ class VolterVpnService : VpnService() {
         VolterLog.i("stopActive before new session mode=${settings.mode}")
         stopActive()
         sessionAbort.set(false)
+        val generation = sessionGeneration.incrementAndGet()
 
         ensureForeground("starting")
 
@@ -86,12 +91,20 @@ class VolterVpnService : VpnService() {
                 VolterLog.i("worker start mode=${settings.mode}")
                 val standaloneDpi = cfg.protection?.standaloneDpiOnly == true
                 val effective = if (standaloneDpi) cfg else configAfterTcpOnlyProbe(cfg)
+                if (!isActiveGeneration(generation)) {
+                    VolterLog.i("worker stale before start generation=$generation")
+                    return@runCatching
+                }
+                if (settings.mode == "proxy" && effective.mesh.enabled) {
+                    throw IllegalStateException("Mesh requires TUN mode, disable mesh or switch from proxy mode")
+                }
                 when {
-                    standaloneDpi -> startStandaloneDpiInternal(effective, configDir)
-                    settings.mode == "proxy" -> startProxyInternal(effective, settings, configDir)
-                    else -> startTunInternal(effective, settings, configDir)
+                    standaloneDpi -> startStandaloneDpiInternal(effective, configDir, generation)
+                    settings.mode == "proxy" -> startProxyInternal(effective, settings, configDir, generation)
+                    else -> startTunInternal(effective, settings, configDir, generation)
                 }
             }.onFailure { e ->
+                if (!isActiveGeneration(generation)) return@onFailure
                 VolterLog.e("worker failed", e)
                 ensureForeground("error")
                 broadcastSessionError(e.message ?: e.toString())
@@ -103,11 +116,27 @@ class VolterVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        sessionGeneration.incrementAndGet()
         stopActive()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun isActiveGeneration(generation: Long): Boolean {
+        return generation == sessionGeneration.get() && !sessionAbort.get()
+    }
+
+    private fun closeRawFd(fd: Int) {
+        if (fd < 0) return
+        runCatching {
+            val desc = FileDescriptor()
+            val field = FileDescriptor::class.java.getDeclaredField("descriptor")
+            field.isAccessible = true
+            field.setInt(desc, fd)
+            Os.close(desc)
+        }.onFailure { VolterLog.w("closeRawFd failed fd=$fd: ${it.message}") }
+    }
 
     private fun ensureForeground(contentText: CharSequence) {
         val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -192,12 +221,16 @@ class VolterVpnService : VpnService() {
         }
     }
 
-    private fun startStandaloneDpiInternal(cfg: Config, configDir: String) {
+    private fun startStandaloneDpiInternal(cfg: Config, configDir: String, generation: Long) {
         CoreSocketProtect.install(this)
         val cfgJson = cfg.toJson().toString()
         VolterLog.i("startStandaloneDpi")
         val res = CoreBridge.startStandaloneDpi(cfgJson, configDir)
         if (res.error != null) throw IllegalStateException(res.error)
+        if (!isActiveGeneration(generation)) {
+            runCatching { CoreBridge.stop(res.handle) }
+            return
+        }
         coreHandle = res.handle
         if (sessionAbort.get()) {
             VolterLog.i("startStandaloneDpi aborted after handle=$coreHandle")
@@ -217,13 +250,17 @@ class VolterVpnService : VpnService() {
         ensureForeground(fgText)
     }
 
-    private fun startProxyInternal(cfg: Config, settings: ClientSettings, configDir: String) {
+    private fun startProxyInternal(cfg: Config, settings: ClientSettings, configDir: String, generation: Long) {
         CoreSocketProtect.install(this)
         val cfgJson = cfg.toJson().toString()
         val listenAddr = settings.proxyListen
         VolterLog.i("startProxy listen=$listenAddr")
         val res = CoreBridge.startProxy(listenAddr, cfgJson, configDir)
         if (res.error != null) throw IllegalStateException(res.error)
+        if (!isActiveGeneration(generation)) {
+            runCatching { CoreBridge.stop(res.handle) }
+            return
+        }
         coreHandle = res.handle
         if (sessionAbort.get()) {
             VolterLog.i("startProxy aborted after handle=$coreHandle")
@@ -240,7 +277,7 @@ class VolterVpnService : VpnService() {
         ensureForeground("proxy")
     }
 
-    private fun startTunInternal(cfg: Config, settings: ClientSettings, configDir: String) {
+    private fun startTunInternal(cfg: Config, settings: ClientSettings, configDir: String, generation: Long) {
         CoreSocketProtect.install(this)
         val mtu = 1380
         VolterLog.i("startTunInternal mtu=$mtu ipv6Tunnel=${settings.ipv6Tunnel} server=${cfg.server}")
@@ -323,7 +360,7 @@ class VolterVpnService : VpnService() {
             }
         }
 
-        if (sessionAbort.get()) {
+        if (!isActiveGeneration(generation)) {
             VolterLog.i("startTunInternal aborted before establish")
             stopForeground(STOP_FOREGROUND_DETACH)
             stopSelf()
@@ -336,12 +373,35 @@ class VolterVpnService : VpnService() {
         pfd.close()
         tunFd = fd
         VolterLog.i("TUN established fd=$fd mtu=$mtu")
+        if (!isActiveGeneration(generation)) {
+            VolterLog.i("startTun aborted after establish fd=$fd")
+            closeRawFd(fd)
+            tunFd = -1
+            tunPfd = null
+            stopForeground(STOP_FOREGROUND_DETACH)
+            stopSelf()
+            return
+        }
 
         val cfgJson = cfg.toJson().toString()
         val res = CoreBridge.startTun(fd, mtu, cfgJson, configDir)
-        if (res.error != null) throw IllegalStateException(res.error)
+        if (res.error != null) {
+            closeRawFd(fd)
+            tunFd = -1
+            tunPfd = null
+            throw IllegalStateException(res.error)
+        }
+        if (!isActiveGeneration(generation)) {
+            runCatching { CoreBridge.stop(res.handle) }
+            coreHandle = -1
+            tunFd = -1
+            tunPfd = null
+            stopForeground(STOP_FOREGROUND_DETACH)
+            stopSelf()
+            return
+        }
         coreHandle = res.handle
-        if (sessionAbort.get()) {
+        if (!isActiveGeneration(generation)) {
             VolterLog.i("startTun aborted after core start handle=$coreHandle")
             runCatching { CoreBridge.stop(coreHandle) }
             coreHandle = -1
@@ -414,6 +474,21 @@ class VolterVpnService : VpnService() {
 
     private fun collectRelayBypassHosts(cfg: Config): Set<String> {
         val out = linkedSetOf<String>()
+        val mesh = cfg.mesh
+        if (mesh.enabled) {
+            mesh.discovery.dhtRpcSeedPeers.orEmpty().forEach { hp ->
+                parseHostPort(hp)?.first?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
+            }
+            if (mesh.stun.enabled) {
+                mesh.stun.servers.orEmpty().forEach { spec ->
+                    parseStunHost(spec)?.let(out::add)
+                }
+            }
+            mesh.serverRelay.discoveryUrl?.let { parseUrlHost(it)?.let(out::add) }
+            mesh.discovery.dhtFindUrls.orEmpty().forEach { u -> parseUrlHost(u)?.let(out::add) }
+            mesh.discovery.gossipPeers.orEmpty().forEach { u -> parseUrlHost(u)?.let(out::add) }
+            return out
+        }
         val relay = cfg.relay ?: return out
         relay.dhtRpcSeedPeers.orEmpty().forEach { hp ->
             parseHostPort(hp)?.first?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)

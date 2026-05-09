@@ -580,7 +580,7 @@ private fun ConfigEditorDialog(
                     err = null
                     val shareParsed = Config.parseShareUri(connection)
                     val parsedFromShare = shareParsed?.second?.copy(protection = null)
-                    val parsedCfg = Config.parseConnectionConfig(connection) ?: parsedFromShare
+                    val parsedCfg = parsedFromShare ?: Config.parseConnectionConfig(connection)
                     val parsed = Config.parseConnection(connection)
                     if (parsed == null && parsedCfg == null) {
                         err = errBadConnection
@@ -649,6 +649,8 @@ private fun ConfigEditorDialog(
                         quicCaCert = ca,
                         quicTraceLog = if (traceLog) true else null,
                         protection = null,
+                        mesh = parsedCfg?.mesh ?: dev.c0redev.volter.domain.model.MeshConfig(),
+                        relay = parsedCfg?.relay,
                     )
 
                     onSave(safeName, cfg)

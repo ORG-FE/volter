@@ -56,8 +56,16 @@ type runOpts struct {
 	watchdogFail      chan struct{}
 	watchdogMark      *atomic.Bool
 	relay             *config.RelayOptions
+	mesh              *config.MeshConfig
 	ipcSocket         string
 	profileName       string
+}
+
+func meshProxyModeError(mesh *config.MeshConfig) error {
+	if mesh != nil && mesh.Enabled {
+		return errors.New("Mesh requires TUN mode, disable mesh or switch from proxy mode")
+	}
+	return nil
 }
 
 func main() {
@@ -157,9 +165,7 @@ func run() error {
 		if strings.TrimSpace(pc.TunCIDR6) != "" {
 			*tunCIDR6 = pc.TunCIDR6
 		}
-		if pc.Relay != nil {
-			relayOpt = pc.Relay
-		}
+		relayOpt = config.EffectiveRelayOptions(&pc)
 		st, _ := config.LoadClientSettings()
 		if st.Mode == "proxy" {
 			*proxy = true
@@ -259,12 +265,16 @@ func run() error {
 		excludeCIDRs:      excludeCIDRs,
 		protection:        protEff,
 		relay:             relayOpt,
+		mesh:              nil,
 		proxy:             *proxy,
 		proxyListen:       *proxyListen,
 		systemProxy:       *systemProxy,
 		dualTransport:     quicDualFromCaps(probeCaps, cfgProbe.Transport, cfgProbe.QuicServer),
 		ipcSocket:         *ipcSocket,
 		profileName:       *profileName,
+	}
+	if profileCfg != nil {
+		opts.mesh = profileCfg.Mesh
 	}
 	return runPlatform(context.Background(), addrs, opts, nil)
 }

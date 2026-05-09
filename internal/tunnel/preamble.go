@@ -241,19 +241,19 @@ func relayOptsForHandshake(src *config.ProtectionOptions, token string) *config.
 	if cp.RelayNonce == "" {
 		rb := make([]byte, 12)
 		if _, err := rand.Read(rb); err == nil {
-			cp.RelayNonce = base64.RawStdEncoding.EncodeToString(rb)
+			cp.RelayNonce = base64.RawURLEncoding.EncodeToString(rb)
 		}
 	}
 	if cp.PeerID == "" {
 		sum := sha256.Sum256([]byte(token))
-		cp.PeerID = "p-" + base64.RawStdEncoding.EncodeToString(sum[:6])
+		cp.PeerID = "p-" + base64.RawURLEncoding.EncodeToString(sum[:6])
 	}
 	if cp.RelaySig == "" {
 		mac := hmac.New(sha256.New, []byte(token))
 		_, _ = mac.Write([]byte(cp.PeerID))
 		_, _ = mac.Write([]byte("|"))
 		_, _ = mac.Write([]byte(cp.RelayNonce))
-		cp.RelaySig = base64.RawStdEncoding.EncodeToString(mac.Sum(nil))
+		cp.RelaySig = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	}
 	return &cp
 }
@@ -430,7 +430,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		decision.PeerUDP = ""
 		decision.PeerUDPCandidates = nil
 	}
-	if decision.PeerAddr != "" && relay != nil {
+	if decision.PeerAddr != "" && relay != nil && (relay.PeerRelayUseTCP == nil || *relay.PeerRelayUseTCP) {
 		tcpCands := append([]string(nil), decision.PeerTCPCandidates...)
 		if len(tcpCands) == 0 {
 			tcpCands = []string{decision.PeerAddr}

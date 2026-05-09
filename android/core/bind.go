@@ -253,6 +253,7 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
 		return jsonString(startResult{Handle: 0, Error: err.Error()})
 	}
+	config.MigrateLegacyRelayToMeshInPlace(&cfg)
 
 	addrs, err := resolveServerAddrs(cfg.Server)
 	if err != nil {
@@ -279,6 +280,7 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 	if cfg.DualTransport != nil && !*cfg.DualTransport {
 		dual = false
 	}
+	effRelay := config.EffectiveRelayOptions(&cfg)
 
 	s := &session{
 		done:   make(chan struct{}),
@@ -306,8 +308,10 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 		QuicTLSRoots:      quicRoots,
 		QuicTraceLog:      cfg.QuicTraceLog,
 		DualTransport:     dual,
-		PathManager:       tunnel.NewPathManagerFromRelay(cfg.Relay),
-		Relay:             cfg.Relay,
+		PathManager:       tunnel.NewPathManagerFromRelay(effRelay),
+		Relay:             effRelay,
+		Mesh:              cfg.Mesh,
+		RouteController:   vpn.NewRouteController(),
 		Ready: func() {
 			s.ready.Store(true)
 		},
@@ -353,6 +357,10 @@ func StartProxy(listenAddr string, cfgJSON string, configDir string) string {
 	var cfg config.Config
 	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
 		return jsonString(startResult{Handle: 0, Error: err.Error()})
+	}
+	config.MigrateLegacyRelayToMeshInPlace(&cfg)
+	if cfg.Mesh != nil && cfg.Mesh.Enabled {
+		return jsonString(startResult{Handle: 0, Error: "Mesh requires TUN mode, disable mesh or switch from proxy mode"})
 	}
 
 	addrs, err := resolveServerAddrs(cfg.Server)
@@ -418,6 +426,7 @@ func StartStandaloneDpi(cfgJSON string, configDir string) string {
 	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
 		return jsonString(startResult{Handle: 0, Error: err.Error()})
 	}
+	config.MigrateLegacyRelayToMeshInPlace(&cfg)
 
 	s := &session{
 		done:       make(chan struct{}),
@@ -671,6 +680,10 @@ func QuicDialTargetIPs(server string, quicServer string) string {
 }
 
 func RelaySelfTest(cfgJSON string, timeoutMs int) string {
+	return MeshSelfTest(cfgJSON, timeoutMs)
+}
+
+func MeshSelfTest(cfgJSON string, timeoutMs int) string {
 	if strings.TrimSpace(cfgJSON) == "" {
 		return jsonString(relaySelfTestResult{OK: false, Error: "empty cfgJSON"})
 	}
@@ -696,29 +709,39 @@ func RelaySelfTest(cfgJSON string, timeoutMs int) string {
 	if caps != nil {
 		out.ServerRelay = (caps.FeatureBits & protocol.FeatureRelayServer) != 0
 	}
+	if cfg.Mesh != nil && cfg.Mesh.Enabled && !cfg.Mesh.ServerRelay.Enabled {
+		out.ServerRelay = false
+	}
 	if probeErr != nil {
 		out.Warnings = append(out.Warnings, "probe: "+probeErr.Error())
 	}
-	relay := cfg.Relay
+	relay := config.EffectiveRelayOptions(&cfg)
 	if relay == nil {
-		out.Warnings = append(out.Warnings, "relay config missing")
+		out.Warnings = append(out.Warnings, "mesh config missing")
 		out.OK = out.ServerReachable
 		return jsonString(out)
 	}
-	if strings.TrimSpace(relay.PeerID) == "" {
-		out.Warnings = append(out.Warnings, "relay.peerId empty")
+	if cfg.Mesh != nil && cfg.Mesh.Enabled && !cfg.Mesh.Volunteer.Enabled {
+		out.Warnings = append(out.Warnings, "mesh volunteer disabled")
+	}
+	if cfg.Mesh == nil || !cfg.Mesh.Enabled || cfg.Mesh.Volunteer.Enabled {
+		if strings.TrimSpace(relay.PeerID) == "" {
+			out.Warnings = append(out.Warnings, "mesh.volunteer.peerId empty")
+		}
 	}
 	if len(relay.DhtRpcSeedPeers) == 0 {
-		out.Warnings = append(out.Warnings, "relay.dhtRpcSeedPeers empty")
+		out.Warnings = append(out.Warnings, "mesh.discovery.dhtRpcSeedPeers empty")
 	}
 	if !relay.PeerPathFromDiscovery {
-		out.Warnings = append(out.Warnings, "relay.peerPathFromDiscovery=false")
+		out.Warnings = append(out.Warnings, "mesh.p2p.enabled=false")
 	}
 	if !relay.PeerRelayUseUDP {
-		out.Warnings = append(out.Warnings, "relay.peerRelayUseUdp=false")
+		out.Warnings = append(out.Warnings, "mesh.p2p.useUdp=false")
 	}
-	if strings.TrimSpace(relay.PeerRelayUDPListen) == "" {
-		out.Warnings = append(out.Warnings, "relay.peerRelayUdpListen empty")
+	if cfg.Mesh == nil || !cfg.Mesh.Enabled || cfg.Mesh.Volunteer.Enabled {
+		if strings.TrimSpace(relay.PeerRelayUDPListen) == "" {
+			out.Warnings = append(out.Warnings, "mesh.volunteer.udpListen empty")
+		}
 	}
 	if len(relay.StunServers) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
@@ -731,10 +754,11 @@ func RelaySelfTest(cfgJSON string, timeoutMs int) string {
 			out.StunSrflx = fmt.Sprintf("%s:%d", r.IP.String(), r.Port)
 		}
 	} else {
-		out.Warnings = append(out.Warnings, "relay.stunServers empty")
+		out.Warnings = append(out.Warnings, "mesh.stun.servers empty")
 	}
 	out.PeerRelayReady =
-		strings.TrimSpace(relay.PeerID) != "" &&
+		(cfg.Mesh == nil || !cfg.Mesh.Enabled || cfg.Mesh.Volunteer.Enabled) &&
+			strings.TrimSpace(relay.PeerID) != "" &&
 			len(relay.DhtRpcSeedPeers) > 0 &&
 			relay.PeerPathFromDiscovery &&
 			relay.PeerRelayUseUDP &&

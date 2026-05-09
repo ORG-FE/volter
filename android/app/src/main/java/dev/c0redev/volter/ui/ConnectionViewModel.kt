@@ -27,7 +27,6 @@ import dev.c0redev.volter.data.servergeo.ServerGeo
 import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.domain.model.PeerTicket
-import dev.c0redev.volter.domain.model.VolterMeshDefaults
 import dev.c0redev.volter.domain.model.AppTrafficEntry
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.traffic.TrafficPending
@@ -450,7 +449,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             }
             else -> { }
         }
-        c = VolterMeshDefaults.applyIfEnabled(c, settings)
         c = applyPeerTickets(c)
         return c
     }
@@ -460,9 +458,9 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             .filter { !it.isExpired() && it.verifySig() }
         if (tickets.isEmpty()) return cfg
 
-        val relay = cfg.relay ?: dev.c0redev.volter.domain.model.RelayOptions()
+        if (!cfg.mesh.enabled) return cfg
         val mergedSeeds = linkedSetOf<String>()
-        relay.dhtRpcSeedPeers?.forEach { s ->
+        cfg.mesh.discovery.dhtRpcSeedPeers.orEmpty().forEach { s ->
             val v = s.trim()
             if (v.isNotEmpty()) mergedSeeds += v
         }
@@ -474,12 +472,11 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                 mergedSeeds += v
             }
         }
-        val mergedRelay = relay.copy(
-            dhtRpcSeedPeers = mergedSeeds.takeIf { it.isNotEmpty() }?.toList(),
-            peerPathFromDiscovery = relay.peerPathFromDiscovery ?: true,
-            peerRelayUseUdp = relay.peerRelayUseUdp ?: true,
+        val mesh = cfg.mesh.copy(
+            p2p = cfg.mesh.p2p.copy(enabled = true, useUdp = true),
+            discovery = cfg.mesh.discovery.copy(dhtRpcSeedPeers = mergedSeeds.takeIf { it.isNotEmpty() }?.toList()),
         )
-        return cfg.copy(relay = mergedRelay)
+        return cfg.withMeshKeepingCarryOver(mesh)
     }
 
     private suspend fun checkDnsOk(): Boolean = withContext(Dispatchers.IO) {

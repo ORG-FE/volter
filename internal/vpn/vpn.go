@@ -67,6 +67,8 @@ type Options struct {
 	DualTransport     bool
 	PathManager       *tunnel.PathManager
 	Relay             *config.RelayOptions
+	Mesh              *config.MeshConfig
+	RouteController   *RouteController
 
 	WatchdogInterval          time.Duration
 	WatchdogServerPingTimeout time.Duration
@@ -77,6 +79,7 @@ func Run(ctx context.Context, opt Options) error {
 	if len(opt.ServerAddrs) == 0 {
 		return errors.New("server addrs empty")
 	}
+	opt.Protection = protectionWithMeshPolicy(opt.Protection, opt.Mesh)
 	opt.ServerAddrs = orderedServerAddrs(opt.ServerAddrs, opt.Protection)
 	ck := clusterPollHeaderKey(opt)
 	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)
@@ -121,12 +124,12 @@ func Run(ctx context.Context, opt Options) error {
 	}
 	if opt.PathManager != nil && opt.Relay != nil && !emergencyPeerRelayBlocked() {
 		r := opt.Relay
-		if r.GossipEnabled || r.PeerPathFromDiscovery ||
+		if meshAllowsSTUN(opt.Mesh) && (r.GossipEnabled || r.PeerPathFromDiscovery ||
 			r.PeerRelayUseUDP || r.DhtPublishSrflx || r.SymmetricNatHolePunch ||
 			len(r.StunServers) > 0 || len(r.TurnURLs) > 0 ||
 			len(r.GossipPeers) > 0 || len(r.DHTFindURLs) > 0 ||
-			strings.TrimSpace(r.DhtRpcListenUDP) != "" || len(r.DhtRpcSeedPeers) > 0 {
-			go probeICEForRelay(opt.PathManager, opt.Relay)
+			strings.TrimSpace(r.DhtRpcListenUDP) != "" || len(r.DhtRpcSeedPeers) > 0) {
+			go probeICEForRelay(opt.PathManager, opt.Relay, opt.Mesh)
 		}
 	}
 	if opt.Relay != nil && strings.TrimSpace(opt.Relay.BootstrapPubKey) != "" &&
@@ -144,8 +147,15 @@ func Run(ctx context.Context, opt Options) error {
 		len(dhtRPCSeeds(opt.Relay)) > 0 || opt.Relay.PeerPathFromDiscovery || opt.Relay.GossipEnabled || len(opt.Relay.GossipPeers) > 0) {
 		go runDhtRpcSidecar(ctx, opt.Relay)
 	}
-	if opt.Relay != nil && strings.TrimSpace(opt.Relay.PeerRelayUDPListen) != "" {
-		go runPeerRelayUDP(ctx, opt.Token, opt.Relay)
+	var peerSocket *tunnel.PeerSocket
+	if opt.Relay != nil && meshAllowsVolunteerRelay(opt.Mesh) && strings.TrimSpace(opt.Relay.PeerRelayUDPListen) != "" {
+		ps, err := tunnel.ListenPeerSocket(ctx, strings.TrimSpace(opt.Relay.PeerRelayUDPListen))
+		if err != nil {
+			clientlog.Warn("vpn: peer socket listen %s: %v", strings.TrimSpace(opt.Relay.PeerRelayUDPListen), err)
+		} else {
+			peerSocket = ps
+			go runPeerRelayUDP(ctx, opt.Token, opt.Relay, ps)
+		}
 	}
 	if opt.PathManager != nil && opt.Relay != nil && opt.Relay.PeerRelayUseUDP &&
 		(len(dhtRPCSeeds(opt.Relay)) > 0 || opt.Relay.PeerPathFromDiscovery || opt.Relay.GossipEnabled) {
@@ -156,9 +166,9 @@ func Run(ctx context.Context, opt Options) error {
 			return fetchUdpEndpointsFromDHT(sub, relay, peerID)
 		})
 	}
-	if opt.Relay != nil && opt.Relay.SymmetricNatHolePunch && strings.TrimSpace(opt.Relay.PeerID) != "" &&
+	if opt.Relay != nil && meshAllowsVolunteerRelay(opt.Mesh) && opt.Relay.SymmetricNatHolePunch && strings.TrimSpace(opt.Relay.PeerID) != "" &&
 		(len(dhtRPCSeeds(opt.Relay)) > 0 || opt.Relay.PeerPathFromDiscovery || opt.Relay.GossipEnabled) {
-		go runSymmetricNatHolePunch(ctx, opt.Relay)
+		go runSymmetricNatHolePunch(ctx, opt.Relay, peerSocket)
 	}
 
 	var dev device.Device
@@ -485,6 +495,26 @@ type handler struct {
 	pathMgr *tunnel.PathManager
 }
 
+func (h *handler) routeDirectiveProtection(dstIP net.IP, dstPort uint16, now time.Time) *config.ProtectionOptions {
+	base := h.opt.Protection
+	if h.opt.RouteController == nil {
+		return base
+	}
+	if d, ok := h.opt.RouteController.DirectiveFor(Flow{DstIP: dstIP, DstPort: dstPort}, now); ok {
+		if p, ok := routeDirectiveProtectionForMesh(base, d, h.opt.Mesh); ok {
+			return p
+		}
+	}
+	if base != nil {
+		if d, ok := h.opt.RouteController.DirectiveForTarget(base.ClusterPreferredServer, now); ok {
+			if p, ok := routeDirectiveProtectionForMesh(base, d, h.opt.Mesh); ok {
+				return p
+			}
+		}
+	}
+	return base
+}
+
 func (h *handler) HandleTCP(c adapter.TCPConn) {
 	go h.handleTCP(c)
 }
@@ -548,11 +578,15 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 
 	var sconn net.Conn
 	var r *bufio.Reader
-	slot := tunnel.SlotForProtection(h.opt.Protection)
+	dialProt := h.routeDirectiveProtection(dstIP, dstPort, time.Now())
+	slot := tunnel.SlotForProtection(dialProt)
 	var err error
 	var fellBackTCP, tcpOnly bool
 	allowPeerPath := h.opt.Relay != nil && h.opt.Relay.PeerPathFromDiscovery && !emergencyPeerRelayBlocked()
-	switch strings.ToLower(strings.TrimSpace(h.opt.Protection.RouteMode)) {
+	if dialProt != h.opt.Protection {
+		clientlog.Info("vpn: route directive %s:%d mode=%s endpoint=%s", dstIP.String(), dstPort, dialProt.RouteMode, dialProt.ClusterPreferredServer)
+	}
+	switch strings.ToLower(strings.TrimSpace(dialProt.RouteMode)) {
 	case "direct":
 		allowPeerPath = false
 	case "server_relay":
@@ -560,7 +594,7 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 	case "peer_relay":
 		allowPeerPath = true
 	}
-	sconn, fellBackTCP, tcpOnly, err = tunnel.DialTunFlow(dialServerAddrs(h.opt.ServerAddrs, h.opt.Protection), dstIP, dstPort, h.opt.Token, h.opt.Protection, h.opt.Transport, h.opt.QuicServer, h.opt.QuicServerName, h.opt.QuicSkipVerify, h.opt.QuicCertPinSHA256, h.opt.QuicTLSRoots, shared, h.opt.DualTransport, h.dualSel, h.pathMgr, allowPeerPath, h.opt.Relay)
+	sconn, fellBackTCP, tcpOnly, err = tunnel.DialTunFlow(dialServerAddrs(h.opt.ServerAddrs, dialProt), dstIP, dstPort, h.opt.Token, dialProt, h.opt.Transport, h.opt.QuicServer, h.opt.QuicServerName, h.opt.QuicSkipVerify, h.opt.QuicCertPinSHA256, h.opt.QuicTLSRoots, shared, h.opt.DualTransport, h.dualSel, h.pathMgr, allowPeerPath, h.opt.Relay)
 	if h.opt.DualTransport && shared != nil {
 		if fellBackTCP || tcpOnly {
 			tag = "TCP"
@@ -675,7 +709,7 @@ func tcpipToIP(a tcpip.Address) net.IP {
 	return net.IP(b)
 }
 
-func runPeerRelayUDP(ctx context.Context, token string, relay *config.RelayOptions) {
+func runPeerRelayUDP(ctx context.Context, token string, relay *config.RelayOptions, ps *tunnel.PeerSocket) {
 	if relay == nil {
 		return
 	}
@@ -690,8 +724,10 @@ func runPeerRelayUDP(ctx context.Context, token string, relay *config.RelayOptio
 	}
 	pr, err := tunnel.ListenPeerRelayUDP(ctx, tunnel.PeerRelayUDPOptions{
 		Addr:          listen,
+		Socket:        ps,
 		Token:         token,
 		MaxConcurrent: relay.MaxConcurrent,
+		BudgetKbps:    relay.PeerRelayBudgetKbps,
 		StunServers:   relay.StunServers,
 		OnSrflx: func(s string) {
 			if s != "" {
@@ -711,8 +747,11 @@ func runPeerRelayUDP(ctx context.Context, token string, relay *config.RelayOptio
 	<-ctx.Done()
 }
 
-func probeICEForRelay(pm *tunnel.PathManager, relay *config.RelayOptions) {
+func probeICEForRelay(pm *tunnel.PathManager, relay *config.RelayOptions, mesh *config.MeshConfig) {
 	if pm == nil || relay == nil {
+		return
+	}
+	if !meshAllowsSTUN(mesh) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), routeorch.StunGatherBudget())
@@ -739,26 +778,10 @@ func probeICEForRelay(pm *tunnel.PathManager, relay *config.RelayOptions) {
 			hp := fmt.Sprintf("%s:%d", r.IP.String(), r.Port)
 			setLastClientSrflx(hp)
 			if strings.TrimSpace(relay.PeerRelayUDPListen) == "" {
-				publishSrflxToDHT(ctx, relay, hp)
+				publishVolunteerSrflxToDHT(ctx, mesh, relay, hp)
 			}
 		}
 	}
 
-	for _, u := range relay.TurnURLs {
-		u = strings.TrimSpace(u)
-		if u == "" {
-			continue
-		}
-		tr, err := ice.TryTurnAllocate(ctx, u)
-		if err != nil {
-			clientlog.Warn("vpn: TURN %s: %v", u, err)
-			continue
-		}
-		pm.SetGlobalCandidate(ice.CandidateRelay)
-		pm.SetSrflxRTT(tr.RTT)
-		telemetry.RecordPath(telemetry.SwitchICE, fmt.Sprintf("turn relay %s rtt=%v", tr.Relayed.String(), tr.RTT))
-		clientlog.Info("vpn: TURN relay %s rtt=%v server=%s", tr.Relayed.String(), tr.RTT, tr.Server)
-		break
-	}
 	telemetry.SetIceSrflxRttEwmaMs(pm.SrflxRTTEwmaMs())
 }

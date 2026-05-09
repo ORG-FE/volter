@@ -86,7 +86,7 @@ func runTUI(ipcSocketPath string, autoConnect string) error {
 		headlessProf  string
 		headlessAlive bool
 	)
-	
+
 	var initialState tui.State
 	if runtime.GOOS == "linux" {
 		state := ipc.GetState()
@@ -95,7 +95,7 @@ func runTUI(ipcSocketPath string, autoConnect string) error {
 			Profile:   state.Profile,
 		}
 	}
-	
+
 	opts := tui.Opts{
 		ConnectFn: func(cfg config.Config, configName string, reconnectCount int, settings config.ClientSettings) (stop func(), err error) {
 			log.Printf("Connecting to %s...", configName)
@@ -170,11 +170,11 @@ func runTUI(ipcSocketPath string, autoConnect string) error {
 				}
 			}, err
 		},
-		Version:       version,
-		IPCCommandCh:  ipcCommandCh,
-		InitialState:  initialState,
-		AutoConnect:   autoConnect,
-		IPCStatusCh:   ipcStatusCh,
+		Version:      version,
+		IPCCommandCh: ipcCommandCh,
+		InitialState: initialState,
+		AutoConnect:  autoConnect,
+		IPCStatusCh:  ipcStatusCh,
 	}
 	p := tea.NewProgram(tui.NewModel(opts), tea.WithAltScreen())
 	go func() {
@@ -484,6 +484,9 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 		quicRoots = pool
 	}
 	var watchdogMark atomic.Bool
+	if runtime.GOOS == "linux" && os.Geteuid() != 0 && settings.Mode != "proxy" && strings.TrimSpace(configName) != "" {
+		return connectTUIViaPkexecProfile(configName, &record, start)
+	}
 	opts := runOpts{
 		serverIP:          sip,
 		token:             cfg.Token,
@@ -501,7 +504,8 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 		routeCIDRs:        routeCIDRs,
 		excludeCIDRs:      excludeCIDRs,
 		protection:        config.MergeProbeObfsIntoProtection(prot, probeCaps),
-		relay:             cfg.Relay,
+		relay:             config.EffectiveRelayOptions(&cfg),
+		mesh:              cfg.Mesh,
 		proxy:             settings.Mode == "proxy",
 		proxyListen:       settings.ProxyListen,
 		systemProxy:       settings.SystemProxy,

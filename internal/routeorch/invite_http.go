@@ -23,6 +23,11 @@ type InviteResponse struct {
 	Status           string `json:"status"`
 	RedirectHostPort string `json:"redirectHostPort,omitempty"`
 	Reason           string `json:"reason,omitempty"`
+	RouteMode        string `json:"routeMode,omitempty"`
+	PeerID           string `json:"peerId,omitempty"`
+	Endpoint         string `json:"endpoint,omitempty"`
+	RouteID          string `json:"routeId,omitempty"`
+	TTLSeconds       int    `json:"ttlSeconds,omitempty"`
 }
 
 func PostClusterInvite(ctx context.Context, baseHostPort string, clusterKey string, httpPath string, req InviteRequest) (*InviteResponse, error) {
@@ -82,6 +87,11 @@ type PeerHandshakeResponse struct {
 	Status           string `json:"status"`
 	RedirectHostPort string `json:"redirectHostPort,omitempty"`
 	Reason           string `json:"reason,omitempty"`
+	RouteMode        string `json:"routeMode,omitempty"`
+	PeerID           string `json:"peerId,omitempty"`
+	Endpoint         string `json:"endpoint,omitempty"`
+	RouteID          string `json:"routeId,omitempty"`
+	TTLSeconds       int    `json:"ttlSeconds,omitempty"`
 }
 
 func PostClusterPeerHandshake(ctx context.Context, baseHostPort string, clusterKey string, httpPath string, req PeerHandshakeRequest) (*PeerHandshakeResponse, error) {

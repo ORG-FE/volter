@@ -32,6 +32,22 @@ type SrflxResult struct {
 	Kind   CandidateKind
 }
 
+func IsBindingResponse(pkt []byte) ([12]byte, bool) {
+	var tx [12]byte
+	if len(pkt) < 20 {
+		return tx, false
+	}
+	typ := binary.BigEndian.Uint16(pkt[0:2])
+	if typ&0x0110 != 0x0100 {
+		return tx, false
+	}
+	if binary.BigEndian.Uint32(pkt[4:8]) != stunMagicCookie {
+		return tx, false
+	}
+	copy(tx[:], pkt[8:20])
+	return tx, true
+}
+
 func GatherSrflx(ctx context.Context, servers []string) (*SrflxResult, error) {
 	if len(servers) == 0 {
 		servers = DefaultSTUNServers
@@ -308,6 +324,10 @@ func parseBindingResponse(pkt []byte, wantTx [12]byte) (net.IP, uint16, error) {
 		}
 	}
 	return nil, 0, errors.New("stun: no mapped address")
+}
+
+func ParseBindingResponseForPeerSocket(pkt []byte, wantTx [12]byte) (net.IP, uint16, error) {
+	return parseBindingResponse(pkt, wantTx)
 }
 
 func decodeXorMapped(v []byte, txID [12]byte) (net.IP, uint16) {

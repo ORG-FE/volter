@@ -39,7 +39,7 @@ object CoreBridge {
         val error: String?,
     )
 
-    data class RelaySelfTestResult(
+    data class MeshSelfTestResult(
         val ok: Boolean,
         val serverReachable: Boolean,
         val serverMode: String,
@@ -161,24 +161,28 @@ object CoreBridge {
         return QuicIPsResult(ips = out, error = err)
     }
 
-    fun relaySelfTest(cfgJson: String, timeoutMs: Long): RelaySelfTestResult {
+    fun meshSelfTest(cfgJson: String, timeoutMs: Long): MeshSelfTestResult {
         val raw = try {
             val c = Class.forName("core.Core")
             val m = runCatching {
-                c.getMethod("relaySelfTest", String::class.java, Long::class.javaPrimitiveType)
+                c.getMethod("meshSelfTest", String::class.java, Long::class.javaPrimitiveType)
             }.getOrElse {
-                c.getMethod("relaySelfTest", String::class.java, Int::class.javaPrimitiveType)
+                runCatching {
+                    c.getMethod("meshSelfTest", String::class.java, Int::class.javaPrimitiveType)
+                }.getOrElse {
+                    c.getMethod("relaySelfTest", String::class.java, Int::class.javaPrimitiveType)
+                }
             }
             val arg = if (m.parameterTypes.lastOrNull() == Int::class.javaPrimitiveType) timeoutMs.toInt() else timeoutMs
             m.invoke(null, cfgJson, arg) as String
         } catch (e: Exception) {
-            """{"ok":false,"error":"relaySelfTest unavailable: rebuild volter-core.aar","warnings":["${e.message}"]}"""
+            """{"ok":false,"error":"meshSelfTest unavailable: rebuild volter-core.aar","warnings":["${e.message}"]}"""
         }
         val j = JSONObject(raw)
         val warnings = ArrayList<String>()
         val arr = j.optJSONArray("warnings") ?: JSONArray()
         for (i in 0 until arr.length()) warnings.add(arr.optString(i, ""))
-        return RelaySelfTestResult(
+        return MeshSelfTestResult(
             ok = j.optBoolean("ok", false),
             serverReachable = j.optBoolean("serverReachable", false),
             serverMode = j.optString("serverMode", ""),

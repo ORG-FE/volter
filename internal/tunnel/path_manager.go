@@ -86,6 +86,9 @@ type PathManager struct {
 	peerDial         bool
 	peerRelayUseQuic bool
 	peerRelayUseUDP  bool
+	peerRelayUseTCP  bool
+	maxPeerHops      int
+	peerMaxAge       time.Duration
 	peerUDPEndpoints func(string) []string
 }
 
@@ -108,6 +111,14 @@ func NewPathManagerFromRelay(r *config.RelayOptions) *PathManager {
 		m.peerDial = r.PeerPathFromDiscovery
 		m.peerRelayUseQuic = r.PeerRelayUseQUIC
 		m.peerRelayUseUDP = r.PeerRelayUseUDP
+		m.peerRelayUseTCP = true
+		if r.PeerRelayUseTCP != nil {
+			m.peerRelayUseTCP = *r.PeerRelayUseTCP
+		}
+		m.maxPeerHops = r.MaxPeerHops
+		if r.HealthMaxAgeSec > 0 {
+			m.peerMaxAge = time.Duration(r.HealthMaxAgeSec) * time.Second
+		}
 		if r.PathCooldownMs > 0 {
 			m.pathCooldown = time.Duration(r.PathCooldownMs) * time.Millisecond
 			m.tcpStickUntil = make(map[string]time.Time)
@@ -143,8 +154,11 @@ func dedupeEndpoints(list []string) []string {
 	return out
 }
 
-func pickPeerRoutes(epEndpoints func(string) []string, useUDP bool, limit int) (tcpAddr, quicAddr, udpAddr string, udpEnds []string, tcpCands []string, quicCands []string) {
-	extraTCP := snapshotClusterPeerTCPHints()
+func pickPeerRoutes(epEndpoints func(string) []string, useUDP bool, limit int, maxAge time.Duration, now time.Time) (tcpAddr, quicAddr, udpAddr string, udpEnds []string, tcpCands []string, quicCands []string) {
+	var extraTCP []string
+	if maxAge <= 0 {
+		extraTCP = snapshotClusterPeerTCPHints()
+	}
 	resolveUDPEnds := func(id string) []string {
 		if epEndpoints != nil {
 			return dedupeEndpoints(epEndpoints(id))
@@ -173,6 +187,11 @@ func pickPeerRoutes(epEndpoints func(string) []string, useUDP bool, limit int) (
 	for _, n := range nodes {
 		if !strings.EqualFold(strings.TrimSpace(n.Class), "peer") {
 			continue
+		}
+		if maxAge > 0 {
+			if n.UpdatedAt <= 0 || now.Sub(time.Unix(n.UpdatedAt, 0)) > maxAge {
+				continue
+			}
 		}
 		var tcp string
 		if s := strings.TrimSpace(n.Srflx); s != "" {
@@ -285,7 +304,8 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		st = &pathStat{ewmaOK: 1}
 		m.paths[key] = st
 	}
-	st.lastAttempt = time.Now()
+	now := time.Now()
+	st.lastAttempt = now
 
 	tryPeer := func() (PathDecision, bool) {
 		if !allowPeerPath || !m.peerDial {
@@ -302,6 +322,8 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		}
 		epSnap := m.peerUDPEndpoints
 		useUDP := m.peerRelayUseUDP
+		maxAge := m.peerMaxAge
+		maxPeerHops := m.maxPeerHops
 		m.mu.Unlock()
 		peerLimit := 1
 		if st.failStreak >= 3 {
@@ -309,13 +331,20 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		} else if st.failStreak >= 1 {
 			peerLimit = 2
 		}
-		tcpAddr, quicAddr, udpAddr, udpEnds, tcpCands, quicCands := pickPeerRoutes(epSnap, useUDP, peerLimit)
+		if maxPeerHops > 0 && peerLimit > maxPeerHops {
+			peerLimit = maxPeerHops
+		}
+		tcpAddr, quicAddr, udpAddr, udpEnds, tcpCands, quicCands := pickPeerRoutes(epSnap, useUDP, peerLimit, maxAge, now)
 		m.mu.Lock()
 		if tcpAddr == "" && quicAddr == "" && udpAddr == "" {
 			return PathDecision{}, false
 		}
 		if !m.peerRelayUseQuic {
 			quicAddr = ""
+		}
+		if !m.peerRelayUseTCP {
+			tcpAddr = ""
+			tcpCands = nil
 		}
 		var peerUDPExtras []string
 		if !m.peerRelayUseUDP {
