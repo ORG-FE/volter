@@ -101,32 +101,45 @@ final class ConnectionHandler implements Runnable {
             });
             SessionHandler.TcpHandler tcp =
                 (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts);
-            handedOff = true;
+            
+
             if (hs.role() == Protocol.ROLE_UDP) {
+                try {
+                    streamPool.submit(() -> {
+                        try {
+                            session.handle(hs, hr, in, out, tcp, streamPool);
+                        } catch (IOException e) {
+                            log.fine("udp session ended: " + e.getMessage());
+                        } finally {
+                            try {
+                                s.close();
+                            } catch (IOException ignored) {}
+                        }
+                    });
+                    handedOff = true;
+                } catch (Exception e) {
+                    log.warning("failed to submit UDP session to pool: " + e.getMessage());
+                    throw new IOException("pool rejected UDP session", e);
+                }
+                return;
+            }
+            
+            try {
                 streamPool.submit(() -> {
                     try {
                         session.handle(hs, hr, in, out, tcp, streamPool);
                     } catch (IOException e) {
-                        log.fine("udp session ended: " + e.getMessage());
-                    } finally {
+                        log.fine("session ended: " + e.getMessage());
                         try {
                             s.close();
                         } catch (IOException ignored) {}
                     }
                 });
-                return;
+                handedOff = true;
+            } catch (Exception e) {
+                log.warning("failed to submit TCP session to pool: " + e.getMessage());
+                throw new IOException("pool rejected TCP session", e);
             }
-            streamPool.submit(() -> {
-                try {
-                    session.handle(hs, hr, in, out, tcp, streamPool);
-                } catch (IOException e) {
-                    log.fine("session ended: " + e.getMessage());
-                    try {
-                        s.close();
-                    } catch (IOException ignored) {}
-                }
-                // при успешном ROLE_TCP сокет передан TcpReactor — закрывать здесь нельзя (иначе register гонит ClosedChannel)
-            });
             return;
         } catch (EOFException ignored) {
             CamouflageResult cr = tryCamouflage(s, rawIn, rawOut);
