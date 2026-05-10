@@ -101,12 +101,21 @@ final class ConnectionHandler implements Runnable {
             });
             SessionHandler.TcpHandler tcp =
                 (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts);
+            handedOff = true;
             if (hs.role() == Protocol.ROLE_UDP) {
-                session.handle(hs, hr, in, out, tcp, streamPool);
-                handedOff = true;
+                streamPool.submit(() -> {
+                    try {
+                        session.handle(hs, hr, in, out, tcp, streamPool);
+                    } catch (IOException e) {
+                        log.fine("udp session ended: " + e.getMessage());
+                    } finally {
+                        try {
+                            s.close();
+                        } catch (IOException ignored) {}
+                    }
+                });
                 return;
             }
-            handedOff = true;
             streamPool.submit(() -> {
                 try {
                     session.handle(hs, hr, in, out, tcp, streamPool);

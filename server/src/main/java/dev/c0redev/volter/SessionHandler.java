@@ -42,7 +42,7 @@ final class SessionHandler {
     String routeId = hr.opts().map(Protocol.ClientOptions::routeId).orElse("");
     int hopIndex = hr.opts().map(Protocol.ClientOptions::hopIndex).orElse(0);
     int requestedObfs = hr.opts().map(Protocol.ClientOptions::probeObfsProfileId).orElse(0);
-    int agreedObfs = Protocol.normalizeObfsProfile(requestedObfs);
+    int agreedObfs = requestedObfs == 0 ? Protocol.pickObfsProfileId() : Protocol.normalizeObfsProfile(requestedObfs);
     if (hr.opts().isPresent()) {
       Protocol.ClientOptions o = hr.opts().get();
       if (!o.sessionId().isBlank() && !o.resumeToken().isBlank()) {
