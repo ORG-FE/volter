@@ -289,9 +289,11 @@ func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.Relay
 		base = &config.ProtectionOptions{}
 	}
 	cp := *base
-	cp.PeerID = ""
-	cp.RelayNonce = ""
-	cp.RelaySig = ""
+	if strings.TrimSpace(cp.ClusterPreferredServer) != "" {
+		cp.PeerID = ""
+		cp.RelayNonce = ""
+		cp.RelaySig = ""
+	}
 	if cp.RelayHop <= 0 {
 		cp.RelayHop = 1
 	}
