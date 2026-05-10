@@ -38,7 +38,7 @@ const (
 	pingRed                  = "1"
 	probeTimeout             = 5 * time.Second
 	tabCount                 = 8
-	protectionFormFieldCount = 24
+	protectionFormFieldCount = 31
 )
 
 type tab int
@@ -737,6 +737,13 @@ func newProtectionInputs(opts config.ProtectionOptions) []textinput.Model {
 		ti("jitterMaxMs", strconv.Itoa(mergedEmb.JitterMaxMs)),
 		ti("leadInMs", strconv.Itoa(mergedEmb.LeadInMs)),
 		ti("dpiLocalPreset", strings.TrimSpace(opts.DpiLocalPreset)),
+		ti("fakeSni true|false", strconv.FormatBool(mergedEmb.FakeSNI)),
+		ti("fakeSniHost", mergedEmb.FakeSNIHost),
+		ti("splitPosition sni|method|host|random", mergedEmb.SplitPosition),
+		ti("autoTtl true|false", strconv.FormatBool(mergedEmb.AutoTTL)),
+		ti("tcpSegment 0=off", strconv.Itoa(mergedEmb.TCPSegment)),
+		ti("oobData true|false", strconv.FormatBool(mergedEmb.OOBData)),
+		ti("multiSplit 0-10", strconv.Itoa(mergedEmb.MultiSplit)),
 	}
 }
 
@@ -829,6 +836,13 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 	splitA, ttl := 1, 8
 	disorder := false
 	splitA2, ttl2, jitter, leadIn := 0, 0, 0, 0
+	fakeSni := false
+	fakeSniHost := ""
+	splitPos := ""
+	autoTtl := false
+	tcpSeg := 0
+	oobData := false
+	multiSplit := 0
 	presetLine := ""
 	if len(inputs) >= protectionFormFieldCount {
 		standalone = strings.ToLower(strings.TrimSpace(inputs[14].Value())) == "true"
@@ -844,15 +858,42 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 		ttl2 = clamp(atoi(inputs[20].Value()), 0, 60000)
 		jitter = clamp(atoi(inputs[21].Value()), 0, 5000)
 		leadIn = clamp(atoi(inputs[22].Value()), 0, 60000)
-		presetLine = strings.TrimSpace(inputs[23].Value())
+		if len(inputs) > 23 {
+			presetLine = strings.TrimSpace(inputs[23].Value())
+		}
+		if len(inputs) > 24 {
+			fakeSni = strings.ToLower(strings.TrimSpace(inputs[24].Value())) == "true"
+		}
+		if len(inputs) > 25 {
+			fakeSniHost = strings.TrimSpace(inputs[25].Value())
+		}
+		if len(inputs) > 26 {
+			splitPos = strings.TrimSpace(inputs[26].Value())
+		}
+		if len(inputs) > 27 {
+			autoTtl = strings.ToLower(strings.TrimSpace(inputs[27].Value())) == "true"
+		}
+		if len(inputs) > 28 {
+			tcpSeg = clamp(atoi(inputs[28].Value()), 0, 65536)
+		}
+		if len(inputs) > 29 {
+			oobData = strings.ToLower(strings.TrimSpace(inputs[29].Value())) == "true"
+		}
+		if len(inputs) > 30 {
+			multiSplit = clamp(atoi(inputs[30].Value()), 0, 10)
+		}
 	}
 	defEmb := config.DpiLocalEmbedded{
 		SplitAfter: 1, TTLMillis: 8, Disorder: false,
 		SplitAfter2: 0, TTL2Millis: 0, JitterMaxMs: 0, LeadInMs: 0,
+		FakeSNI: false, FakeSNIHost: "", SplitPosition: "",
+		AutoTTL: false, TCPSegment: 0, OOBData: false, MultiSplit: 0,
 	}
 	curEmb := config.DpiLocalEmbedded{
 		SplitAfter: splitA, TTLMillis: ttl, Disorder: disorder,
 		SplitAfter2: splitA2, TTL2Millis: ttl2, JitterMaxMs: jitter, LeadInMs: leadIn,
+		FakeSNI: fakeSni, FakeSNIHost: fakeSniHost, SplitPosition: splitPos,
+		AutoTTL: autoTtl, TCPSegment: tcpSeg, OOBData: oobData, MultiSplit: multiSplit,
 	}
 	var embPtr *config.DpiLocalEmbedded
 	if curEmb != defEmb {

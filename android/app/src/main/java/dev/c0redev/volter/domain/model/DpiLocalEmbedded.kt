@@ -10,6 +10,13 @@ data class DpiLocalEmbedded(
     val disorder: Boolean = false,
     val jitterMaxMs: Int = 0,
     val leadInMs: Int = 0,
+    val fakeSni: Boolean = false,
+    val fakeSniHost: String = "",
+    val splitPosition: String = "",
+    val autoTtl: Boolean = false,
+    val tcpSegment: Int = 0,
+    val oobData: Boolean = false,
+    val multiSplit: Int = 0,
 ) {
     fun toJson(): JSONObject {
         val j = JSONObject()
@@ -20,6 +27,13 @@ data class DpiLocalEmbedded(
         if (disorder) j.put("disorder", true)
         if (jitterMaxMs != 0) j.put("jitterMaxMs", jitterMaxMs)
         if (leadInMs != 0) j.put("leadInMs", leadInMs)
+        if (fakeSni) j.put("fakeSni", true)
+        if (fakeSniHost.isNotBlank()) j.put("fakeSniHost", fakeSniHost)
+        if (splitPosition.isNotBlank()) j.put("splitPosition", splitPosition)
+        if (autoTtl) j.put("autoTtl", true)
+        if (tcpSegment != 0) j.put("tcpSegment", tcpSegment)
+        if (oobData) j.put("oobData", true)
+        if (multiSplit != 0) j.put("multiSplit", multiSplit)
         return j
     }
 
@@ -34,6 +48,13 @@ data class DpiLocalEmbedded(
                 disorder = j.optBoolean("disorder", false),
                 jitterMaxMs = j.optInt("jitterMaxMs", 0),
                 leadInMs = j.optInt("leadInMs", 0),
+                fakeSni = j.optBoolean("fakeSni", false),
+                fakeSniHost = j.optString("fakeSniHost", ""),
+                splitPosition = j.optString("splitPosition", ""),
+                autoTtl = j.optBoolean("autoTtl", false),
+                tcpSegment = j.optInt("tcpSegment", 0),
+                oobData = j.optBoolean("oobData", false),
+                multiSplit = j.optInt("multiSplit", 0),
             )
         }
     }

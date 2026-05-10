@@ -232,6 +232,45 @@ fun ProtectionEditor(
                         checked = draft.dpiDisorder,
                         onCheckedChange = { set(draft.copy(dpiDisorder = it)) },
                     )
+                    ToggleRow(
+                        title = stringResource(R.string.protection_dpi_fake_sni),
+                        checked = draft.dpiFakeSni,
+                        onCheckedChange = { set(draft.copy(dpiFakeSni = it)) },
+                    )
+                    if (draft.dpiFakeSni) {
+                        StyledTextField(
+                            value = draft.dpiFakeSniHost,
+                            onValueChange = { set(draft.copy(dpiFakeSniHost = it)) },
+                            label = stringResource(R.string.protection_dpi_fake_sni_host),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    StyledTextField(
+                        value = draft.dpiSplitPosition,
+                        onValueChange = { set(draft.copy(dpiSplitPosition = it)) },
+                        label = stringResource(R.string.protection_dpi_split_position),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    ToggleRow(
+                        title = stringResource(R.string.protection_dpi_auto_ttl),
+                        checked = draft.dpiAutoTtl,
+                        onCheckedChange = { set(draft.copy(dpiAutoTtl = it)) },
+                    )
+                    NumberRow(
+                        items = listOf(
+                            NumberItem(R.string.protection_dpi_tcp_segment, draft.dpiTcpSegment, 0, 65536) {
+                                set(draft.copy(dpiTcpSegment = it))
+                            },
+                            NumberItem(R.string.protection_dpi_multi_split, draft.dpiMultiSplit, 0, 10) {
+                                set(draft.copy(dpiMultiSplit = it))
+                            },
+                        ),
+                    )
+                    ToggleRow(
+                        title = stringResource(R.string.protection_dpi_oob_data),
+                        checked = draft.dpiOobData,
+                        onCheckedChange = { set(draft.copy(dpiOobData = it)) },
+                    )
                 }
                 StyledTextField(
                     value = draft.dpiLocalPreset,
@@ -346,7 +385,6 @@ private data class ProtectionDraft(
     val preambleProfile: String = "",
     val preambleRotate: Boolean = false,
     val standaloneDpiOnly: Boolean = false,
-    /** false = встроенный Go-движок, true = внешний ciadpi/byedpi. */
     val engineExternal: Boolean = false,
     val dpiSplitAfter: Int = 1,
     val dpiSplitAfter2: Int = 0,
@@ -355,6 +393,13 @@ private data class ProtectionDraft(
     val dpiDisorder: Boolean = false,
     val dpiJitterMaxMs: Int = 0,
     val dpiLeadInMs: Int = 0,
+    val dpiFakeSni: Boolean = false,
+    val dpiFakeSniHost: String = "",
+    val dpiSplitPosition: String = "",
+    val dpiAutoTtl: Boolean = false,
+    val dpiTcpSegment: Int = 0,
+    val dpiOobData: Boolean = false,
+    val dpiMultiSplit: Int = 0,
     val dpiLocalPreset: String = "",
 ) {
     fun clean(): ProtectionDraft {
@@ -382,6 +427,8 @@ private data class ProtectionDraft(
             dpiTtl2Millis = dpiTtl2Millis.coerceIn(0, 60_000),
             dpiJitterMaxMs = dpiJitterMaxMs.coerceIn(0, 5000),
             dpiLeadInMs = dpiLeadInMs.coerceIn(0, 60_000),
+            dpiTcpSegment = dpiTcpSegment.coerceIn(0, 65536),
+            dpiMultiSplit = dpiMultiSplit.coerceIn(0, 10),
         )
     }
 
@@ -396,6 +443,13 @@ private data class ProtectionDraft(
             disorder = d.dpiDisorder,
             jitterMaxMs = d.dpiJitterMaxMs,
             leadInMs = d.dpiLeadInMs,
+            fakeSni = d.dpiFakeSni,
+            fakeSniHost = d.dpiFakeSniHost,
+            splitPosition = d.dpiSplitPosition,
+            autoTtl = d.dpiAutoTtl,
+            tcpSegment = d.dpiTcpSegment,
+            oobData = d.dpiOobData,
+            multiSplit = d.dpiMultiSplit,
         )
         val embDefault =
             emb.splitAfter == 1 &&
@@ -404,7 +458,14 @@ private data class ProtectionDraft(
                 emb.ttl2Millis == 0 &&
                 !emb.disorder &&
                 emb.jitterMaxMs == 0 &&
-                emb.leadInMs == 0
+                emb.leadInMs == 0 &&
+                !emb.fakeSni &&
+                emb.fakeSniHost.isBlank() &&
+                emb.splitPosition.isBlank() &&
+                !emb.autoTtl &&
+                emb.tcpSegment == 0 &&
+                !emb.oobData &&
+                emb.multiSplit == 0
         val embOut = if (embDefault) null else emb
         val engine =
             if (d.engineExternal) "external" else "embedded"
@@ -460,6 +521,13 @@ private data class ProtectionDraft(
             dpiDisorder = p?.dpiLocalEmbedded?.disorder ?: false,
             dpiJitterMaxMs = p?.dpiLocalEmbedded?.jitterMaxMs ?: 0,
             dpiLeadInMs = p?.dpiLocalEmbedded?.leadInMs ?: 0,
+            dpiFakeSni = p?.dpiLocalEmbedded?.fakeSni ?: false,
+            dpiFakeSniHost = p?.dpiLocalEmbedded?.fakeSniHost ?: "",
+            dpiSplitPosition = p?.dpiLocalEmbedded?.splitPosition ?: "",
+            dpiAutoTtl = p?.dpiLocalEmbedded?.autoTtl ?: false,
+            dpiTcpSegment = p?.dpiLocalEmbedded?.tcpSegment ?: 0,
+            dpiOobData = p?.dpiLocalEmbedded?.oobData ?: false,
+            dpiMultiSplit = p?.dpiLocalEmbedded?.multiSplit ?: 0,
             dpiLocalPreset = p?.dpiLocalPreset ?: "",
         ).clean()
     }

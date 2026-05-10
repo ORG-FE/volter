@@ -308,7 +308,13 @@
     <string name="protection_dpi_ttl2_ms">second gap (ms, 0 = same as TTL)</string>
     <string name="protection_dpi_jitter_ms">random jitter (ms, added to delays)</string>
     <string name="protection_dpi_lead_in_ms">delay before upstream (ms)</string>
-    <string name="protection_dpi_local_preset_label_embedded">External preset (used in External mode)</string>
+    <string name="protection_dpi_fake_sni">Fake SNI</string>
+    <string name="protection_dpi_fake_sni_host">Fake SNI host (e.g. www.google.com)</string>
+    <string name="protection_dpi_split_position">Split position (sni/method/host/random)</string>
+    <string name="protection_dpi_auto_ttl">Auto TTL</string>
+    <string name="protection_dpi_tcp_segment">TCP segment size (0 = off)</string>
+    <string name="protection_dpi_multi_split">Multi-split count (0-10)</string>
+    <string name="protection_dpi_oob_data">OOB data</string>
     <string name="protection_standalone_dpi_only">Standalone anti-DPI only (no tunnel)</string>
     <string name="protection_dpi_local_preset_label">byedpi preset (CLI args)</string>
     <string name="protection_save">Save</string>

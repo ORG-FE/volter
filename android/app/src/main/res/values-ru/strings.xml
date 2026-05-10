@@ -303,7 +303,13 @@
     <string name="protection_dpi_ttl2_ms">вторая пауза (мс, 0 = как TTL)</string>
     <string name="protection_dpi_jitter_ms">случайный джиттер (мс, к задержкам)</string>
     <string name="protection_dpi_lead_in_ms">задержка до первого байта в сеть (мс)</string>
-    <string name="protection_dpi_local_preset_label_embedded">Пресет для внешнего движка (используется в режиме Внешний)</string>
+    <string name="protection_dpi_fake_sni">Поддельный SNI</string>
+    <string name="protection_dpi_fake_sni_host">Хост для fake SNI (например www.google.com)</string>
+    <string name="protection_dpi_split_position">Позиция split (sni/method/host/random)</string>
+    <string name="protection_dpi_auto_ttl">Авто TTL</string>
+    <string name="protection_dpi_tcp_segment">Размер TCP сегмента (0 = выкл)</string>
+    <string name="protection_dpi_multi_split">Количество multi-split (0-10)</string>
+    <string name="protection_dpi_oob_data">OOB данные</string>
     <string name="protection_standalone_dpi_only">Только anti-DPI без туннеля</string>
     <string name="protection_dpi_local_preset_label">Пресет byedpi (аргументы CLI)</string>
     <string name="protection_save">Сохранить</string>
