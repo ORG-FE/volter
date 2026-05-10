@@ -469,6 +469,7 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 		}
 	}
 	config.ApplyTcpOnlyIfServerHasNoQUIC(&cfg, probeCaps)
+	protTop := config.MergeAntiDpiTransportTopUpInPlace(prot, cfg.Transport)
 	tunCIDR6 := strings.TrimSpace(cfg.TunCIDR6)
 	var quicRoots *x509.CertPool
 	if ca := strings.TrimSpace(cfg.QuicCaCert); ca != "" {
@@ -503,7 +504,7 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 		mtu:               1420,
 		routeCIDRs:        routeCIDRs,
 		excludeCIDRs:      excludeCIDRs,
-		protection:        config.MergeProbeObfsIntoProtection(prot, probeCaps),
+		protection:        config.MergeProbeObfsIntoProtection(protTop, probeCaps),
 		relay:             config.EffectiveRelayOptions(&cfg),
 		mesh:              cfg.Mesh,
 		proxy:             settings.Mode == "proxy",

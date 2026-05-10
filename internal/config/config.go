@@ -147,13 +147,20 @@ type ProtectionOptions struct {
 }
 
 type DpiLocalEmbedded struct {
-	SplitAfter  int  `json:"splitAfter,omitempty"`
-	SplitAfter2 int  `json:"splitAfter2,omitempty"`
-	TTLMillis   int  `json:"ttlMillis,omitempty"`
-	TTL2Millis  int  `json:"ttl2Millis,omitempty"`
-	Disorder    bool `json:"disorder,omitempty"`
-	JitterMaxMs int  `json:"jitterMaxMs,omitempty"`
-	LeadInMs    int  `json:"leadInMs,omitempty"`
+	SplitAfter   int  `json:"splitAfter,omitempty"`
+	SplitAfter2  int  `json:"splitAfter2,omitempty"`
+	TTLMillis    int  `json:"ttlMillis,omitempty"`
+	TTL2Millis   int  `json:"ttl2Millis,omitempty"`
+	Disorder     bool `json:"disorder,omitempty"`
+	JitterMaxMs  int  `json:"jitterMaxMs,omitempty"`
+	LeadInMs     int  `json:"leadInMs,omitempty"`
+	FakeSNI      bool `json:"fakeSni,omitempty"`
+	FakeSNIHost  string `json:"fakeSniHost,omitempty"`
+	SplitPosition string `json:"splitPosition,omitempty"` // "sni", "method", "host", "random"
+	AutoTTL      bool `json:"autoTtl,omitempty"`
+	TCPSegment   int  `json:"tcpSegment,omitempty"`
+	OOBData      bool `json:"oobData,omitempty"`
+	MultiSplit   int  `json:"multiSplit,omitempty"` // количество дополнительных split'ов
 }
 
 func DpiLocalEngineIsExternal(p *ProtectionOptions) bool {
@@ -244,6 +251,306 @@ func SanitizeProtectionInPlace(p *ProtectionOptions) {
 		return
 	}
 	p.DpiLocalPreset = ClampDpiLocalPreset(p.DpiLocalPreset)
+}
+
+type AntiDpiPreset string
+
+const (
+	AntiDpiPresetNone       AntiDpiPreset = "none"
+	AntiDpiPresetLight      AntiDpiPreset = "light"
+	AntiDpiPresetModerate   AntiDpiPreset = "moderate"
+	AntiDpiPresetAggressive AntiDpiPreset = "aggressive"
+	AntiDpiPresetParanoid   AntiDpiPreset = "paranoid"
+)
+
+func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptions {
+	tcpish := strings.EqualFold(strings.TrimSpace(transport), "tcp")
+	
+	switch preset {
+	case AntiDpiPresetNone:
+		return &ProtectionOptions{}
+		
+	case AntiDpiPresetLight:
+		return &ProtectionOptions{
+			Obfuscation:      "enhanced",
+			JunkCount:        3,
+			JunkMin:          128,
+			JunkMax:          512,
+			JunkStyle:        "tls",
+			FlushPolicy:      "perChunk",
+			PadS4:            32,
+			DpiLocalEngine:   "embedded",
+			DpiLocalEmbedded: &DpiLocalEmbedded{
+				SplitAfter:  2,
+				TTLMillis:   8,
+				JitterMaxMs: 5,
+			},
+		}
+		
+	case AntiDpiPresetModerate:
+		p := &ProtectionOptions{
+			Obfuscation:      "enhanced",
+			JunkCount:        6,
+			JunkMin:          224,
+			JunkMax:          896,
+			JunkStyle:        "tls",
+			FlushPolicy:      "perChunk",
+			PadS4:            48,
+			FlushJitterMaxMs: 18,
+			PreambleRotate:   true,
+			DpiLocalEngine:   "embedded",
+			DpiLocalEmbedded: &DpiLocalEmbedded{
+				SplitAfter:    4,
+				TTLMillis:     11,
+				JitterMaxMs:   8,
+				SplitPosition: "sni",
+			},
+		}
+		if tcpish {
+			p.DpiVolterTransportObfuscate = true
+		}
+		return p
+		
+	case AntiDpiPresetAggressive:
+		p := &ProtectionOptions{
+			Obfuscation:         "enhanced",
+			JunkCount:           12,
+			JunkMin:             384,
+			JunkMax:             1536,
+			JunkStyle:           "tls",
+			FlushPolicy:         "perChunk",
+			PadS1:               64,
+			PadS2:               96,
+			PadS3:               128,
+			PadS4:               96,
+			FlushJitterMaxMs:    35,
+			BurstSmoothingMaxMs: 50,
+			PreambleRotate:      true,
+			DpiLocalEngine:      "embedded",
+			DpiLocalEmbedded: &DpiLocalEmbedded{
+				SplitAfter:    3,
+				SplitAfter2:   7,
+				TTLMillis:     6,
+				TTL2Millis:    15,
+				Disorder:      true,
+				JitterMaxMs:   15,
+				LeadInMs:      8,
+				FakeSNI:       true,
+				FakeSNIHost:   "www.google.com",
+				SplitPosition: "random",
+				MultiSplit:    2,
+				TCPSegment:    1280,
+			},
+		}
+		if tcpish {
+			p.DpiVolterTransportObfuscate = true
+			p.MagicSplit = "sni"
+		}
+		return p
+		
+	case AntiDpiPresetParanoid:
+		p := &ProtectionOptions{
+			Obfuscation:         "enhanced",
+			JunkCount:           20,
+			JunkMin:             512,
+			JunkMax:             2048,
+			JunkStyle:           "tls",
+			FlushPolicy:         "perChunk",
+			PadS1:               128,
+			PadS2:               192,
+			PadS3:               256,
+			PadS4:               192,
+			FlushJitterMaxMs:    50,
+			BurstSmoothingMaxMs: 100,
+			ShapeJitterMaxMs:    80,
+			PreambleRotate:      true,
+			DpiLocalEngine:      "embedded",
+			DpiLocalEmbedded: &DpiLocalEmbedded{
+				SplitAfter:    2,
+				SplitAfter2:   5,
+				TTLMillis:     4,
+				TTL2Millis:    20,
+				Disorder:      true,
+				JitterMaxMs:   25,
+				LeadInMs:      15,
+				FakeSNI:       true,
+				FakeSNIHost:   "cloudflare.com",
+				SplitPosition: "random",
+				AutoTTL:       true,
+				MultiSplit:    4,
+				TCPSegment:    960,
+				OOBData:       true,
+			},
+		}
+		if tcpish {
+			p.DpiVolterTransportObfuscate = true
+			p.MagicSplit = "host"
+		}
+		return p
+		
+	default:
+		return ApplyAntiDpiPreset(AntiDpiPresetModerate, transport)
+	}
+}
+
+func MergeAntiDpiTransportTopUpInPlace(prot *ProtectionOptions, transport string) *ProtectionOptions {
+	if os.Getenv("VOLTER_NO_ANTIDPI_ENRICH") == "1" {
+		return prot
+	}
+	
+	if presetEnv := os.Getenv("VOLTER_ANTIDPI_PRESET"); presetEnv != "" {
+		preset := AntiDpiPreset(strings.ToLower(presetEnv))
+		base := ApplyAntiDpiPreset(preset, transport)
+		if prot != nil {
+			mergeProtectionOptions(base, prot)
+		}
+		return base
+	}
+	
+	var base ProtectionOptions
+	if prot != nil {
+		base = *prot
+	}
+	if base.StandaloneDpiOnly {
+		return &base
+	}
+	tcpish := strings.EqualFold(strings.TrimSpace(transport), "tcp")
+
+	if strings.TrimSpace(base.Obfuscation) == "" {
+		base.Obfuscation = "enhanced"
+	}
+	if base.JunkCount <= 0 {
+		base.JunkCount = 6
+	}
+	if base.JunkMin <= 0 {
+		base.JunkMin = 224
+	}
+	if base.JunkMax <= 0 {
+		base.JunkMax = 896
+	}
+	if base.JunkMax < base.JunkMin {
+		base.JunkMax = base.JunkMin + 384
+	}
+	if base.PadS4 <= 0 {
+		base.PadS4 = 48
+	}
+	if strings.TrimSpace(base.JunkStyle) == "" {
+		base.JunkStyle = "tls"
+	}
+	if strings.TrimSpace(base.FlushPolicy) == "" {
+		base.FlushPolicy = "perChunk"
+	}
+	if tcpish {
+		base.DpiVolterTransportObfuscate = true
+		if base.FlushJitterMaxMs <= 0 {
+			base.FlushJitterMaxMs = 18
+		}
+		if !base.PreambleRotate && strings.TrimSpace(base.PreambleProfile) == "" {
+			base.PreambleRotate = true
+		}
+	}
+	if !DpiLocalEngineIsExternal(&base) && strings.TrimSpace(base.DpiLocalPreset) == "" {
+		if base.DpiLocalEmbedded == nil {
+			base.DpiLocalEmbedded = &DpiLocalEmbedded{
+				SplitAfter:  4,
+				TTLMillis:   11,
+				JitterMaxMs: 8,
+			}
+		} else {
+			e := base.DpiLocalEmbedded
+			if e.SplitAfter <= 0 {
+				e.SplitAfter = 4
+			}
+			if e.TTLMillis <= 0 {
+				e.TTLMillis = 11
+			}
+			if e.JitterMaxMs <= 0 {
+				e.JitterMaxMs = 8
+			}
+		}
+		if strings.TrimSpace(base.DpiLocalEngine) == "" {
+			base.DpiLocalEngine = "embedded"
+		}
+	}
+	return &base
+}
+
+func mergeProtectionOptions(base, override *ProtectionOptions) {
+	if override == nil {
+		return
+	}
+	if override.JunkCount > 0 {
+		base.JunkCount = override.JunkCount
+	}
+	if override.JunkMin > 0 {
+		base.JunkMin = override.JunkMin
+	}
+	if override.JunkMax > 0 {
+		base.JunkMax = override.JunkMax
+	}
+	if override.PadS1 > 0 {
+		base.PadS1 = override.PadS1
+	}
+	if override.PadS2 > 0 {
+		base.PadS2 = override.PadS2
+	}
+	if override.PadS3 > 0 {
+		base.PadS3 = override.PadS3
+	}
+	if override.PadS4 > 0 {
+		base.PadS4 = override.PadS4
+	}
+	if override.FlushJitterMaxMs > 0 {
+		base.FlushJitterMaxMs = override.FlushJitterMaxMs
+	}
+	if override.BurstSmoothingMaxMs > 0 {
+		base.BurstSmoothingMaxMs = override.BurstSmoothingMaxMs
+	}
+	if strings.TrimSpace(override.Obfuscation) != "" {
+		base.Obfuscation = override.Obfuscation
+	}
+	if strings.TrimSpace(override.JunkStyle) != "" {
+		base.JunkStyle = override.JunkStyle
+	}
+	if strings.TrimSpace(override.FlushPolicy) != "" {
+		base.FlushPolicy = override.FlushPolicy
+	}
+	if strings.TrimSpace(override.MagicSplit) != "" {
+		base.MagicSplit = override.MagicSplit
+	}
+	if override.DpiLocalEmbedded != nil {
+		if base.DpiLocalEmbedded == nil {
+			base.DpiLocalEmbedded = &DpiLocalEmbedded{}
+		}
+		e := override.DpiLocalEmbedded
+		if e.SplitAfter > 0 {
+			base.DpiLocalEmbedded.SplitAfter = e.SplitAfter
+		}
+		if e.SplitAfter2 > 0 {
+			base.DpiLocalEmbedded.SplitAfter2 = e.SplitAfter2
+		}
+		if e.TTLMillis > 0 {
+			base.DpiLocalEmbedded.TTLMillis = e.TTLMillis
+		}
+		if e.TTL2Millis > 0 {
+			base.DpiLocalEmbedded.TTL2Millis = e.TTL2Millis
+		}
+		if e.JitterMaxMs > 0 {
+			base.DpiLocalEmbedded.JitterMaxMs = e.JitterMaxMs
+		}
+		if e.MultiSplit > 0 {
+			base.DpiLocalEmbedded.MultiSplit = e.MultiSplit
+		}
+		if e.TCPSegment > 0 {
+			base.DpiLocalEmbedded.TCPSegment = e.TCPSegment
+		}
+		if strings.TrimSpace(e.SplitPosition) != "" {
+			base.DpiLocalEmbedded.SplitPosition = e.SplitPosition
+		}
+		if strings.TrimSpace(e.FakeSNIHost) != "" {
+			base.DpiLocalEmbedded.FakeSNIHost = e.FakeSNIHost
+		}
+	}
 }
 
 func Dir() (string, error) {

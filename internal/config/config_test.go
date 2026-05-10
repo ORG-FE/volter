@@ -176,6 +176,71 @@ func TestProtection(t *testing.T) {
 	}
 }
 
+func TestMergeAntiDpiTransportTopUpInPlace(t *testing.T) {
+	t.Setenv("VOLTER_NO_ANTIDPI_ENRICH", "")
+	t.Setenv("VOLTER_ANTIDPI_PRESET", "")
+	
+	out := MergeAntiDpiTransportTopUpInPlace(nil, "tcp")
+	if out == nil || out.JunkCount != 6 || !out.DpiVolterTransportObfuscate || !strings.EqualFold(out.DpiLocalEngine, "embedded") {
+		t.Fatalf("tcp baseline: %+v", out)
+	}
+	custom := &ProtectionOptions{JunkCount: 9, JunkMin: 400, JunkMax: 800}
+	out2 := MergeAntiDpiTransportTopUpInPlace(custom, "tcp")
+	if out2.JunkCount != 9 || out2.JunkMin != 400 {
+		t.Fatalf("expected preserved junk: %+v", out2)
+	}
+
+	t.Setenv("VOLTER_NO_ANTIDPI_ENRICH", "1")
+	out3 := MergeAntiDpiTransportTopUpInPlace(nil, "tcp")
+	if out3 != nil {
+		t.Fatalf("disabled + nil want nil, got %+v", out3)
+	}
+}
+
+func TestApplyAntiDpiPreset(t *testing.T) {
+	tests := []struct {
+		preset    AntiDpiPreset
+		transport string
+		wantJunk  int
+		wantEmbed bool
+	}{
+		{AntiDpiPresetNone, "tcp", 0, false},
+		{AntiDpiPresetLight, "tcp", 3, true},
+		{AntiDpiPresetModerate, "tcp", 6, true},
+		{AntiDpiPresetAggressive, "tcp", 12, true},
+		{AntiDpiPresetParanoid, "tcp", 20, true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.preset), func(t *testing.T) {
+			p := ApplyAntiDpiPreset(tt.preset, tt.transport)
+			if p == nil {
+				t.Fatal("nil result")
+			}
+			if p.JunkCount != tt.wantJunk {
+				t.Errorf("junk: got %d, want %d", p.JunkCount, tt.wantJunk)
+			}
+			if tt.wantEmbed && p.DpiLocalEmbedded == nil {
+				t.Error("expected embedded config")
+			}
+		})
+	}
+}
+
+func TestAntiDpiPresetEnv(t *testing.T) {
+	t.Setenv("VOLTER_ANTIDPI_PRESET", "aggressive")
+	p := MergeAntiDpiTransportTopUpInPlace(nil, "tcp")
+	if p == nil || p.JunkCount != 12 {
+		t.Fatalf("aggressive preset: %+v", p)
+	}
+	
+	// User override должен работать
+	custom := &ProtectionOptions{JunkCount: 99}
+	p2 := MergeAntiDpiTransportTopUpInPlace(custom, "tcp")
+	if p2.JunkCount != 99 {
+		t.Errorf("user override failed: got %d", p2.JunkCount)
+	}
+}
+
 func TestLoadProtectionNotExist(t *testing.T) {
 	dir := t.TempDir()
 	os.RemoveAll(filepath.Join(dir, "volter"))

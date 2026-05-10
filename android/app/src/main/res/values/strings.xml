@@ -96,29 +96,29 @@
     <string name="home_orb_on">VPN on</string>
     <string name="home_orb_off">VPN off</string>
     <string name="home_servers_pill_title">Servers</string>
-    <string name="home_traffic_title">Sessions and routing</string>
-    <string name="home_traffic_hint">Bytes and per-app stats use NetworkStats (TYPE_VPN) when the session ends. Lists below use profile routes/exclude at session end, not DNS.</string>
-    <string name="home_traffic_rx">Downloaded (session)</string>
-    <string name="home_traffic_tx">Uploaded (session)</string>
-    <string name="home_traffic_apps">By app (uid)</string>
-    <string name="home_traffic_routes">Routes in profile</string>
-    <string name="home_traffic_excludes">Excludes in profile</string>
-    <string name="home_traffic_collect_err">Traffic capture</string>
-    <string name="home_traffic_sessions">Metric rows</string>
-    <string name="home_traffic_last_profile">Last profile</string>
+    <string name="home_traffic_title">Statistics</string>
+    <string name="home_traffic_hint">Current session data</string>
+    <string name="home_traffic_rx">Downloaded</string>
+    <string name="home_traffic_tx">Uploaded</string>
+    <string name="home_traffic_apps">By app</string>
+    <string name="home_traffic_routes">Routes</string>
+    <string name="home_traffic_excludes">Excludes</string>
+    <string name="home_traffic_collect_err">Collection error</string>
+    <string name="home_traffic_sessions">Sessions</string>
+    <string name="home_traffic_last_profile">Profile</string>
     <string name="home_traffic_last_server">Server</string>
-    <string name="home_traffic_last_duration">Duration</string>
-    <string name="home_traffic_last_hs">Handshake</string>
-    <string name="home_traffic_empty">No saved sessions yet</string>
-    <string name="home_traffic_pick_profile">Pick a local profile on Home or Profiles to change route mode here</string>
-    <string name="home_routing_title">How traffic flows</string>
-    <string name="home_routing_body">Route mode affects mesh and cluster. Packet-level protection is under Protect.</string>
+    <string name="home_traffic_last_duration">Time</string>
+    <string name="home_traffic_last_hs">Connected</string>
+    <string name="home_traffic_empty">No data</string>
+    <string name="home_traffic_pick_profile">Select a local profile to change route mode</string>
+    <string name="home_routing_title">Routing</string>
+    <string name="home_routing_body">Route mode affects mesh and cluster. Protection settings are in the Protect tab.</string>
     <string name="home_route_auto">Auto</string>
     <string name="home_route_direct">Direct</string>
     <string name="home_route_relay">Relay</string>
     <string name="home_routing_open_protect">Protect</string>
     <string name="home_routing_open_cluster">Cluster</string>
-    <string name="home_traffic_split_hint">Where to tune VPN for apps and networks</string>
+    <string name="home_traffic_split_hint">VPN settings for apps and networks</string>
     <string name="home_traffic_chip_apps">Apps</string>
     <string name="home_traffic_chip_sites">Sites and networks</string>
 
@@ -146,7 +146,7 @@
     <string name="home_logs_buffer">Log lines in buffer</string>
     <string name="home_recent_logs">Recent logs</string>
     <string name="home_socks_title">SOCKS5 — point apps or Wi‑Fi proxy here</string>
-    <string name="home_socks_hint">Standalone anti-DPI has no TUN; apps must use this SOCKS address manually.</string>
+    <string name="home_socks_hint">Standalone anti-DPI mode. Apps must use this SOCKS address.</string>
     <string name="home_socks_copy">Copy address</string>
     <string name="home_disconnect_cd">Disconnect VPN</string>
     <string name="home_refresh_cd">Refresh configs</string>
@@ -228,7 +228,7 @@
 
     <string name="settings_title">Settings</string>
     <string name="settings_volter_mesh">Volter mesh (peer relay)</string>
-    <string name="settings_volter_mesh_hint">Use built-in relay/bootstrap for this build. Off = VPN only, no mesh overlay from defaults.</string>
+    <string name="settings_volter_mesh_hint">Built-in relay/bootstrap. Off = VPN only, no mesh.</string>
     <string name="settings_connection_mode_title">Connection mode</string>
     <string name="settings_mode_tun">TUN</string>
     <string name="settings_mode_proxy">Proxy</string>
@@ -238,11 +238,11 @@
     <string name="settings_ipv6_tun_title">IPv6 in TUN</string>
     <string name="settings_ipv6_tun_subtitle">When off, IPv4 only</string>
     <string name="settings_transport_title">Transport to server</string>
-    <string name="settings_transport_hint">Used at connect, on top of JSON / cloud profile</string>
+    <string name="settings_transport_hint">Transport at connect, overrides JSON/cloud</string>
     <string name="settings_transport_tcp">TCP</string>
     <string name="settings_transport_quic">QUIC</string>
     <string name="settings_dual_tun_title">Dual tun-tcp</string>
-    <string name="settings_dual_tun_hint">If the server offers QUIC/TCP, both paths may be used during connect.</string>
+    <string name="settings_dual_tun_hint">If server supports QUIC/TCP, both may be used.</string>
     <string name="settings_save_client">Save</string>
     <string name="settings_updates_title">Updates</string>
     <string name="settings_build_fmt">Build %1$s</string>
@@ -297,7 +297,7 @@
     <string name="protection_magic_split_label">magicSplit (0 = off)</string>
     <string name="protection_precheck">Pre-check connection</string>
     <string name="protection_antidpi_section_title">Anti-DPI (local)</string>
-    <string name="protection_antidpi_section_hint">Without Volter VPN: local SOCKS. Embedded: built-in Go engine. External: ciadpi/byedpi binary in app config or PATH. Preset with external mode only (unless you set engine to External explicitly).</string>
+    <string name="protection_antidpi_section_hint">Local SOCKS mode. Embedded: built-in Go engine. External: ciadpi/byedpi binary. Preset for external mode.</string>
     <string name="protection_dpi_engine_title">Local anti-DPI engine</string>
     <string name="protection_dpi_engine_embedded">Embedded (Go)</string>
     <string name="protection_dpi_engine_external">External (ciadpi)</string>
@@ -308,9 +308,9 @@
     <string name="protection_dpi_ttl2_ms">second gap (ms, 0 = same as TTL)</string>
     <string name="protection_dpi_jitter_ms">random jitter (ms, added to delays)</string>
     <string name="protection_dpi_lead_in_ms">delay before upstream (ms)</string>
-    <string name="protection_dpi_local_preset_label_embedded">External preset (used only in External mode; set engine to External to apply)</string>
+    <string name="protection_dpi_local_preset_label_embedded">External preset (used in External mode)</string>
     <string name="protection_standalone_dpi_only">Standalone anti-DPI only (no tunnel)</string>
-    <string name="protection_dpi_local_preset_label">byedpi preset (CLI args, listen injected)</string>
+    <string name="protection_dpi_local_preset_label">byedpi preset (CLI args)</string>
     <string name="protection_save">Save</string>
     <string name="protection_clear">Clear</string>
     <string name="protection_param_fmt">%1$s · %2$d–%3$d</string>

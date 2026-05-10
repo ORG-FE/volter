@@ -14,24 +14,24 @@
     <string name="home_orb_on">VPN включен</string>
     <string name="home_orb_off">VPN выключен</string>
     <string name="home_servers_pill_title">Серверы</string>
-    <string name="home_traffic_title">Сессии и маршрут</string>
-    <string name="home_traffic_hint">Байты и приложения снимаются через NetworkStats (TYPE_VPN) при остановке сессии. Сайты ниже из полей routes/exclude профиля на конец сессии, не DNS.</string>
-    <string name="home_traffic_rx">Скачано (сессия)</string>
-    <string name="home_traffic_tx">Отдано (сессия)</string>
-    <string name="home_traffic_apps">По приложениям (uid)</string>
-    <string name="home_traffic_routes">Маршруты в профиле</string>
-    <string name="home_traffic_excludes">Исключения в профиле</string>
-    <string name="home_traffic_collect_err">Сбор трафика</string>
-    <string name="home_traffic_sessions">Записей метрик</string>
-    <string name="home_traffic_last_profile">Последний профиль</string>
+    <string name="home_traffic_title">Статистика</string>
+    <string name="home_traffic_hint">Данные за текущую сессию</string>
+    <string name="home_traffic_rx">Скачано</string>
+    <string name="home_traffic_tx">Отдано</string>
+    <string name="home_traffic_apps">По приложениям</string>
+    <string name="home_traffic_routes">Маршруты</string>
+    <string name="home_traffic_excludes">Исключения</string>
+    <string name="home_traffic_collect_err">Ошибка сбора</string>
+    <string name="home_traffic_sessions">Сессий</string>
+    <string name="home_traffic_last_profile">Профиль</string>
     <string name="home_traffic_last_server">Сервер</string>
-    <string name="home_traffic_last_duration">Длительность</string>
-    <string name="home_traffic_last_hs">Рукопожатие</string>
-    <string name="home_traffic_empty">Пока нет сохранённых сессий</string>
-    <string name="home_traffic_pick_profile">Выбери локальный профиль чтобы менять route mode с главной</string>
-    <string name="home_routing_title">Как идёт трафик</string>
-    <string name="home_routing_body">Режим маршрута влияет на mesh/cluster. Детальная защита пакетов в разделе Protect.</string>
-    <string name="home_traffic_split_hint">Где настраивать VPN для приложений и сетей</string>
+    <string name="home_traffic_last_duration">Время</string>
+    <string name="home_traffic_last_hs">Подключение</string>
+    <string name="home_traffic_empty">Нет данных</string>
+    <string name="home_traffic_pick_profile">Выбери локальный профиль для смены режима маршрута</string>
+    <string name="home_routing_title">Маршрутизация</string>
+    <string name="home_routing_body">Режим маршрута влияет на mesh/cluster. Настройки защиты в разделе Защита.</string>
+    <string name="home_traffic_split_hint">Настройки VPN для приложений и сетей</string>
     <string name="home_traffic_chip_apps">Приложения</string>
     <string name="home_traffic_chip_sites">Сайты и сети</string>
     <string name="configs_hero_active_fmt">Активный профиль: %1$s</string>
@@ -143,7 +143,7 @@
     <string name="home_logs_buffer">Логов в буфере</string>
     <string name="home_recent_logs">Последние логи</string>
     <string name="home_socks_title">SOCKS5 — укажи прокси приложениям или Wi‑Fi</string>
-    <string name="home_socks_hint">В режиме только anti-DPI туннеля нет; трафик пойдёт только если приложение использует этот SOCKS.</string>
+    <string name="home_socks_hint">Режим только anti-DPI. Приложения должны использовать этот SOCKS адрес.</string>
     <string name="home_socks_copy">Скопировать адрес</string>
     <string name="home_disconnect_cd">Отключить VPN</string>
     <string name="home_refresh_cd">Обновить конфиги</string>
@@ -223,7 +223,7 @@
 
     <string name="settings_title">Настройки</string>
     <string name="settings_volter_mesh">Сеть Volter (mesh / relay)</string>
-    <string name="settings_volter_mesh_hint">Встроенный relay/bootstrap для этой сборки. Выкл — только VPN, без mesh из дефолтов.</string>
+    <string name="settings_volter_mesh_hint">Встроенный relay/bootstrap. Выкл = только VPN, без mesh.</string>
     <string name="settings_connection_mode_title">Режим подключения</string>
     <string name="settings_mode_tun">TUN</string>
     <string name="settings_mode_proxy">Proxy</string>
@@ -233,11 +233,11 @@
     <string name="settings_ipv6_tun_title">IPv6 в TUN</string>
     <string name="settings_ipv6_tun_subtitle">Если выкл — только IPv4</string>
     <string name="settings_transport_title">Транспорт к серверу</string>
-    <string name="settings_transport_hint">Transport при коннекте, поверх того что в JSON / cloud</string>
+    <string name="settings_transport_hint">Транспорт при подключении, переопределяет JSON/cloud</string>
     <string name="settings_transport_tcp">TCP</string>
     <string name="settings_transport_quic">QUIC</string>
     <string name="settings_dual_tun_title">Dual tun-tcp</string>
-    <string name="settings_dual_tun_hint">Если сервер в QUIC/TCP, при коннекте могут использоваться оба транспорта.</string>
+    <string name="settings_dual_tun_hint">Если сервер поддерживает QUIC/TCP, могут использоваться оба.</string>
     <string name="settings_save_client">Сохранить</string>
     <string name="settings_updates_title">Обновления</string>
     <string name="settings_build_fmt">Сборка %1$s</string>
@@ -292,7 +292,7 @@
     <string name="protection_magic_split_label">magicSplit (0 = выкл)</string>
     <string name="protection_precheck">Предпроверка</string>
     <string name="protection_antidpi_section_title">Anti-DPI (локально)</string>
-    <string name="protection_antidpi_section_hint">Без VPN Volter: локальный SOCKS. Встроенный — Go-движок в приложении. Внешний — ciadpi/byedpi из каталога конфига или PATH. Строка пресета для режима «Внешний» (или пока движок не указан явно как «Встроенный»).</string>
+    <string name="protection_antidpi_section_hint">Локальный SOCKS режим. Встроенный: Go-движок. Внешний: ciadpi/byedpi бинарник. Пресет для внешнего режима.</string>
     <string name="protection_dpi_engine_title">Локальный anti-DPI</string>
     <string name="protection_dpi_engine_embedded">Встроенный (Go)</string>
     <string name="protection_dpi_engine_external">Внешний (ciadpi)</string>
@@ -303,9 +303,9 @@
     <string name="protection_dpi_ttl2_ms">вторая пауза (мс, 0 = как TTL)</string>
     <string name="protection_dpi_jitter_ms">случайный джиттер (мс, к задержкам)</string>
     <string name="protection_dpi_lead_in_ms">задержка до первого байта в сеть (мс)</string>
-    <string name="protection_dpi_local_preset_label_embedded">Пресет для внешнего движка (используется только в режиме «Внешний»)</string>
+    <string name="protection_dpi_local_preset_label_embedded">Пресет для внешнего движка (используется в режиме Внешний)</string>
     <string name="protection_standalone_dpi_only">Только anti-DPI без туннеля</string>
-    <string name="protection_dpi_local_preset_label">Пресет byedpi (аргументы CLI, bind задаётся отдельно)</string>
+    <string name="protection_dpi_local_preset_label">Пресет byedpi (аргументы CLI)</string>
     <string name="protection_save">Сохранить</string>
     <string name="protection_clear">Очистить</string>
     <string name="protection_param_fmt">%1$s · %2$d–%3$d</string>

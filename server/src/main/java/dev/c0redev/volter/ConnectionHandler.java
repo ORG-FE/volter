@@ -49,14 +49,16 @@ final class ConnectionHandler implements Runnable {
     private final Config cfg;
     private final UdpSessions udp;
     private final TcpReactorPool tcpPool;
-  private final ExecutorService streamPool;
+    private final ExecutorService sessionPool;
+    private final ExecutorService udpWorkerPool;
 
-    ConnectionHandler(Socket sock, Config cfg, UdpSessions udp, TcpReactorPool tcpPool, ExecutorService streamPool) {
+    ConnectionHandler(Socket sock, Config cfg, UdpSessions udp, TcpReactorPool tcpPool, ExecutorService sessionPool, ExecutorService udpWorkerPool) {
         this.sock = sock;
         this.cfg = cfg;
         this.udp = udp;
         this.tcpPool = tcpPool;
-        this.streamPool = streamPool;
+        this.sessionPool = sessionPool;
+        this.udpWorkerPool = udpWorkerPool;
     }
 
     @Override
@@ -66,6 +68,7 @@ final class ConnectionHandler implements Runnable {
         BufferedInputStream rawIn = null;
         OutputStream rawOut = null;
         try {
+            log.info("tcp handshake begin peer=" + s.getRemoteSocketAddress());
             var xor = new XorStream(XorStream.keyFromToken(cfg.token()));
             s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             rawIn = new BufferedInputStream(s.getInputStream(), 128 * 1024);
@@ -105,9 +108,9 @@ final class ConnectionHandler implements Runnable {
 
             if (hs.role() == Protocol.ROLE_UDP) {
                 try {
-                    streamPool.submit(() -> {
+                    sessionPool.submit(() -> {
                         try {
-                            session.handle(hs, hr, in, out, tcp, streamPool);
+                            session.handle(hs, hr, in, out, tcp, udpWorkerPool);
                         } catch (IOException e) {
                             log.fine("udp session ended: " + e.getMessage());
                         } finally {
@@ -125,9 +128,9 @@ final class ConnectionHandler implements Runnable {
             }
             
             try {
-                streamPool.submit(() -> {
+                sessionPool.submit(() -> {
                     try {
-                        session.handle(hs, hr, in, out, tcp, streamPool);
+                        session.handle(hs, hr, in, out, tcp, udpWorkerPool);
                     } catch (IOException e) {
                         log.fine("session ended: " + e.getMessage());
                         try {
@@ -163,6 +166,9 @@ final class ConnectionHandler implements Runnable {
             }
         } finally {
             if (!handedOff) {
+                try {
+                    s.shutdownInput();
+                } catch (Exception ignored) {}
                 try {
                     s.close();
                 } catch (IOException ignored) {}

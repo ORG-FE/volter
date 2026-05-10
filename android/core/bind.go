@@ -281,6 +281,7 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 		dual = false
 	}
 	effRelay := config.EffectiveRelayOptions(&cfg)
+	protTop := config.MergeAntiDpiTransportTopUpInPlace(cfg.Protection, cfg.Transport)
 
 	s := &session{
 		done:   make(chan struct{}),
@@ -299,7 +300,7 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 		MTU:               mtu,
 		Token:             cfg.Token,
 		ServerAddrs:       addrs,
-		Protection:        config.MergeProbeObfsIntoProtection(cfg.Protection, probeCaps),
+		Protection:        config.MergeProbeObfsIntoProtection(protTop, probeCaps),
 		Transport:         cfg.Transport,
 		QuicServer:        cfg.QuicServer,
 		QuicServerName:    cfg.QuicServerName,
@@ -384,6 +385,7 @@ func StartProxy(listenAddr string, cfgJSON string, configDir string) string {
 	}
 
 	effPin := config.EffectiveQuicCertPin(cfg, probeCaps)
+	protTop := config.MergeAntiDpiTransportTopUpInPlace(cfg.Protection, cfg.Transport)
 
 	s := &session{
 		done:       make(chan struct{}),
@@ -405,7 +407,7 @@ func StartProxy(listenAddr string, cfgJSON string, configDir string) string {
 		uninstallProtect := installSocketProtect()
 		defer uninstallProtect()
 
-		err := proxy.Run(ctx, listenAddr, addrs, cfg.Token, config.MergeProbeObfsIntoProtection(cfg.Protection, probeCaps), cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyEffective(), effPin, quicRoots)
+		err := proxy.Run(ctx, listenAddr, addrs, cfg.Token, config.MergeProbeObfsIntoProtection(protTop, probeCaps), cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyEffective(), effPin, quicRoots)
 		if err != nil {
 			setErr(s, err.Error())
 		}

@@ -48,7 +48,8 @@ final class QuicServer implements AutoCloseable {
 
   private final Config cfg;
   private final UdpSessions udp;
-  private final ExecutorService streamPool;
+  private final ExecutorService sessionPool;
+  private final ExecutorService udpWorkerPool;
   private final AtomicInteger handshakes = new AtomicInteger();
   private final ScheduledExecutorService handshakeTimers =
       Executors.newSingleThreadScheduledExecutor();
@@ -59,10 +60,11 @@ final class QuicServer implements AutoCloseable {
   private final QuicParentHandler quicParentHandler = new QuicParentHandler();
   private final QuicStreamChannelInit quicStreamChannelInit = new QuicStreamChannelInit();
 
-  QuicServer(Config cfg, UdpSessions udp, ExecutorService streamPool) {
+  QuicServer(Config cfg, UdpSessions udp, ExecutorService sessionPool, ExecutorService udpWorkerPool) {
     this.cfg = cfg;
     this.udp = udp;
-    this.streamPool = streamPool;
+    this.sessionPool = sessionPool;
+    this.udpWorkerPool = udpWorkerPool;
   }
 
   void start() throws Exception {
@@ -272,7 +274,7 @@ final class QuicServer implements AutoCloseable {
         return;
       }
       try {
-        Future<?> f = streamPool.submit(() -> {
+        Future<?> f = sessionPool.submit(() -> {
           Thread.interrupted();
           boolean keepStreamOpen = false;
           boolean released = false;
@@ -326,7 +328,7 @@ final class QuicServer implements AutoCloseable {
                   }
                   QuicTcpRelay.run(connect, rest, out, cfg.quicTcpConnectTimeoutMs());
                 },
-                null);
+                udpWorkerPool);
           } catch (Exception e) {
             log.warning("QUIC stream session failed: " + e);
             if (cfg.quicTraceLog()) {

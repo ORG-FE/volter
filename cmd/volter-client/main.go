@@ -246,7 +246,7 @@ func run() error {
 		QuicCertPinSHA256: *quicCertPin,
 		QuicCaCert:        strings.TrimSpace(*quicCaCertFile),
 	}, probeCaps)
-	protEff := config.MergeProbeObfsIntoProtection(&prot, probeCaps)
+	protEff := config.MergeProbeObfsIntoProtection(config.MergeAntiDpiTransportTopUpInPlace(&prot, cfgProbe.Transport), probeCaps)
 	opts := runOpts{
 		serverIP:          sip,
 		token:             *token,
