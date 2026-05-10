@@ -275,11 +275,7 @@ fun ProtectionEditor(
                 StyledTextField(
                     value = draft.dpiLocalPreset,
                     onValueChange = { set(draft.copy(dpiLocalPreset = it)) },
-                    label = if (draft.engineExternal) {
-                        stringResource(R.string.protection_dpi_local_preset_label)
-                    } else {
-                        stringResource(R.string.protection_dpi_local_preset_label_embedded)
-                    },
+                    label = stringResource(R.string.protection_dpi_local_preset_label),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (showActions) {
