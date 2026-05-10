@@ -19,6 +19,10 @@ func SetClusterDialPreference(hostPort string) {
 	clusterDialPref.Store(hostPort)
 }
 
+func ClearClusterDialPreference() {
+	clusterDialPref.Store("")
+}
+
 func dialServerAddrs(base []string, prot *config.ProtectionOptions) []string {
 	addrs := orderedServerAddrs(base, prot)
 	if prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != "" {

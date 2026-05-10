@@ -736,6 +736,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         clearActiveProfileUi()
         activeStartedAt = null
         autoFallbackDone = false
+        clearClusterPreferredServer()
         runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
         val draft = activeMetric
         if (draft != null) {
@@ -743,6 +744,24 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             finalizeActiveMetric(Instant.now(), draft.handshakeOk || lastReady, "graceful")
         }
         runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
+    }
+
+    private fun clearClusterPreferredServer() {
+        val name = activeConfigName ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val cfg = localRepo.loadConfig(name) ?: return@runCatching
+                val prot = cfg.protection ?: return@runCatching
+                if (prot.clusterPreferredServer.isNullOrBlank()) return@runCatching
+                val updated = cfg.copy(
+                    protection = prot.copy(clusterPreferredServer = null)
+                )
+                localRepo.saveConfig(name, updated)
+                VolterLog.i("clearClusterPreferredServer name=$name")
+            }.onFailure {
+                VolterLog.e("clearClusterPreferredServer failed", it)
+            }
+        }
     }
 
     private suspend fun restartAsTcpFallback() {

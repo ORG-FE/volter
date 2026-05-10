@@ -227,6 +227,7 @@ func Run(ctx context.Context, opt Options) error {
 	}
 	<-ctx.Done()
 	clientlog.Info("vpn: stopping")
+	ClearClusterDialPreference()
 	return nil
 }
 

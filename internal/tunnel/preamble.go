@@ -198,10 +198,10 @@ func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOpti
 		enrichSessionOptions(prot, token)
 		eff := relayOptsForHandshake(prot, token)
 		optsJSON, _ = json.Marshal(eff)
-		if eff.RelayHop > 0 || eff.RelayMaxHop > 0 || eff.PeerID != "" {
-			if strings.TrimSpace(prot.ClusterPreferredServer) == "" {
-				role = protocol.RoleRelayTCP()
-			}
+		clusterExit := strings.TrimSpace(prot.ClusterPreferredServer) != ""
+		hasPeerRelay := strings.TrimSpace(eff.PeerID) != ""
+		if (eff.RelayHop > 0 || eff.RelayMaxHop > 0) && !clusterExit && hasPeerRelay {
+			role = protocol.RoleRelayTCP()
 		}
 	}
 	return protocol.WriteHandshakeWithPrefixAndOptsSlot(w, role, 0, token, prefixLen, optsJSON, slot)
@@ -290,6 +290,8 @@ func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.Relay
 	}
 	cp := *base
 	cp.PeerID = ""
+	cp.RelayNonce = ""
+	cp.RelaySig = ""
 	if cp.RelayHop <= 0 {
 		cp.RelayHop = 1
 	}
