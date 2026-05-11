@@ -177,9 +177,14 @@ func WriteJunk(w io.Writer, count, min, max int, flushAfterChunk func()) error {
 	}
 	buf := make([]byte, max)
 	for i := 0; i < count; i++ {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+		if err != nil {
+			return fmt.Errorf("rand.Int: %w", err)
+		}
 		sz := min + int(n.Int64())
-		_, _ = rand.Read(buf[:sz])
+		if _, err := rand.Read(buf[:sz]); err != nil {
+			return fmt.Errorf("rand.Read: %w", err)
+		}
 		if _, err := w.Write(buf[:sz]); err != nil {
 			return err
 		}
@@ -213,14 +218,17 @@ func WriteTLSLikeJunk(w io.Writer, count, minLen, maxLen int, flushAfterChunk fu
 	}
 	payload := make([]byte, maxLen)
 	for i := 0; i < count; i++ {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(maxLen-minLen+1)))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(maxLen-minLen+1)))
+		if err != nil {
+			return fmt.Errorf("rand.Int: %w", err)
+		}
 		payloadLen := minLen + int(n.Int64())
 		header := [5]byte{0x16, 0x03, 0x01, byte(payloadLen >> 8), byte(payloadLen)}
 		if _, err := w.Write(header[:]); err != nil {
 			return err
 		}
 		if _, err := rand.Read(payload[:payloadLen]); err != nil {
-			return err
+			return fmt.Errorf("rand.Read: %w", err)
 		}
 		if _, err := w.Write(payload[:payloadLen]); err != nil {
 			return err
@@ -398,11 +406,16 @@ func WriteHandshakeWithPrefixAndOptsSlot(w *bufio.Writer, role byte, channelID b
 		prefixLen = maxPrefixLen
 	}
 	if prefixLen > 0 {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(prefixLen)+1))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(prefixLen)+1))
+		if err != nil {
+			return fmt.Errorf("rand.Int: %w", err)
+		}
 		pad := int(n.Int64())
 		if pad > 0 {
 			b := make([]byte, pad)
-			_, _ = rand.Read(b)
+			if _, err := rand.Read(b); err != nil {
+				return fmt.Errorf("rand.Read: %w", err)
+			}
 			if _, err := w.Write(b); err != nil {
 				return err
 			}

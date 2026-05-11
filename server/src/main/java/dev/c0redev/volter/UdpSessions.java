@@ -161,6 +161,18 @@ final class UdpSessions implements AutoCloseable {
                 log.warning("udp selector error: " + e.getMessage());
             }
         }
+        if (buf != null && buf.isDirect()) {
+            try {
+                java.lang.reflect.Method cleanerMethod = buf.getClass().getMethod("cleaner");
+                cleanerMethod.setAccessible(true);
+                Object cleaner = cleanerMethod.invoke(buf);
+                if (cleaner != null) {
+                    java.lang.reflect.Method cleanMethod = cleaner.getClass().getMethod("clean");
+                    cleanMethod.setAccessible(true);
+                    cleanMethod.invoke(cleaner);
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     private void cleanupIdleSessions(long nowNanos) {
@@ -220,23 +232,38 @@ final class UdpSessions implements AutoCloseable {
 
         void send(byte[] payload) throws IOException {
             ByteBuffer bb = ByteBuffer.wrap(payload);
-            synchronized (this) {
-                touch();
-                long timeoutAt =
-                    System.nanoTime() +
-                    TimeUnit.MILLISECONDS.toNanos(WRITE_TIMEOUT_MS);
-                while (bb.hasRemaining()) {
-                    int w = dc.write(bb);
-                    if (w > 0) continue;
-                    if (System.nanoTime() >= timeoutAt) throw new IOException(
-                        "udp send timeout"
-                    );
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(WRITE_RETRY_DELAY_MS);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException("udp send interrupted", e);
+            try {
+                synchronized (this) {
+                    touch();
+                    long timeoutAt =
+                        System.nanoTime() +
+                        TimeUnit.MILLISECONDS.toNanos(WRITE_TIMEOUT_MS);
+                    while (bb.hasRemaining()) {
+                        int w = dc.write(bb);
+                        if (w > 0) continue;
+                        if (System.nanoTime() >= timeoutAt) throw new IOException(
+                            "udp send timeout"
+                        );
+                        try {
+                            TimeUnit.MILLISECONDS.sleep(WRITE_RETRY_DELAY_MS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("udp send interrupted", e);
+                        }
                     }
+                }
+            } finally {
+                if (bb != null && bb.isDirect()) {
+                    try {
+                        java.lang.reflect.Method cleanerMethod = bb.getClass().getMethod("cleaner");
+                        cleanerMethod.setAccessible(true);
+                        Object cleaner = cleanerMethod.invoke(bb);
+                        if (cleaner != null) {
+                            java.lang.reflect.Method cleanMethod = cleaner.getClass().getMethod("clean");
+                            cleanMethod.setAccessible(true);
+                            cleanMethod.invoke(cleaner);
+                        }
+                    } catch (Exception ignored) {}
                 }
             }
         }
