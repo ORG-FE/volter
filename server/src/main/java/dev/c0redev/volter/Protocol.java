@@ -414,6 +414,38 @@ final class Protocol {
       String clusterPreferredServer,
       String tlsProfileId,
       String ja3TargetHash) {
+
+    String toJsonForClusterRelay() {
+      StringBuilder sb = new StringBuilder();
+      sb.append("{");
+      if (relayHop > 0) {
+        sb.append("\"relayHop\":").append(relayHop).append(",");
+      }
+      if (relayMaxHop > 0) {
+        sb.append("\"relayMaxHop\":").append(relayMaxHop).append(",");
+      }
+      if (relayBudgetKbps > 0) {
+        sb.append("\"relayBudgetKbps\":").append(relayBudgetKbps).append(",");
+      }
+      if (sessionId != null && !sessionId.isBlank()) {
+        sb.append("\"sessionId\":\"").append(sessionId).append("\",");
+      }
+      if (resumeToken != null && !resumeToken.isBlank()) {
+        sb.append("\"resumeToken\":\"").append(resumeToken).append("\",");
+      }
+      if (routeId != null && !routeId.isBlank()) {
+        sb.append("\"routeId\":\"").append(routeId).append("\",");
+      }
+      if (hopIndex > 0) {
+        sb.append("\"hopIndex\":").append(hopIndex).append(",");
+      }
+      if (sb.length() > 1 && sb.charAt(sb.length() - 1) == ',') {
+        sb.setLength(sb.length() - 1);
+      }
+      sb.append("}");
+      return sb.toString();
+    }
+
     static Optional<ClientOptions> parse(String json) {
       try {
         int padS4 = 32;
