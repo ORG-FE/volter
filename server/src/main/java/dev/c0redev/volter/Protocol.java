@@ -439,9 +439,6 @@ final class Protocol {
       if (hopIndex > 0) {
         sb.append("\"hopIndex\":").append(hopIndex).append(",");
       }
-      if (clusterPreferredServer != null && !clusterPreferredServer.isBlank()) {
-        sb.append("\"clusterPreferredServer\":\"").append(clusterPreferredServer).append("\",");
-      }
       if (sb.length() > 1 && sb.charAt(sb.length() - 1) == ',') {
         sb.setLength(sb.length() - 1);
       }

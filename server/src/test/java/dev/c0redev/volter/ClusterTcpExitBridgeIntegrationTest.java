@@ -2,14 +2,12 @@ package dev.c0redev.volter;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 class ClusterTcpExitBridgeIntegrationTest {
 
   @Test
-  void testClusterPreferredServerPassedThroughRelay() {
+  void testClusterPreferredServerStrippedBeforeExit() {
     // симулируем клиента, который подключается к de-2 с clusterPreferredServer=ru-1
     String clientJson = "{\"relayHop\":1,\"relayMaxHop\":2,\"sessionId\":\"s-client123\",\"resumeToken\":\"token-abc\",\"clusterPreferredServer\":\"ru-1.example:443\"}";
     
@@ -22,15 +20,15 @@ class ClusterTcpExitBridgeIntegrationTest {
     // симулируем relay: de-2 формирует JSON для отправки на ru-1
     String relayJson = clientOpts.get().toJsonForClusterRelay();
     
-    assertTrue(relayJson.contains("\"clusterPreferredServer\":\"ru-1.example:443\""),
-        "relay JSON should contain clusterPreferredServer: " + relayJson);
+    assertFalse(relayJson.contains("clusterPreferredServer"),
+        "relay JSON must strip clusterPreferredServer before exit handles the flow: " + relayJson);
     
     // симулируем ru-1: парсим JSON от de-2
     var relayOpts = Protocol.ClientOptions.parse(relayJson);
     assertTrue(relayOpts.isPresent(), "relay options should parse");
     
-    assertEquals("ru-1.example:443", relayOpts.get().clusterPreferredServer(),
-        "ru-1 should receive clusterPreferredServer from de-2");
+    assertEquals("", relayOpts.get().clusterPreferredServer(),
+        "ru-1 should not receive clusterPreferredServer or it may bridge to itself");
     
     // проверяем, что все важные поля сохранились
     assertEquals(clientOpts.get().sessionId(), relayOpts.get().sessionId(),
@@ -44,9 +42,7 @@ class ClusterTcpExitBridgeIntegrationTest {
   }
 
   @Test
-  void testMultiHopRelayPreservesClusterPreferredServer() {
-    // клиент -> de-1 -> de-2 -> ru-1
-    // клиент указывает clusterPreferredServer=ru-1, hopIndex=0
+  void testRelayPayloadKeepsSessionButStripsExitDirective() {
     String clientJson = "{\"relayHop\":2,\"relayMaxHop\":3,\"sessionId\":\"s-multihop\",\"routeId\":\"route-123\",\"hopIndex\":0,\"clusterPreferredServer\":\"ru-1.example:443\"}";
     
     var hop0 = Protocol.ClientOptions.parse(clientJson);
@@ -54,23 +50,15 @@ class ClusterTcpExitBridgeIntegrationTest {
     assertEquals("ru-1.example:443", hop0.get().clusterPreferredServer());
     assertEquals(0, hop0.get().hopIndex());
     
-    // de-1 relay на de-2 (hopIndex=1)
-    String hop1Json = hop0.get().toJsonForClusterRelay();
-    var hop1 = Protocol.ClientOptions.parse(hop1Json);
-    assertTrue(hop1.isPresent());
-    assertEquals("ru-1.example:443", hop1.get().clusterPreferredServer(),
-        "clusterPreferredServer should survive hop 1");
-    
-    // de-2 relay на ru-1 (hopIndex=2)
-    String hop2Json = hop1.get().toJsonForClusterRelay();
-    var hop2 = Protocol.ClientOptions.parse(hop2Json);
-    assertTrue(hop2.isPresent());
-    assertEquals("ru-1.example:443", hop2.get().clusterPreferredServer(),
-        "clusterPreferredServer should survive hop 2");
-    
-    // проверяем, что sessionId и routeId сохранились через все хопы
-    assertEquals("s-multihop", hop2.get().sessionId());
-    assertEquals("route-123", hop2.get().routeId());
+    String relayJson = hop0.get().toJsonForClusterRelay();
+    var exitOpts = Protocol.ClientOptions.parse(relayJson);
+    assertTrue(exitOpts.isPresent());
+    assertEquals("", exitOpts.get().clusterPreferredServer(),
+        "exit directive must be stripped when the bridge opens the exit connection");
+
+    // проверяем, что sessionId и routeId сохранились
+    assertEquals("s-multihop", exitOpts.get().sessionId());
+    assertEquals("route-123", exitOpts.get().routeId());
   }
 
   @Test

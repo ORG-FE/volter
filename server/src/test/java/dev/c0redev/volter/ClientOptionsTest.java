@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ClientOptionsTest {
 
   @Test
-  void testToJsonForClusterRelay_withClusterPreferredServer() {
+  void testToJsonForClusterRelay_stripsClusterPreferredServer() {
     var opts = new Protocol.ClientOptions(
         32, // padS4
         0,  // probeObfsProfileId
@@ -28,8 +28,8 @@ class ClientOptionsTest {
 
     String json = opts.toJsonForClusterRelay();
     
-    assertTrue(json.contains("\"clusterPreferredServer\":\"ru-1.example:443\""), 
-        "JSON should contain clusterPreferredServer: " + json);
+    assertFalse(json.contains("clusterPreferredServer"), 
+        "Relay JSON must strip clusterPreferredServer before sending to exit: " + json);
     assertTrue(json.contains("\"relayHop\":1"), 
         "JSON should contain relayHop: " + json);
     assertTrue(json.contains("\"relayMaxHop\":2"), 
@@ -103,7 +103,7 @@ class ClientOptionsTest {
   }
 
   @Test
-  void testRoundtrip_clusterPreferredServer() {
+  void testRoundtrip_clusterPreferredServerStrippedForExit() {
     var original = new Protocol.ClientOptions(
         32, 0, 1, 2, 0, "", "", "", 
         "s-roundtrip", "token-123", "route-x", 1,
@@ -116,8 +116,8 @@ class ClientOptionsTest {
     assertTrue(parsed.isPresent(), "parse should succeed");
     var restored = parsed.get();
     
-    assertEquals(original.clusterPreferredServer(), restored.clusterPreferredServer(),
-        "clusterPreferredServer should survive roundtrip");
+    assertEquals("", restored.clusterPreferredServer(),
+        "clusterPreferredServer must be stripped before the exit node handles the flow");
     assertEquals(original.relayHop(), restored.relayHop(),
         "relayHop should survive roundtrip");
     assertEquals(original.relayMaxHop(), restored.relayMaxHop(),
