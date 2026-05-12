@@ -134,6 +134,9 @@ final class SessionHandler {
 
   private void handleUdp(int channelId, InputStream in, OutputStream out, Optional<Protocol.ClientOptions> opts)
       throws IOException {
+    if (ClusterUdpExitBridge.maybeBridge(cfg, channelId, in, out, opts)) {
+      return;
+    }
     UdpSessions.UdpChannelWriter writer = udp.createWriter(out, opts.orElse(null));
     try {
       if (channelId < 0 || channelId >= cfg.udpChannels()) throw new IOException("bad udp channel");
