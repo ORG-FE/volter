@@ -81,6 +81,10 @@ func Run(ctx context.Context, opt Options) error {
 	}
 	opt.Protection = protectionWithMeshPolicy(opt.Protection, opt.Mesh)
 	opt.ServerAddrs = orderedServerAddrs(opt.ServerAddrs, opt.Protection)
+	entryAddrs := dialServerAddrs(opt.ServerAddrs, opt.Protection)
+	if len(entryAddrs) == 0 {
+		return errors.New("cluster relay entry empty: server list contains only clusterPreferredServer")
+	}
 	ck := clusterPollHeaderKey(opt)
 	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)
 	for _, addr := range opt.ServerAddrs {
@@ -98,11 +102,11 @@ func Run(ctx context.Context, opt Options) error {
 	telemetry.NoteVPNStart()
 	readyCb := opt.Ready
 	tunnel.SetQUICTrace(opt.QuicTraceLog)
-	clientlog.Info("vpn: starting, servers=%v", opt.ServerAddrs)
+	clientlog.Info("vpn: starting, servers=%v", entryAddrs)
 	clientlog.OK("vpn: volter link %s | %s",
 		tunnel.VolterTunnelTag(opt.Transport, opt.QuicServer), volterTunnelCfg(opt.Transport, opt.QuicServer))
 	if tunnel.UsesQUICTransport(opt.Transport, opt.QuicServer) {
-		if ep, derived, err := tunnel.ResolveQUICDialAddr(opt.ServerAddrs, opt.QuicServer); err == nil {
+		if ep, derived, err := tunnel.ResolveQUICDialAddr(entryAddrs, opt.QuicServer); err == nil {
 			if derived {
 				clientlog.Info("vpn: QUIC dial %s (host from tcp + udp port %s, set quicServer if different)", ep, tunnel.DefaultQUICPort)
 			} else {
@@ -111,7 +115,7 @@ func Run(ctx context.Context, opt Options) error {
 		}
 	}
 
-	udpMux, err := newUDPMux(opt.ServerAddrs, opt.Token, 4, opt.Protection, opt.Transport, opt.QuicServer, opt.QuicServerName, opt.QuicSkipVerify, opt.QuicCertPinSHA256, opt.QuicTLSRoots)
+	udpMux, err := newUDPMux(entryAddrs, opt.Token, 4, opt.Protection, opt.Transport, opt.QuicServer, opt.QuicServerName, opt.QuicSkipVerify, opt.QuicCertPinSHA256, opt.QuicTLSRoots)
 	if err != nil {
 		return err
 	}

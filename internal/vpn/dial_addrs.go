@@ -26,7 +26,7 @@ func ClearClusterDialPreference() {
 func dialServerAddrs(base []string, prot *config.ProtectionOptions) []string {
 	addrs := orderedServerAddrs(base, prot)
 	if prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != "" {
-		return addrs
+		return filterClusterExitAddrs(addrs, prot.ClusterPreferredServer)
 	}
 	v := clusterDialPref.Load()
 	pref, _ := v.(string)
@@ -34,6 +34,21 @@ func dialServerAddrs(base []string, prot *config.ProtectionOptions) []string {
 		return addrs
 	}
 	return reorderPrimaryFirst(addrs, pref)
+}
+
+func filterClusterExitAddrs(addrs []string, exit string) []string {
+	exit = clusteraddr.CanonicalHostPort(exit)
+	if exit == "" || len(addrs) == 0 {
+		return addrs
+	}
+	out := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		if clusteraddr.CanonicalHostPort(a) == exit {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 func reorderPrimaryFirst(addrs []string, primary string) []string {

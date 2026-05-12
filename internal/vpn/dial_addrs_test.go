@@ -37,7 +37,34 @@ func TestDialServerAddrs_IgnoresPreferenceWhenClusterExit(t *testing.T) {
 	out := dialServerAddrs([]string{"de.example:443", "ru.example:443"}, &config.ProtectionOptions{
 		ClusterPreferredServer: "ru.example:443",
 	})
-	if len(out) != 2 || out[0] != "de.example:443" {
-		t.Fatalf("cluster chain must keep entry first despite dial preference; got %v", out)
+	if len(out) != 1 || out[0] != "de.example:443" {
+		t.Fatalf("cluster chain must dial entry only despite dial preference; got %v", out)
+	}
+}
+
+func TestDialServerAddrs_FiltersClusterExit(t *testing.T) {
+	out := dialServerAddrs([]string{"de.example:443", "ru.example:443", "nl.example:443"}, &config.ProtectionOptions{
+		ClusterPreferredServer: "ru.example:443",
+	})
+	if len(out) != 2 || out[0] != "de.example:443" || out[1] != "nl.example:443" {
+		t.Fatalf("cluster exit must be removed from dial candidates; got %v", out)
+	}
+}
+
+func TestDialServerAddrs_AllEntriesAreClusterExit(t *testing.T) {
+	out := dialServerAddrs([]string{"ru.example:443"}, &config.ProtectionOptions{
+		ClusterPreferredServer: "ru.example:443",
+	})
+	if len(out) != 0 {
+		t.Fatalf("cluster exit must not be used as entry; got %v", out)
+	}
+}
+
+func TestDialServerAddrs_CanonicalFiltersClusterExit(t *testing.T) {
+	out := dialServerAddrs([]string{"de.example:443", "ru.example:443"}, &config.ProtectionOptions{
+		ClusterPreferredServer: "ru.example",
+	})
+	if len(out) != 2 {
+		t.Fatalf("host without port must not filter unrelated dial entries; got %v", out)
 	}
 }
