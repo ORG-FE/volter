@@ -650,7 +650,30 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveClientSettings(s: ClientSettings) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveClientSettings(s); reloadProtectionAndSettings() } }
     fun saveGlobalProtection(p: dev.c0redev.volter.domain.model.ProtectionOptions?) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveProtection(p); reloadProtectionAndSettings() } }
-    fun upsertLocalConfig(name: String, cfg: Config) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveConfig(name, cfg); refreshLocalConfigs() } }
+    fun upsertLocalConfig(name: String, cfg: Config) {
+        viewModelScope.launch(Dispatchers.IO) {
+            localRepo.saveConfig(name, cfg)
+            refreshLocalConfigs()
+            if (activeConfigName == name && (_connection.value.connected || coreHandle > 0)) {
+                restartActiveConfig(name, cfg)
+            }
+        }
+    }
+
+    private suspend fun restartActiveConfig(name: String, cfg: Config) {
+        VolterLog.i("restartActiveConfig name=$name")
+        runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
+        runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
+        delay(300)
+        val settings = localRepo.loadClientSettings()
+        val effective = mergeEffectiveConfig(cfg)
+        activeConfig = effective
+        activeConfigName = name
+        setActiveProfileUi(name)
+        activeStartedAt = Instant.now()
+        autoFallbackDone = false
+        startService(effective.toJson().toString(), settings.toJson().toString())
+    }
     fun deleteLocalConfig(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             localRepo.deleteConfig(name)
