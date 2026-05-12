@@ -33,15 +33,10 @@ final class ClusterUdpExitBridge {
       return false;
     }
     pref = pref.trim();
-    boolean strictExit = !cfg.clusterExitFallbackToDirect();
     ClusterRuntime rt = ClusterRuntime.get();
     Optional<InetSocketAddress> resolved = rt.resolveClusterExitDialAddress(pref);
     if (resolved.isEmpty()) {
-      log.warning("cluster udp exit unresolved or not authorized: " + pref);
-      if (strictExit) {
-        throw new IOException("cluster udp exit unresolved or not authorized: " + pref);
-      }
-      return false;
+      throw new IOException("cluster udp exit unresolved or not authorized: " + pref);
     }
     InetSocketAddress exitAddr = resolved.get();
     int timeoutMs = Math.max(1_000, cfg.quicTcpConnectTimeoutMs());
@@ -55,10 +50,7 @@ final class ClusterUdpExitBridge {
         upstream.close();
       } catch (IOException ignored) {
       }
-      if (strictExit) {
-        throw e;
-      }
-      return false;
+      throw new IOException("cluster udp exit connect failed: " + pref + " -> " + exitAddr, e);
     }
 
     XorStream xor = new XorStream(XorStream.keyFromToken(cfg.token()));
@@ -77,10 +69,7 @@ final class ClusterUdpExitBridge {
         upstream.close();
       } catch (IOException ignored) {
       }
-      if (strictExit) {
-        throw e;
-      }
-      return false;
+      throw new IOException("cluster udp exit handshake failed: " + pref + " -> " + exitAddr, e);
     }
 
     log.info("cluster udp exit bridge -> " + exitAddr + " channel=" + channelId);

@@ -1,5 +1,6 @@
 package dev.c0redev.volter;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -55,9 +56,11 @@ final class ClusterRuntime {
     String endpoint = "";
     String dhtRpc = "";
     if (!c.listenPorts().isEmpty()) {
-      String host = resolveSelfHost(c);
-      endpoint = "http://" + host.trim() + ":" + c.listenPorts().get(0) + c.clusterMapPath();
-      dhtRpc = selfDhtRpc(host, c.dhtRpcListenUdp());
+      String host = resolveSelfHost(c).trim();
+      if (!host.isBlank()) {
+        endpoint = "http://" + host + ":" + c.listenPorts().get(0) + c.clusterMapPath();
+        dhtRpc = selfDhtRpc(host, c.dhtRpcListenUdp());
+      }
     }
     nodes.put(c.clusterNodeId(), new ClusterNode(c.clusterNodeId(), endpoint, dhtRpc, System.currentTimeMillis(), true));
   }
@@ -85,7 +88,7 @@ final class ClusterRuntime {
       } catch (Exception ignored) {
       }
     }
-    return "127.0.0.1";
+    return "";
   }
 
   boolean isAuthorizedClusterExit(String exitRaw) {
@@ -99,6 +102,9 @@ final class ClusterRuntime {
     } catch (Exception e) {
       return false;
     }
+    if (!isBridgeableExit(want)) {
+      return false;
+    }
     for (String id : nodes.keySet()) {
       Optional<String> ohp = resolveVolterHttpHostPort(id);
       if (ohp.isEmpty()) {
@@ -106,6 +112,9 @@ final class ClusterRuntime {
       }
       try {
         InetSocketAddress known = ClusterTcpExitBridge.parseHostPort(ohp.get());
+        if (!isBridgeableExit(known)) {
+          continue;
+        }
         if (known.getPort() == want.getPort() && known.getAddress().equals(want.getAddress())) {
           return true;
         }
@@ -123,7 +132,11 @@ final class ClusterRuntime {
     if (nodes.containsKey(h)) {
       return resolveVolterHttpHostPort(h).flatMap(hp -> {
         try {
-          return Optional.of(ClusterTcpExitBridge.parseHostPort(hp));
+          InetSocketAddress addr = ClusterTcpExitBridge.parseHostPort(hp);
+          if (!isBridgeableExit(addr)) {
+            return Optional.empty();
+          }
+          return Optional.of(addr);
         } catch (Exception e) {
           return Optional.empty();
         }
@@ -131,12 +144,29 @@ final class ClusterRuntime {
     }
     try {
       InetSocketAddress addr = ClusterTcpExitBridge.parseHostPort(h);
-      if (isAuthorizedClusterExit(h)) {
+      if (isBridgeableExit(addr) && isAuthorizedClusterExit(h)) {
         return Optional.of(addr);
       }
     } catch (Exception ignored) {
     }
     return Optional.empty();
+  }
+
+  private static boolean isBridgeableExit(InetSocketAddress addr) {
+    if (addr == null) {
+      return false;
+    }
+    InetAddress ip = addr.getAddress();
+    if (ip == null) {
+      return false;
+    }
+    if (addr.getPort() <= 0 || addr.getPort() > 65535) {
+      return false;
+    }
+    return !ip.isAnyLocalAddress()
+        && !ip.isLoopbackAddress()
+        && !ip.isLinkLocalAddress()
+        && !ip.isMulticastAddress();
   }
 
   Optional<String> resolveVolterHttpHostPort(String nodeId) {

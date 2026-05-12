@@ -71,15 +71,10 @@ final class ClusterTcpExitBridge {
       return false;
     }
     pref = pref.trim();
-    boolean strictExit = !cfg.clusterExitFallbackToDirect();
     ClusterRuntime rt = ClusterRuntime.get();
     Optional<InetSocketAddress> resolved = rt.resolveClusterExitDialAddress(pref);
     if (resolved.isEmpty()) {
-      log.warning("cluster exit unresolved or not authorized: " + pref);
-      if (strictExit) {
-        throw new IOException("cluster exit unresolved or not authorized: " + pref);
-      }
-      return false;
+      throw new IOException("cluster exit unresolved or not authorized: " + pref);
     }
     InetSocketAddress exitAddr = resolved.get();
     int timeoutMs = Math.max(1_000, cfg.quicTcpConnectTimeoutMs());
@@ -93,10 +88,7 @@ final class ClusterTcpExitBridge {
         upstream.close();
       } catch (IOException ignored) {
       }
-      if (strictExit) {
-        throw e;
-      }
-      return false;
+      throw new IOException("cluster exit connect failed: " + pref + " -> " + exitAddr, e);
     }
     XorStream xor = new XorStream(XorStream.keyFromToken(cfg.token()));
     OutputStream upXorOut = xor.wrapOutput(upstream.getOutputStream());
@@ -117,10 +109,7 @@ final class ClusterTcpExitBridge {
         upstream.close();
       } catch (IOException ignored) {
       }
-      if (strictExit) {
-        throw e;
-      }
-      return false;
+      throw new IOException("cluster exit handshake failed: " + pref + " -> " + exitAddr, e);
     }
     log.info("cluster tcp exit bridge -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
     Thread up = new Thread(() -> copyQuiet("cluster-br-up", clientIn, upXorOut), "cluster-br-up");

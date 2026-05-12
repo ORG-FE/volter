@@ -770,7 +770,7 @@ final class ConnectionHandler implements Runnable {
     private String redirectHostPortHint() {
         String host = cfg.publicHost().trim();
         if (host.isEmpty()) {
-            host = "127.0.0.1";
+            return "";
         }
         int p = cfg.listenPorts().isEmpty() ? 443 : cfg.listenPorts().get(0);
         return host + ":" + p;
