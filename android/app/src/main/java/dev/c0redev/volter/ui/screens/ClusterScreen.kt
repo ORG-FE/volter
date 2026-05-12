@@ -183,7 +183,11 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                 onClick = {
                                     val name = activeName ?: return@FilterChip
                                     val cfg = activeCfg ?: return@FilterChip
-                                    val prot = (cfg.protection ?: dev.c0redev.volter.domain.model.ProtectionOptions()).copy(routeMode = mode)
+                                    val base = cfg.protection ?: dev.c0redev.volter.domain.model.ProtectionOptions()
+                                    val prot = base.copy(
+                                        routeMode = mode,
+                                        clusterPreferredServer = if (mode != "server_relay") null else base.clusterPreferredServer
+                                    )
                                     vm.upsertLocalConfig(name, cfg.copy(protection = prot))
                                 },
                                 label = { Text(mode) },
