@@ -78,6 +78,7 @@ func BuildRoutePlan(target string, decision PathDecision) RoutePlan {
 type PathManager struct {
 	mu               sync.Mutex
 	paths            map[string]*pathStat
+	pathsLastCleanup time.Time
 	globalCand       ice.CandidateKind
 	srflxRTTEwma     float64
 	aggressive       bool
@@ -91,6 +92,12 @@ type PathManager struct {
 	peerMaxAge       time.Duration
 	peerUDPEndpoints func(string) []string
 }
+
+const (
+	pathStatMaxEntries      = 10000
+	pathStatCleanupInterval = 5 * time.Minute
+	pathStatEntryTTL        = 30 * time.Minute
+)
 
 type pathStat struct {
 	ewmaOK      float64
@@ -299,12 +306,21 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 	key := dst.String()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	
+	now := time.Now()
+	if now.Sub(m.pathsLastCleanup) > pathStatCleanupInterval {
+		m.cleanupOldPaths(now)
+		m.pathsLastCleanup = now
+	}
+	
 	st, ok := m.paths[key]
 	if !ok {
+		if len(m.paths) >= pathStatMaxEntries {
+			m.evictOldestPath()
+		}
 		st = &pathStat{ewmaOK: 1}
 		m.paths[key] = st
 	}
-	now := time.Now()
 	st.lastAttempt = now
 
 	tryPeer := func() (PathDecision, bool) {
@@ -454,4 +470,34 @@ func (m *PathManager) Record(dst net.IP, ok bool, relayClass byte, pathTTL byte)
 	}
 	st.lastRelay = relayClass
 	st.lastTTL = pathTTL
+}
+
+func (m *PathManager) cleanupOldPaths(now time.Time) {
+	for key, st := range m.paths {
+		if now.Sub(st.lastAttempt) > pathStatEntryTTL {
+			delete(m.paths, key)
+			if m.tcpStickUntil != nil {
+				delete(m.tcpStickUntil, key)
+			}
+		}
+	}
+}
+
+func (m *PathManager) evictOldestPath() {
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	for key, st := range m.paths {
+		if first || st.lastAttempt.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = st.lastAttempt
+			first = false
+		}
+	}
+	if oldestKey != "" {
+		delete(m.paths, oldestKey)
+		if m.tcpStickUntil != nil {
+			delete(m.tcpStickUntil, oldestKey)
+		}
+	}
 }

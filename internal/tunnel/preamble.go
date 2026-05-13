@@ -389,7 +389,11 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		}
 		for i, q := range quicCands {
 			protR := RelayProtForPeerHop(dialProt, relay)
-			protR.HopIndex = i + 1
+			hopIdx := i + 1
+			if hopIdx > 255 {
+				hopIdx = 255
+			}
+			protR.HopIndex = hopIdx
 			sni := strings.TrimSpace(relay.PeerQuicServerName)
 			c, err := DialPeerRelayQUIC(q, sni, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, dst, dstPort, token, protR)
 			if err == nil {
@@ -404,6 +408,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 			SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_quic:%s", q), err.Error())
 		}
 		decision.PeerQUIC = ""
+		decision.PeerQUICCandidates = nil
 	}
 	if relay != nil && relay.PeerRelayUseUDP {
 		var udpCands []string
@@ -418,7 +423,11 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 				continue
 			}
 			protR := RelayProtForPeerHop(dialProt, relay)
-			protR.HopIndex = i + 1
+			hopIdx := i + 1
+			if hopIdx > 255 {
+				hopIdx = 255
+			}
+			protR.HopIndex = hopIdx
 			c, err := DialPeerRelayUDP(ua, dst, dstPort, token, protR)
 			if err == nil {
 				SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_udp:%s", ua), "")
@@ -441,7 +450,11 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		}
 		for i, tp := range tcpCands {
 			protR := RelayProtForPeerHop(dialProt, relay)
-			protR.HopIndex = i + 1
+			hopIdx := i + 1
+			if hopIdx > 255 {
+				hopIdx = 255
+			}
+			protR.HopIndex = hopIdx
 			c, err := DialSingleTCP(tp, dst, dstPort, token, protR)
 			if err == nil {
 				SetRouteTrace(dst.String(), mode, fmt.Sprintf("peer_tcp:%s", tp), "")
@@ -456,6 +469,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		}
 		decision.RelayClass = PathClassDirect
 		decision.PeerAddr = ""
+		decision.PeerTCPCandidates = nil
 	}
 	if dual && quicShared != nil && UsesQUICTransport(transport, quicServer) {
 		if sel != nil {

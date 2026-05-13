@@ -315,7 +315,11 @@ func pickAddrIndex(addrs []string, ip net.IP, port uint16) int {
 		return 0
 	}
 	h := uint(0)
-	for _, b := range []byte(ip.String()) {
+	ipBytes := ip
+	if ip4 := ip.To4(); ip4 != nil {
+		ipBytes = ip4
+	}
+	for _, b := range ipBytes {
 		h = h*31 + uint(b)
 	}
 	h += uint(port)

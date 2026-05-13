@@ -19,7 +19,6 @@ final class SessionHandler {
   private final UdpSessions udp;
   private final String remote;
   private final Runnable onDone;
-  private static final int RELAY_HOP_HARD_LIMIT = 2;
   private static final PeerRelayGuard PEER_GUARD = new PeerRelayGuard();
   private static volatile ServerRelayService relayService;
 
@@ -90,12 +89,12 @@ final class SessionHandler {
         throw new IOException("relay capacity exceeded");
       }
       int relayHop = hr.opts().map(Protocol.ClientOptions::relayHop).orElse(0);
-      int relayMaxHop = hr.opts().map(Protocol.ClientOptions::relayMaxHop).orElse(RELAY_HOP_HARD_LIMIT);
-      int capHop = Math.min(RELAY_HOP_HARD_LIMIT, relayMaxHop);
+      int relayMaxHop = hr.opts().map(Protocol.ClientOptions::relayMaxHop).orElse(cfg.relayMaxHopLimit());
+      int capHop = Math.min(cfg.relayMaxHopLimit(), relayMaxHop);
       if (relayHop >= capHop) {
         service.release(lease);
-        sendHopAck(out, routeId, hopIndex, 0, "relay hop limit exceeded");
-        throw new IOException("relay hop limit exceeded");
+        sendHopAck(out, routeId, hopIndex, 0, "relay hop limit exceeded (max=" + capHop + ")");
+        throw new IOException("relay hop limit exceeded (max=" + capHop + ")");
       }
       if (opt != null && opt.relayBudgetKbps() > cfg.relayMaxBudgetKbps()) {
         service.release(lease);
