@@ -322,6 +322,17 @@ func TestMergeDpiLocalEmbeddedDefaults(t *testing.T) {
 	if got.SplitAfter != 2 || got.SplitAfter2 != 5 || got.TTL2Millis != 9 || got.JitterMaxMs != 10 || got.LeadInMs != 3 {
 		t.Fatalf("extra fields %+v", got)
 	}
+	got = MergeDpiLocalEmbeddedDefaults(&DpiLocalEmbedded{
+		SplitAfter: 2, TTLMillis: 8,
+		FakeSNI: true, FakeSNIHost: "example.com", SplitPosition: "sni",
+		AutoTTL: true, TCPSegment: 3, OOBData: true, MultiSplit: 2,
+	})
+	if !got.FakeSNI || got.FakeSNIHost != "example.com" || got.SplitPosition != "sni" || !got.AutoTTL || !got.OOBData {
+		t.Fatalf("dpi extras bool/string %+v", got)
+	}
+	if got.TCPSegment != 3 || got.MultiSplit != 2 {
+		t.Fatalf("dpi extras int %+v", got)
+	}
 }
 
 func TestStandaloneDpiUseExternalBin(t *testing.T) {
