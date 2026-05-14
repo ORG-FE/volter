@@ -1,13 +1,17 @@
 package dev.c0redev.volter;
 
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -87,6 +91,57 @@ final class ClusterRuntime {
         if (!ip.isBlank()) return ip;
       } catch (Exception ignored) {
       }
+    }
+    String guessed = guessLocalIpv4ForAdvertise();
+    if (!guessed.isBlank()) {
+      log.warning("cluster: publicHost unset and WAN IP services failed; using local IPv4 " + guessed + " for map endpoint (set publicHost for production)");
+      return guessed;
+    }
+    log.warning("cluster: could not resolve any host for map endpoint (set publicHost or fix outbound HTTPS)");
+    return "";
+  }
+
+  /**
+   * When {@code publicHost} is empty and ipify-like services fail (firewall, no egress),
+   * pick a non-loopback IPv4 so cluster map is not empty and exit auth can match peers on LAN/VPC.
+   */
+  private static String guessLocalIpv4ForAdvertise() {
+    List<String> global = new ArrayList<>();
+    List<String> siteLocal = new ArrayList<>();
+    try {
+      Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces();
+      while (en.hasMoreElements()) {
+        NetworkInterface ni = en.nextElement();
+        if (!ni.isUp() || ni.isLoopback()) {
+          continue;
+        }
+        for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+          InetAddress a = ia.getAddress();
+          if (!(a instanceof Inet4Address) || a.isLoopbackAddress()) {
+            continue;
+          }
+          if (a.isLinkLocalAddress() || a.isMulticastAddress()) {
+            continue;
+          }
+          String s = a.getHostAddress();
+          if (s == null || s.isBlank()) {
+            continue;
+          }
+          if (a.isSiteLocalAddress()) {
+            siteLocal.add(s);
+          } else {
+            global.add(s);
+          }
+        }
+      }
+    } catch (Exception ignored) {
+      return "";
+    }
+    if (!global.isEmpty()) {
+      return global.get(0);
+    }
+    if (!siteLocal.isEmpty()) {
+      return siteLocal.get(0);
     }
     return "";
   }
