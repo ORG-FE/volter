@@ -4,6 +4,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"net"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,28 +27,49 @@ func sleepJittered(baseMs, jitterMax int) {
 }
 
 func relayPipe(client, remote net.Conn, opts Options) {
-	go func() {
-		_, _ = io.Copy(client, remote)
-		_ = remote.Close()
-	}()
-
-	closeBoth := func() {
-		_ = remote.Close()
-		_ = client.Close()
+	var once sync.Once
+	shutdown := func() {
+		once.Do(func() {
+			_ = remote.Close()
+			_ = client.Close()
+		})
 	}
 
 	if opts.SplitAfter <= 0 {
 		sleepJittered(opts.LeadInMs, opts.JitterMaxMs)
-		_, _ = io.Copy(remote, client)
-		_ = remote.Close()
-		_ = client.Close()
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			defer shutdown()
+			_, _ = io.Copy(client, remote)
+		}()
+		go func() {
+			defer wg.Done()
+			defer shutdown()
+			_, _ = io.Copy(remote, client)
+		}()
+		wg.Wait()
 		return
 	}
+
+	var wg sync.WaitGroup
+	var upstreamStarted atomic.Bool
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(client, remote)
+		if upstreamStarted.Load() {
+			shutdown()
+		}
+	}()
 
 	buf := make([]byte, 65536)
 	n, err := client.Read(buf)
 	if err != nil || n == 0 {
-		closeBoth()
+		shutdown()
+		wg.Wait()
 		return
 	}
 
@@ -85,64 +108,76 @@ func relayPipe(client, remote net.Conn, opts Options) {
 		first, second := seg0, seg1
 		if opts.Disorder && len(second) > 0 && len(first) > 0 {
 			if !writeSeg(second) {
-				closeBoth()
+				shutdown()
+				wg.Wait()
 				return
 			}
 			sleepJittered(gap1, opts.JitterMaxMs)
 			if !writeSeg(first) {
-				closeBoth()
+				shutdown()
+				wg.Wait()
 				return
 			}
 		} else {
 			if !writeSeg(first) {
-				closeBoth()
+				shutdown()
+				wg.Wait()
 				return
 			}
 			sleepJittered(gap1, opts.JitterMaxMs)
 			if !writeSeg(second) {
-				closeBoth()
+				shutdown()
+				wg.Wait()
 				return
 			}
 		}
-		_, _ = io.Copy(remote, client)
-		_ = remote.Close()
-		_ = client.Close()
-		return
+	} else {
+		a, b, c := seg0, seg1, seg2
+		if opts.Disorder {
+			if !writeSeg(b) {
+				shutdown()
+				wg.Wait()
+				return
+			}
+			sleepJittered(gap1, opts.JitterMaxMs)
+			if !writeSeg(a) {
+				shutdown()
+				wg.Wait()
+				return
+			}
+			sleepJittered(gap2, opts.JitterMaxMs)
+			if !writeSeg(c) {
+				shutdown()
+				wg.Wait()
+				return
+			}
+		} else {
+			if !writeSeg(a) {
+				shutdown()
+				wg.Wait()
+				return
+			}
+			sleepJittered(gap1, opts.JitterMaxMs)
+			if !writeSeg(b) {
+				shutdown()
+				wg.Wait()
+				return
+			}
+			sleepJittered(gap2, opts.JitterMaxMs)
+			if !writeSeg(c) {
+				shutdown()
+				wg.Wait()
+				return
+			}
+		}
 	}
 
-	a, b, c := seg0, seg1, seg2
-	if opts.Disorder {
-		if !writeSeg(b) {
-			closeBoth()
-			return
-		}
-		sleepJittered(gap1, opts.JitterMaxMs)
-		if !writeSeg(a) {
-			closeBoth()
-			return
-		}
-		sleepJittered(gap2, opts.JitterMaxMs)
-		if !writeSeg(c) {
-			closeBoth()
-			return
-		}
-	} else {
-		if !writeSeg(a) {
-			closeBoth()
-			return
-		}
-		sleepJittered(gap1, opts.JitterMaxMs)
-		if !writeSeg(b) {
-			closeBoth()
-			return
-		}
-		sleepJittered(gap2, opts.JitterMaxMs)
-		if !writeSeg(c) {
-			closeBoth()
-			return
-		}
-	}
-	_, _ = io.Copy(remote, client)
-	_ = remote.Close()
-	_ = client.Close()
+	upstreamStarted.Store(true)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer shutdown()
+		_, _ = io.Copy(remote, client)
+	}()
+	wg.Wait()
 }
