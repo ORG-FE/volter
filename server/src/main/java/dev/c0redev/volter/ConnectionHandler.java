@@ -37,13 +37,10 @@ final class ConnectionHandler implements Runnable {
         .connectTimeout(Duration.ofSeconds(5))
         .build();
     private static final int HANDSHAKE_TIMEOUT_MS = 12_000;
-    private static final int EARLY_HTTP_TIMEOUT_MS = 250;
     private static final int HANDSHAKE_MARK_READ_LIMIT = 2 * 1024 * 1024;
     private static final SecureRandom HELLO_RND = new SecureRandom();
-    private static final String CLUSTER_PULL_HEADER = "x-volter-cluster-pull";
     
     private static final String PROBE_HANDSHAKE_TOKEN = "probe-bad-token";
-    private enum CamouflageResult { NONE, SERVED_CLOSE, HANDOFF }
 
     private final Socket sock;
     private final Config cfg;
@@ -71,9 +68,6 @@ final class ConnectionHandler implements Runnable {
             rawIn = new BufferedInputStream(s.getInputStream(), 128 * 1024);
             rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
             rawOut = s.getOutputStream();
-            if (tryLocalHttp(s, rawIn, rawOut)) {
-                return;
-            }
             InputStream in = xor.wrapInput(rawIn);
 
             Protocol.HandshakeResult hr = Protocol.readHandshake(in);
@@ -120,23 +114,20 @@ final class ConnectionHandler implements Runnable {
             });
             return;
         } catch (EOFException ignored) {
-            CamouflageResult cr = tryCamouflage(s, rawIn, rawOut);
-            if (cr != CamouflageResult.NONE) {
-                handedOff = cr == CamouflageResult.HANDOFF;
+            if (tryCamouflage(s, rawIn, rawOut)) {
+                handedOff = true;
                 return;
             }
         } catch (SocketTimeoutException e) {
             log.warning("handshake timeout from " + s.getRemoteSocketAddress() + " after " + HANDSHAKE_TIMEOUT_MS + "ms");
-            CamouflageResult cr = tryCamouflage(s, rawIn, rawOut);
-            if (cr != CamouflageResult.NONE) {
-                handedOff = cr == CamouflageResult.HANDOFF;
+            if (tryCamouflage(s, rawIn, rawOut)) {
+                handedOff = true;
                 return;
             }
         } catch (IOException e) {
             log.fine("conn closed: " + e.getMessage());
-            CamouflageResult cr = tryCamouflage(s, rawIn, rawOut);
-            if (cr != CamouflageResult.NONE) {
-                handedOff = cr == CamouflageResult.HANDOFF;
+            if (tryCamouflage(s, rawIn, rawOut)) {
+                handedOff = true;
                 return;
             }
         } finally {
@@ -148,116 +139,16 @@ final class ConnectionHandler implements Runnable {
         }
     }
 
-    private boolean tryLocalHttp(Socket client, BufferedInputStream rawIn, OutputStream rawOut) {
-        if (!peekLooksHTTP(rawIn)) {
-            return false;
-        }
-        int oldTimeout = 0;
-        try {
-            oldTimeout = client.getSoTimeout();
-            client.setSoTimeout(EARLY_HTTP_TIMEOUT_MS);
-            rawIn.reset();
-            rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
-            String line = readHttpLine(rawIn, 8192);
-            String path = httpRequestPathAny(line);
-            if (!isSafeEarlyHttpMethod(line) || !isEarlyLocalHttpPath(path)) {
-                return false;
-            }
-            Map<String, String> headers = readHttpHeadersToMap(rawIn);
-            if (!"1".equals(headers.getOrDefault(CLUSTER_PULL_HEADER, ""))) {
-                return false;
-            }
-            rawIn.reset();
-            rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
-            if (decodedBufferedPrefixHasVolterMagic(rawIn, XorStream.keyFromToken(cfg.token()), Protocol.MAX_MAGIC_SCAN_BYTES)) {
-                return false;
-            }
-            rawIn.reset();
-            rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
-            client.setSoTimeout(oldTimeout);
-            return serveLocalHttp(rawIn, rawOut);
-        } catch (IOException e) {
-            return false;
-        } finally {
-            try {
-                client.setSoTimeout(oldTimeout);
-                rawIn.reset();
-                rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
-            } catch (IOException ignored) {}
-        }
-    }
-
-    private static boolean decodedBufferedPrefixHasVolterMagic(BufferedInputStream rawIn, byte[] key, int maxBytes) {
-        byte[] win = new byte[Protocol.MAGIC_LEN];
-        int seen = 0;
-        try {
-            int limit = Math.min(maxBytes, Math.max(0, rawIn.available()));
-            for (int i = 0; i < limit; i++) {
-                int raw = rawIn.read();
-                if (raw < 0) {
-                    return false;
-                }
-                byte decoded = (byte) ((raw ^ (key[i % key.length] & 0xff)) & 0xff);
-                System.arraycopy(win, 1, win, 0, Protocol.MAGIC_LEN - 1);
-                win[Protocol.MAGIC_LEN - 1] = decoded;
-                seen++;
-                if (seen >= Protocol.MAGIC_LEN && matchesMagic(win)) {
-                    return true;
-                }
-            }
-        } catch (IOException ignored) {
-            return false;
-        }
-        return false;
-    }
-
-    private static boolean matchesMagic(byte[] b) {
-        if (b.length != Protocol.MAGIC_LEN) {
-            return false;
-        }
-        for (int i = 0; i < Protocol.MAGIC_LEN; i++) {
-            if (b[i] != Protocol.MAGIC[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean isEarlyLocalHttpPath(String path) {
-        if (path == null || path.isBlank()) {
-            return false;
-        }
-        return pathEquals(path, cfg.opsHintsPath()) ||
-            pathEquals(path, cfg.dhtFindPath()) ||
-            pathEquals(path, cfg.relayIndexPath()) ||
-            pathEquals(path, cfg.gossipIndexPath()) ||
-            pathEquals(path, cfg.clusterMapPath()) ||
-            pathEquals(path, cfg.clusterSessionsPath()) ||
-            pathEquals(path, cfg.clusterClientsPath());
-    }
-
-    private static boolean isSafeEarlyHttpMethod(String line) {
-        if (line == null) {
-            return false;
-        }
-        String s = line.toUpperCase(Locale.ROOT);
-        return s.startsWith("GET ") || s.startsWith("HEAD ");
-    }
-
-    private static boolean pathEquals(String a, String b) {
-        return b != null && !b.isBlank() && a.equals(b);
-    }
-
-    private CamouflageResult tryCamouflage(Socket client, BufferedInputStream rawIn, OutputStream rawOut) {
+    private boolean tryCamouflage(Socket client, BufferedInputStream rawIn, OutputStream rawOut) {
         if (rawIn == null || rawOut == null) {
-            return CamouflageResult.NONE;
+            return false;
         }
         try {
             rawIn.reset();
             rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
         } catch (IOException e) {
             log.warning("camouflage reset failed (mark overrun?): " + e.getMessage());
-            return CamouflageResult.NONE;
+            return false;
         }
         byte[] sig = new byte[8];
         int n;
@@ -265,112 +156,91 @@ final class ConnectionHandler implements Runnable {
             n = rawIn.read(sig);
             rawIn.reset();
         } catch (IOException e) {
-            return CamouflageResult.NONE;
+            return false;
         }
         if (n <= 0) {
-            return CamouflageResult.NONE;
+            return false;
         }
         boolean looksHTTP = looksLikeHTTP(sig, n);
         boolean looksTLS = looksLikeTLS(sig, n);
         if (!looksHTTP && !looksTLS) {
-            return CamouflageResult.NONE;
+            return false;
         }
-        if (looksHTTP && serveLocalHttp(rawIn, rawOut)) {
-            return CamouflageResult.SERVED_CLOSE;
+        if (looksHTTP) {
+            try {
+                if (tryOpsHintsHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("ops hints http: " + e.getMessage());
+            }
+            try {
+                if (DhtFindHttp.tryServe(cfg, rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("dht find http: " + e.getMessage());
+            }
+            try {
+                if (tryRelayIndexHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("relay index http: " + e.getMessage());
+            }
+            try {
+                if (tryGossipNodesHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("gossip nodes http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterMapHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster map http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterSessionsHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster sessions http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterClientsHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster clients http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterInviteHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster invite http: " + e.getMessage());
+            }
+            try {
+                if (tryClusterPeerHandshakeHttp(rawIn, rawOut)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                log.fine("cluster peer handshake http: " + e.getMessage());
+            }
         }
         if (!cfg.camouflageTcpEnabled()) {
-            return CamouflageResult.NONE;
+            return false;
         }
         String host = cfg.camouflageTcpProxyHost();
         int port = cfg.camouflageTcpProxyPort();
         if (host != null && !host.isBlank() && port > 0) {
-            return proxyRaw(client, rawIn, rawOut, host, port) ? CamouflageResult.HANDOFF : CamouflageResult.NONE;
+            return proxyRaw(client, rawIn, rawOut, host, port);
         }
         if (looksHTTP) {
-            return writeFakeHttp(rawOut) ? CamouflageResult.SERVED_CLOSE : CamouflageResult.NONE;
-        }
-        return CamouflageResult.NONE;
-    }
-
-    private boolean peekLooksHTTP(BufferedInputStream rawIn) {
-        if (rawIn == null) {
-            return false;
-        }
-        try {
-            rawIn.reset();
-            rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
-            byte[] sig = new byte[8];
-            int n = rawIn.read(sig);
-            rawIn.reset();
-            return n > 0 && looksLikeHTTP(sig, n);
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    private boolean serveLocalHttp(BufferedInputStream rawIn, OutputStream rawOut) {
-        try {
-            if (tryOpsHintsHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("ops hints http: " + e.getMessage());
-        }
-        try {
-            if (DhtFindHttp.tryServe(cfg, rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("dht find http: " + e.getMessage());
-        }
-        try {
-            if (tryRelayIndexHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("relay index http: " + e.getMessage());
-        }
-        try {
-            if (tryGossipNodesHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("gossip nodes http: " + e.getMessage());
-        }
-        try {
-            if (tryClusterMapHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("cluster map http: " + e.getMessage());
-        }
-        try {
-            if (tryClusterSessionsHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("cluster sessions http: " + e.getMessage());
-        }
-        try {
-            if (tryClusterClientsHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("cluster clients http: " + e.getMessage());
-        }
-        try {
-            if (tryClusterInviteHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("cluster invite http: " + e.getMessage());
-        }
-        try {
-            if (tryClusterPeerHandshakeHttp(rawIn, rawOut)) {
-                return true;
-            }
-        } catch (IOException e) {
-            log.fine("cluster peer handshake http: " + e.getMessage());
+            return writeFakeHttp(rawOut);
         }
         return false;
     }

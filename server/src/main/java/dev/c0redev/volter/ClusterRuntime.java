@@ -267,8 +267,7 @@ final class ClusterRuntime {
   private HttpRequest clusterPeerGet(URI uri) {
     HttpRequest.Builder b = HttpRequest.newBuilder(uri)
         .timeout(Duration.ofSeconds(10))
-        .header("Accept", "application/json")
-        .header("X-Volter-Cluster-Pull", "1");
+        .header("Accept", "application/json");
     Config c = cfg;
     if (c != null && c.clusterHttpAuth()) {
       String k = c.clusterHttpExpectedKey();

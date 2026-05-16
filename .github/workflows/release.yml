@@ -22,7 +22,7 @@ jobs:
       - name: set server version
         run: |
           RAW_VERSION=${GITHUB_REF#refs/tags/}
-          SERVER_VERSION=2.2.4
+          SERVER_VERSION=2.2.0
           echo "Using server version ${SERVER_VERSION} (release tag ${RAW_VERSION})"
           mvn -q -f server/pom.xml versions:set -DnewVersion=${SERVER_VERSION} -DgenerateBackupPoms=false
 

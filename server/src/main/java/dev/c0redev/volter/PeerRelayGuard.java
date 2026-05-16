@@ -30,18 +30,10 @@ final class PeerRelayGuard {
       mac.update((byte) '|');
       mac.update(opts.relayNonce().getBytes(StandardCharsets.UTF_8));
       byte[] want = mac.doFinal();
-      byte[] got = decodeSig(opts.relaySig());
+      byte[] got = Base64.getUrlDecoder().decode(opts.relaySig());
       return MessageDigest.isEqual(want, got);
     } catch (Exception e) {
       return false;
     }
-  }
-
-  private byte[] decodeSig(String s) {
-    try {
-      return Base64.getUrlDecoder().decode(s);
-    } catch (IllegalArgumentException ignored) {
-    }
-    return Base64.getDecoder().decode(s);
   }
 }
