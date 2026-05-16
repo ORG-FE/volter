@@ -19,6 +19,42 @@
     <string name="cluster_refresh_servers">Refresh cluster list</string>
     <string name="cluster_refresh_failed_fmt">Cluster refresh failed: %1$s</string>
     <string name="cluster_status_unavailable">Mesh status unavailable</string>
+    <string name="cluster_pool_hint_connected">VPN on — cluster syncs from current server. Swipe down to refresh.</string>
+    <string name="cluster_pool_hint_disconnected">VPN off — swipe to refresh or connect for live poll.</string>
+    <string name="cluster_refreshed_via_fmt">Cluster synced via %1$s</string>
+    <string name="cluster_overview_rtt_srflx_fmt">%.0f %1$s · srflx %2$s · sf %3$d/%4$d</string>
+    <string name="cluster_overview_srflx_sf_fmt">srflx %1$s · sf %2$d/%3$d</string>
+    <string name="cluster_overview_sync_fmt">map=%1$s · sess=%2$s · cli=%3$s</string>
+    <string name="cluster_overview_route_fmt">%1$s / %2$s · hop %3$s (%4$s)</string>
+    <string name="cluster_need_profile_refresh">Select a profile first</string>
+
+    <string name="mesh_ice_rtt_suffix">ICE RTT (Σ)</string>
+    <string name="mesh_nodes_section_title_fmt">Mesh nodes (%1$d)</string>
+    <string name="mesh_nodes_empty">No neighbours in the DHT view yet.</string>
+    <string name="mesh_node_role_fmt">Role · %1$s</string>
+    <string name="mesh_status_core_error_fmt">Core: %1$s</string>
+    <string name="mesh_expand_advanced">Advanced mesh settings</string>
+    <string name="mesh_expand_raw_json">Raw JSON snapshot</string>
+    <string name="mesh_switch_main_sub">Cluster, p2p and server relay</string>
+    <string name="mesh_switch_volunteer_title">Volunteer</string>
+    <string name="mesh_switch_volunteer_sub">Publish endpoint and forward traffic</string>
+    <string name="mesh_switch_p2p_title">P2P</string>
+    <string name="mesh_switch_p2p_sub">Peers before server fallback</string>
+    <string name="mesh_switch_server_relay_title">Server relay</string>
+    <string name="mesh_switch_server_relay_sub">Volter servers as fallback</string>
+    <string name="mesh_switch_stun_title">STUN</string>
+    <string name="mesh_switch_stun_sub">Public endpoint on peer UDP port</string>
+    <string name="mesh_switch_p2p_udp_sub">Direct UDP paths</string>
+    <string name="mesh_switch_p2p_quic_sub">QUIC paths</string>
+    <string name="mesh_switch_p2p_tcp_sub">TCP paths</string>
+    <string name="mesh_switch_publish_srflx_sub">STUN endpoint when volunteering</string>
+    <string name="mesh_switch_nat_punch_sub">UDP punch on peer socket</string>
+    <string name="mesh_switch_aggressive_title">Aggressive paths</string>
+    <string name="mesh_switch_aggressive_sub">Faster fallback after failures</string>
+    <string name="mesh_switch_gossip_title">Gossip discovery</string>
+    <string name="mesh_switch_gossip_sub">Relay hints via gossip peers</string>
+    <string name="mesh_self_test_running">Running self-test…</string>
+    <string name="mesh_ticket_share_err">Set peerId, bootstrapPubKey and udpAdvertise or udpListen</string>
 
     <string name="action_share">Share</string>
     <string name="action_copy">Copy</string>
@@ -86,6 +122,7 @@
     <string name="mesh_flag_path_disc">peerPathFromDiscovery</string>
     <string name="mesh_flag_peer_quic">peerRelayUseQuic</string>
     <string name="mesh_flag_peer_udp">peerRelayUseUdp</string>
+    <string name="mesh_flag_peer_tcp">peerRelayUseTcp</string>
     <string name="mesh_flag_dht_srflx">dhtPublishSrflx</string>
     <string name="mesh_flag_sym_nat">symmetricNatHolePunch</string>
     <string name="mesh_path_cooldown_ms">pathCooldownMs</string>

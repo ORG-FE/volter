@@ -14,11 +14,11 @@ import (
 var lastClusterClients atomic.Value
 
 func LastClusterClients() string {
-	v := lastClusterClients.Load()
-	if v == nil {
-		return ""
+	s, stale := clusterLoad(&lastClusterClients, 45*time.Second)
+	if stale {
+		tunnel.SetGlobalClusterPeerTCPHints(nil)
 	}
-	return v.(string)
+	return s
 }
 
 func runClusterClientsPoll(ctx context.Context, serverAddr, headerKey, httpPath string) {
@@ -52,8 +52,11 @@ func runClusterClientsPoll(ctx context.Context, serverAddr, headerKey, httpPath 
 		if err != nil || len(b) == 0 {
 			return
 		}
+		if !clusterPollAcceptSource(serverAddr) {
+			return
+		}
 		s := string(b)
-		lastClusterClients.Store(s)
+		clusterStore(&lastClusterClients, s)
 		tunnel.SetGlobalClusterPeerTCPHints(peerHintsFromClusterRaw(s))
 	}
 	fetch()

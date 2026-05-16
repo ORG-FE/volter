@@ -26,28 +26,29 @@ func RefreshClusterEndpointsJSON(ctx context.Context, opt Options) string {
 		r.Error = "server addrs empty"
 		return marshalRefresh(r)
 	}
+	addrs := dialServerAddrs(opt.ServerAddrs, opt.Protection)
 	ck := clusterPollHeaderKey(opt)
 	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	for _, raw := range opt.ServerAddrs {
+	for _, raw := range addrs {
 		addr := strings.TrimSpace(raw)
 		if addr == "" {
 			continue
 		}
 		r.ServerUsed = addr
 		if refreshClusterHTTP(ctx, addr, ck, mapPath, 256*1024, func(body string) {
-			lastClusterMap.Store(body)
+			clusterStore(&lastClusterMap, body)
 		}) {
 			r.MapOK = true
 		}
 		if refreshClusterHTTP(ctx, addr, ck, sessPath, 512*1024, func(body string) {
-			lastClusterSessions.Store(body)
+			clusterStore(&lastClusterSessions, body)
 		}) {
 			r.SessionsOK = true
 		}
 		if refreshClusterHTTP(ctx, addr, ck, clientsPath, 512*1024, func(body string) {
-			lastClusterClients.Store(body)
+			clusterStore(&lastClusterClients, body)
 			tunnel.SetGlobalClusterPeerTCPHints(peerHintsFromClusterRaw(body))
 		}) {
 			r.ClientsOK = true
@@ -93,6 +94,9 @@ func refreshClusterHTTP(ctx context.Context, serverAddr, headerKey, path string,
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil || len(b) == 0 {
+		return false
+	}
+	if !clusterPollAcceptSource(serverAddr) {
 		return false
 	}
 	store(string(b))

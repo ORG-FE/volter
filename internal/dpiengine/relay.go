@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -95,15 +96,24 @@ func sendOOB(conn net.Conn, data []byte) bool {
 }
 
 func relayPipe(client, remote net.Conn, opts Options) {
-	go func() {
-		_, _ = io.Copy(client, remote)
-		_ = remote.Close()
-	}()
-
+	var wg sync.WaitGroup
+	var once sync.Once
 	closeBoth := func() {
-		_ = remote.Close()
-		_ = client.Close()
+		once.Do(func() {
+			_ = remote.Close()
+			_ = client.Close()
+		})
 	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(client, remote)
+		closeBoth()
+	}()
+	defer func() {
+		closeBoth()
+		wg.Wait()
+	}()
 
 	if opts.TCPSegment > 0 {
 		setTCPSegmentSize(remote, opts.TCPSegment)
@@ -117,20 +127,17 @@ func relayPipe(client, remote net.Conn, opts Options) {
 	if opts.SplitAfter <= 0 {
 		sleepJittered(opts.LeadInMs, opts.JitterMaxMs)
 		_, _ = io.Copy(remote, client)
-		_ = remote.Close()
-		_ = client.Close()
 		return
 	}
 
 	buf := make([]byte, 65536)
 	n, err := client.Read(buf)
 	if err != nil || n == 0 {
-		closeBoth()
 		return
 	}
 
 	data := buf[:n]
-	
+
 	s1 := opts.SplitAfter
 	if opts.SplitPosition != "" {
 		s1 = findSplitPosition(data, opts.SplitPosition)
@@ -144,7 +151,7 @@ func relayPipe(client, remote net.Conn, opts Options) {
 
 	segments := [][]byte{data[:s1]}
 	remaining := data[s1:]
-	
+
 	if opts.SplitAfter2 > 0 && opts.SplitAfter2 < n && opts.SplitAfter2 > s1 {
 		s2 := opts.SplitAfter2 - s1
 		if s2 < len(remaining) {
@@ -152,7 +159,7 @@ func relayPipe(client, remote net.Conn, opts Options) {
 			remaining = remaining[s2:]
 		}
 	}
-	
+
 	if opts.MultiSplit > 0 && len(remaining) > opts.MultiSplit {
 		chunkSize := len(remaining) / (opts.MultiSplit + 1)
 		if chunkSize < 1 {
@@ -166,7 +173,7 @@ func relayPipe(client, remote net.Conn, opts Options) {
 			remaining = remaining[chunkSize:]
 		}
 	}
-	
+
 	if len(remaining) > 0 {
 		segments = append(segments, remaining)
 	}
@@ -200,7 +207,6 @@ func relayPipe(client, remote net.Conn, opts Options) {
 	if opts.Disorder && len(segments) >= 2 {
 		for i := len(segments) - 1; i >= 0; i-- {
 			if !writeSeg(segments[i], i == 0) {
-				closeBoth()
 				return
 			}
 			if i > 0 {
@@ -214,7 +220,6 @@ func relayPipe(client, remote net.Conn, opts Options) {
 	} else {
 		for i, seg := range segments {
 			if !writeSeg(seg, i == 0) {
-				closeBoth()
 				return
 			}
 			if i < len(segments)-1 {
@@ -228,6 +233,4 @@ func relayPipe(client, remote net.Conn, opts Options) {
 	}
 
 	_, _ = io.Copy(remote, client)
-	_ = remote.Close()
-	_ = client.Close()
 }

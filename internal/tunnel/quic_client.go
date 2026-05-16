@@ -13,6 +13,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -53,8 +54,9 @@ func (c *quicStreamConn) Close() error {
 }
 
 type quicStreamOnlyConn struct {
-	conn   *quic.Conn
-	stream *quic.Stream
+	conn      *quic.Conn
+	stream    *quic.Stream
+	closeOnce sync.Once
 }
 
 func (c *quicStreamOnlyConn) Read(p []byte) (int, error)         { return c.stream.Read(p) }
@@ -64,7 +66,13 @@ func (c *quicStreamOnlyConn) RemoteAddr() net.Addr               { return c.conn
 func (c *quicStreamOnlyConn) SetDeadline(t time.Time) error      { return c.stream.SetDeadline(t) }
 func (c *quicStreamOnlyConn) SetReadDeadline(t time.Time) error  { return c.stream.SetReadDeadline(t) }
 func (c *quicStreamOnlyConn) SetWriteDeadline(t time.Time) error { return c.stream.SetWriteDeadline(t) }
-func (c *quicStreamOnlyConn) Close() error                       { return c.stream.Close() }
+func (c *quicStreamOnlyConn) Close() error {
+	var err error
+	c.closeOnce.Do(func() {
+		err = c.stream.Close()
+	})
+	return err
+}
 
 type quicNoopTokenStore struct{}
 

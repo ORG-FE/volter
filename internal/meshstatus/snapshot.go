@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,6 +59,7 @@ type Status struct {
 	RoutePlan             string    `json:"routePlan,omitempty"`
 	ActiveHop             string    `json:"activeHop,omitempty"`
 	LastHopReason         string    `json:"lastHopReason,omitempty"`
+	ActiveVolter          string    `json:"activeVolter,omitempty"`
 	Nodes                 []NodeRow `json:"nodes"`
 	PathEvents            []PathEvt `json:"pathEvents"`
 	CollectedAt           time.Time `json:"collectedAt"`
@@ -76,6 +78,17 @@ func GatherNearest(kNearest int) Status {
 	for _, n := range raw {
 		rows = append(rows, nodeRowFrom(n))
 	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		ei := strings.TrimSpace(rows[i].Endpoints) != ""
+		ej := strings.TrimSpace(rows[j].Endpoints) != ""
+		if ei != ej {
+			return ei
+		}
+		if rows[i].Stake != rows[j].Stake {
+			return rows[i].Stake > rows[j].Stake
+		}
+		return rows[i].ID < rows[j].ID
+	})
 	pe := telemetry.PathSnapshot()
 	outPe := make([]PathEvt, 0, len(pe))
 	for _, e := range pe {
@@ -97,6 +110,7 @@ func GatherNearest(kNearest int) Status {
 		ClusterSessionsCount: -1,
 		ClusterClientsCount:  -1,
 		ClusterPeerTCPHints:  tunnel.GlobalClusterPeerTCPHintCount(),
+		ActiveVolter:         strings.TrimSpace(tunnel.ActiveVolterServer()),
 		Nodes:                rows,
 		PathEvents:           outPe,
 		CollectedAt:          now,
@@ -177,6 +191,9 @@ func Format(s Status) string {
 	}
 	b.WriteString(fmt.Sprintf("ICE srflx RTT EWMA: %.1f ms\n\n", s.IceSrflxRttEwmaMs))
 	b.WriteString(fmt.Sprintf("Store-forward sent/recv: %d/%d\n", s.StoreForwardSent, s.StoreForwardRecv))
+	if strings.TrimSpace(s.ActiveVolter) != "" {
+		b.WriteString(fmt.Sprintf("Volter wire: %s\n", strings.TrimSpace(s.ActiveVolter)))
+	}
 	if s.ClusterNodeID != "" {
 		b.WriteString(fmt.Sprintf("Кластер узел: %s\n", s.ClusterNodeID))
 	}
@@ -281,6 +298,12 @@ func parseClusterMap(raw string) (string, []string, int64, bool) {
 	if json.Unmarshal([]byte(raw), &doc) != nil {
 		return "", nil, 0, false
 	}
+	sort.SliceStable(doc.Nodes, func(i, j int) bool {
+		if doc.Nodes[i].Alive != doc.Nodes[j].Alive {
+			return doc.Nodes[i].Alive
+		}
+		return strings.TrimSpace(doc.Nodes[i].ID) < strings.TrimSpace(doc.Nodes[j].ID)
+	})
 	out := make([]string, 0, len(doc.Nodes))
 	for _, n := range doc.Nodes {
 		id := strings.TrimSpace(n.ID)

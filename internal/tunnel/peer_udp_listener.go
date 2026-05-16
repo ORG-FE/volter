@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -23,6 +24,8 @@ import (
 )
 
 const peerRelayHopHardLimit = 2
+
+const peerRelayReplayTTL = 90 * time.Second
 
 type PeerRelayUDPOptions struct {
 	Addr          string
@@ -44,6 +47,9 @@ type PeerUDPRelay struct {
 
 	mu    sync.Mutex
 	peers map[string]*peerUDPState
+
+	relayReplayMu sync.Mutex
+	relayReplay   map[string]int64
 }
 
 type peerUDPState struct {
@@ -85,12 +91,13 @@ func ListenPeerRelayUDP(ctx context.Context, opt PeerRelayUDPOptions) (*PeerUDPR
 		owns = true
 	}
 	r := &PeerUDPRelay{
-		ps:         ps,
-		ownsSocket: owns,
-		token:      opt.Token,
-		budgetKbps: opt.BudgetKbps,
-		sem:        make(chan struct{}, maxConcurrent),
-		peers:      make(map[string]*peerUDPState),
+		ps:          ps,
+		ownsSocket:  owns,
+		token:       opt.Token,
+		budgetKbps:  opt.BudgetKbps,
+		sem:         make(chan struct{}, maxConcurrent),
+		peers:       make(map[string]*peerUDPState),
+		relayReplay: make(map[string]int64),
 	}
 	ps.SetVP02Handler(r.dispatch)
 	if opt.OnSrflx != nil {
@@ -195,6 +202,10 @@ func (r *PeerUDPRelay) handleSession(s *peerUDPSession) {
 	if !allowPeerRelayOptions(&opts, r.token) {
 		return
 	}
+	rpk := replayKey(s.raddr.String(), opts.PeerID, opts.RelayNonce)
+	if !r.markRelayNonceFresh(rpk) {
+		return
+	}
 	tc, err := protocol.ReadTcpConnect(br)
 	if err != nil {
 		return
@@ -212,6 +223,9 @@ func (r *PeerUDPRelay) handleSession(s *peerUDPSession) {
 			NodeID:  opts.PeerID,
 			Status:  1,
 		}); err != nil {
+			return
+		}
+		if err := bw.Flush(); err != nil {
 			return
 		}
 	}
@@ -235,6 +249,35 @@ func hopIndexByte(v int) byte {
 		return 255
 	}
 	return byte(v)
+}
+
+func replayKey(raddr, peerID, nonce string) string {
+	var b strings.Builder
+	b.WriteString(raddr)
+	b.WriteByte(0)
+	b.WriteString(peerID)
+	b.WriteByte(0)
+	b.WriteString(nonce)
+	return b.String()
+}
+
+func (r *PeerUDPRelay) markRelayNonceFresh(key string) bool {
+	cut := time.Now().Add(-peerRelayReplayTTL).UnixMilli()
+	r.relayReplayMu.Lock()
+	defer r.relayReplayMu.Unlock()
+	if r.relayReplay == nil {
+		r.relayReplay = make(map[string]int64)
+	}
+	for k, ts := range r.relayReplay {
+		if ts < cut {
+			delete(r.relayReplay, k)
+		}
+	}
+	if _, dup := r.relayReplay[key]; dup {
+		return false
+	}
+	r.relayReplay[key] = time.Now().UnixMilli()
+	return true
 }
 
 func allowPeerRelayOptions(opts *config.ProtectionOptions, token string) bool {

@@ -71,6 +71,7 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 				}
 			}
 			_ = c.SetDeadline(time.Time{})
+			setActiveVolterServerAddr(addr)
 			return &tunnelConn{Conn: c, r: r}, nil
 		}
 		time.Sleep(backoff)
@@ -236,6 +237,9 @@ func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipV
 			_ = sconn.Close()
 			return nil, fmt.Errorf("hop ack rejected: %s", ack.Reason)
 		}
+	}
+	if ownsConn {
+		setActiveVolterServerAddr(PickServerAddrForQUIC(serverAddrs, quicServer))
 	}
 	return &tunnelConn{Conn: sconn, r: r}, nil
 }

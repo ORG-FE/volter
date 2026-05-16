@@ -12,11 +12,8 @@ import (
 var lastClusterSessions atomic.Value
 
 func LastClusterSessions() string {
-	v := lastClusterSessions.Load()
-	if v == nil {
-		return ""
-	}
-	return v.(string)
+	s, _ := clusterLoad(&lastClusterSessions, 45*time.Second)
+	return s
 }
 
 func runClusterSessionsPoll(ctx context.Context, serverAddr, headerKey, httpPath string) {
@@ -50,7 +47,10 @@ func runClusterSessionsPoll(ctx context.Context, serverAddr, headerKey, httpPath
 		if err != nil || len(b) == 0 {
 			return
 		}
-		lastClusterSessions.Store(string(b))
+		if !clusterPollAcceptSource(serverAddr) {
+			return
+		}
+		clusterStore(&lastClusterSessions, string(b))
 	}
 	fetch()
 	for {

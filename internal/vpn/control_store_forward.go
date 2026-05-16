@@ -3,7 +3,9 @@ package vpn
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,14 +37,18 @@ type storeForwardStats struct {
 	Received uint64
 }
 
-var cpStats atomic.Value
+const cpSeenMax = 8192
+
+const cpSeenTTL = 24 * time.Hour
+
+var cpSent atomic.Uint64
+var cpReceived atomic.Uint64
 
 func StoreForwardStats() storeForwardStats {
-	v := cpStats.Load()
-	if v == nil {
-		return storeForwardStats{}
+	return storeForwardStats{
+		Sent:     cpSent.Load(),
+		Received: cpReceived.Load(),
 	}
-	return v.(storeForwardStats)
 }
 
 func runStoreForwardControlPlane(ctx context.Context, relay *config.RelayOptions) {
@@ -53,7 +59,7 @@ func runStoreForwardControlPlane(ctx context.Context, relay *config.RelayOptions
 	enqueue := func(tp, body string, ttl time.Duration) {
 		idRaw := sha256.Sum256([]byte(tp + "|" + body + "|" + strconvI64(time.Now().UnixMilli())))
 		msg := controlPlaneMessage{
-			ID:        hex16(idRaw[:]),
+			ID:        controlPlaneMsgID(idRaw),
 			From:      strings.TrimSpace(relay.PeerID),
 			Type:      tp,
 			Body:      body,
@@ -156,6 +162,7 @@ func pullControlInbox(ctx context.Context, relay *config.RelayOptions, q *contro
 				continue
 			}
 			q.mu.Lock()
+			q.pruneSeenLocked()
 			if _, hit := q.seen[m.ID]; !hit {
 				q.seen[m.ID] = time.Now().UnixMilli()
 				incrReceived()
@@ -165,26 +172,42 @@ func pullControlInbox(ctx context.Context, relay *config.RelayOptions, q *contro
 	}
 }
 
+func (q *controlPlaneQueue) pruneSeenLocked() {
+	now := time.Now().UnixMilli()
+	cut := now - cpSeenTTL.Milliseconds()
+	for k, t := range q.seen {
+		if t < cut {
+			delete(q.seen, k)
+		}
+	}
+	if len(q.seen) <= cpSeenMax {
+		return
+	}
+	type kv struct {
+		k string
+		t int64
+	}
+	tmp := make([]kv, 0, len(q.seen))
+	for k, t := range q.seen {
+		tmp = append(tmp, kv{k, t})
+	}
+	sort.Slice(tmp, func(i, j int) bool { return tmp[i].t < tmp[j].t })
+	excess := len(q.seen) - cpSeenMax
+	for i := 0; i < excess && i < len(tmp); i++ {
+		delete(q.seen, tmp[i].k)
+	}
+}
+
 func incrSent() {
-	cur := StoreForwardStats()
-	cur.Sent++
-	cpStats.Store(cur)
+	cpSent.Add(1)
 }
 
 func incrReceived() {
-	cur := StoreForwardStats()
-	cur.Received++
-	cpStats.Store(cur)
+	cpReceived.Add(1)
 }
 
-func hex16(b []byte) string {
-	const d = "0123456789abcdef"
-	out := make([]byte, 16)
-	for i := 0; i < 8 && i < len(b); i++ {
-		out[i*2] = d[(b[i]>>4)&0x0f]
-		out[i*2+1] = d[b[i]&0x0f]
-	}
-	return string(out)
+func controlPlaneMsgID(sum [32]byte) string {
+	return hex.EncodeToString(sum[:])
 }
 
 func max(a, b int) int {

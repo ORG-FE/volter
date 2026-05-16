@@ -13,6 +13,8 @@ const vp02Header = 12
 
 const MaxVP02ChunkPayload = 1200
 
+const maxVP02ChunkCount = 2048
+
 func WriteVP02Message(c *net.UDPConn, p []byte) error {
 	return writeVP02Message(p, func(b []byte) error {
 		_, err := c.Write(b)
@@ -44,7 +46,7 @@ func writeVP02Message(p []byte, send func([]byte) error) error {
 	}
 	const chunk = MaxVP02ChunkPayload
 	total := (len(p) + chunk - 1) / chunk
-	if total > 65535 {
+	if total > maxVP02ChunkCount {
 		return errors.New("peerudp: payload too large")
 	}
 	off := 0
@@ -96,7 +98,7 @@ func (a *Assembler) Feed(pkt []byte) ([]byte, bool) {
 		return nil, false
 	}
 	payload := pkt[vp02Header : vp02Header+plen]
-	if total < 1 || seq < 0 || seq >= total {
+	if total < 1 || total > maxVP02ChunkCount || seq < 0 || seq >= total {
 		a.reset()
 		return nil, false
 	}
@@ -143,6 +145,9 @@ func ReadVP02Message(c *net.UDPConn, pktBuf []byte, asm *Assembler) ([]byte, err
 }
 
 func WriteVP02Frame(w io.Writer, total, seq uint16, payload []byte) error {
+	if total < 1 || int(total) > maxVP02ChunkCount {
+		return errors.New("peerudp: bad total")
+	}
 	if len(payload) > MaxVP02ChunkPayload {
 		return errors.New("peerudp: chunk too large")
 	}

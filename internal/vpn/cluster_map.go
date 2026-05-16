@@ -12,11 +12,8 @@ import (
 var lastClusterMap atomic.Value
 
 func LastClusterMap() string {
-	v := lastClusterMap.Load()
-	if v == nil {
-		return ""
-	}
-	return v.(string)
+	s, _ := clusterLoad(&lastClusterMap, 30*time.Second)
+	return s
 }
 
 func runClusterMapPoll(ctx context.Context, serverAddr, headerKey, httpPath string) {
@@ -50,7 +47,10 @@ func runClusterMapPoll(ctx context.Context, serverAddr, headerKey, httpPath stri
 		if err != nil || len(b) == 0 {
 			return
 		}
-		lastClusterMap.Store(string(b))
+		if !clusterPollAcceptSource(serverAddr) {
+			return
+		}
+		clusterStore(&lastClusterMap, string(b))
 	}
 	fetch()
 	for {

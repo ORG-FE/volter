@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 
@@ -116,9 +118,15 @@ func DialPeerRelayUDP(addr string, targetIP net.IP, targetPort uint16, token str
 	base := &udpPeerConn{c: uc, pktBuf: make([]byte, 65536)}
 	r := bufio.NewReaderSize(base, bufSize)
 	if needHopAck(prot) {
-		if _, err := protocol.ReadHopAck(r); err != nil {
+		ack, err := protocol.ReadHopAck(r)
+		if err != nil {
 			_ = uc.Close()
 			return nil, err
+		}
+		if ack.Status == 0 {
+			_ = uc.Close()
+			SetRouteTrace(targetIP.String(), strings.TrimSpace(prot.RouteMode), "", ack.Reason)
+			return nil, fmt.Errorf("hop ack rejected: %s", ack.Reason)
 		}
 	}
 	return &tunnelConn{Conn: base, r: r}, nil

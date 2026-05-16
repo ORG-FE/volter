@@ -79,6 +79,8 @@ func Run(ctx context.Context, opt Options) error {
 	if len(opt.ServerAddrs) == 0 {
 		return errors.New("server addrs empty")
 	}
+	tunnel.ClearActiveVolterServer()
+	defer tunnel.ClearActiveVolterServer()
 	opt.Protection = protectionWithMeshPolicy(opt.Protection, opt.Mesh)
 	opt.ServerAddrs = orderedServerAddrs(opt.ServerAddrs, opt.Protection)
 	ck := clusterPollHeaderKey(opt)

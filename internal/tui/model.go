@@ -334,6 +334,76 @@ func (m *Model) meshRelayEffectiveTarget() string {
 	return ""
 }
 
+func firstAddrFromServerField(server string) string {
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return ""
+	}
+	if i := strings.IndexByte(server, ','); i >= 0 {
+		return strings.TrimSpace(server[:i])
+	}
+	return server
+}
+
+func (m *Model) meshSessionStrip(s meshstatus.Status) string {
+	var b strings.Builder
+	b.WriteString(sectionTitle.Render("Сессия") + "\n")
+	var vpnLabel string
+	switch m.status {
+	case statusConnected:
+		vpnLabel = statusStyle.Render("online")
+	case statusConnecting:
+		vpnLabel = lipgloss.NewStyle().Foreground(lipgloss.Color(pingYellow)).Render("connect…")
+	default:
+		vpnLabel = emptyState.Render("offline")
+	}
+	prof := strings.TrimSpace(m.activeCfg)
+	if prof == "" {
+		prof = "—"
+	}
+	wire := strings.TrimSpace(s.ActiveVolter)
+	if wire == "" && m.status == statusConnected && m.activeCfg != "" {
+		if cfg, err := config.LoadByName(m.activeCfg); err == nil {
+			wire = firstAddrFromServerField(cfg.Server)
+		}
+	}
+	if wire == "" {
+		wire = "—"
+	}
+	hop := strings.TrimSpace(s.ActiveHop)
+	if hop == "" {
+		hop = "—"
+	}
+	route := "—"
+	if m.activeCfg != "" {
+		if cfg, err := config.LoadByName(m.activeCfg); err == nil && cfg.Protection != nil {
+			route = strings.TrimSpace(cfg.Protection.RouteMode)
+			if route == "" {
+				route = "auto"
+			}
+		}
+	}
+	b.WriteString("  ")
+	b.WriteString(kvLabel.Render("VPN:") + " " + vpnLabel)
+	b.WriteString("  " + kvLabel.Render("профиль:") + " " + kvValue.Render(prof) + "\n")
+	b.WriteString("  ")
+	b.WriteString(kvLabel.Render("volter wire:") + " " + kvValue.Render(wire))
+	b.WriteString("  " + kvLabel.Render("hop:") + " " + kvValue.Render(hop) + "\n")
+	b.WriteString("  ")
+	b.WriteString(kvLabel.Render("route:") + " " + kvValue.Render(route))
+	if strings.TrimSpace(s.ClusterNodeID) != "" {
+		b.WriteString("  " + kvLabel.Render("cluster:") + " " + kvValue.Render(strings.TrimSpace(s.ClusterNodeID)))
+	}
+	b.WriteString("\n")
+	if m.status != statusConnected {
+		b.WriteString("  " + hintText.Render("Нет сессии — «Главная», Enter.") + "\n")
+	} else if strings.TrimSpace(s.ActiveVolter) != "" {
+		b.WriteString("  " + hintText.Render("Кластер: poll с volter wire выше.") + "\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 func (m *Model) setMeshViewportContent() {
 	m.meshViewport.SetContent(m.meshFullContent())
 }
@@ -343,7 +413,9 @@ func (m *Model) setClusterViewportContent() {
 }
 
 func (m *Model) meshFullContent() string {
+	s := meshstatus.Gather()
 	var b strings.Builder
+	b.WriteString(m.meshSessionStrip(s))
 	b.WriteString(sectionTitle.Render("Relay / mesh") + "\n")
 	target := "—"
 	if m.protectionTarget != "" {
@@ -388,9 +460,9 @@ func (m *Model) meshFullContent() string {
 	b.WriteString("\n")
 	b.WriteString(sectionTitle.Render("Статус Mesh / DHT / ICE") + "\n\n")
 	if m.status != statusConnected {
-		b.WriteString(emptyState.Render("Не подключено — таблица узлов и srflx после VPN-сессии с relay.") + "\n\n")
+		b.WriteString(emptyState.Render("Часть данных (srflx, стабильный DHT) доступна после VPN-сессии с relay.") + "\n\n")
 	}
-	b.WriteString(meshstatus.Format(meshstatus.Gather()))
+	b.WriteString(meshstatus.Format(s))
 	if strings.TrimSpace(m.meshSelfTest) != "" {
 		b.WriteString("\n\n")
 		b.WriteString(sectionTitle.Render("Self-test mesh") + "\n")
@@ -402,6 +474,7 @@ func (m *Model) meshFullContent() string {
 func (m *Model) clusterFullContent() string {
 	s := meshstatus.Gather()
 	var b strings.Builder
+	b.WriteString(m.meshSessionStrip(s))
 	b.WriteString(sectionTitle.Render("Кластер серверов") + "\n\n")
 	if s.ClusterNodeID != "" {
 		b.WriteString("Текущий узел: " + s.ClusterNodeID + "\n")
@@ -409,7 +482,7 @@ func (m *Model) clusterFullContent() string {
 		b.WriteString("Текущий узел: —\n")
 	}
 	if len(s.ClusterNodes) == 0 {
-		b.WriteString(emptyState.Render("Кластерные серверы пока не найдены") + "\n")
+		b.WriteString(emptyState.Render("Серверы кластера не найдены.") + "\n")
 	} else {
 		b.WriteString("Серверы:\n")
 		for _, n := range s.ClusterNodes {
@@ -424,14 +497,14 @@ func (m *Model) clusterFullContent() string {
 		b.WriteString("\n")
 	}
 	if s.ClusterMapAgeMs > 0 || s.ClusterSessionsAgeMs > 0 || s.ClusterClientsAgeMs > 0 {
-		b.WriteString(fmt.Sprintf("Sync age ms (map/sessions/clients): %d/%d/%d\n", s.ClusterMapAgeMs, s.ClusterSessionsAgeMs, s.ClusterClientsAgeMs))
+		b.WriteString(fmt.Sprintf("Снимок, мс (map/sess/cli): %d/%d/%d\n", s.ClusterMapAgeMs, s.ClusterSessionsAgeMs, s.ClusterClientsAgeMs))
 	}
-	b.WriteString(fmt.Sprintf("Store-forward sent/recv: %d/%d\n", s.StoreForwardSent, s.StoreForwardRecv))
+	b.WriteString(fmt.Sprintf("Store-forward: %d/%d\n", s.StoreForwardSent, s.StoreForwardRecv))
 	if s.ClientsSource != "" {
-		b.WriteString("Clients source: " + s.ClientsSource + "\n")
+		b.WriteString("Источник клиентов: " + s.ClientsSource + "\n")
 	}
-	b.WriteString("Route mode hotkeys: 1=auto 2=direct 3=peer_relay 4=server_relay\n")
-	b.WriteString("Preferred server: S (cycle)\n")
+	b.WriteString("Route: 1=auto 2=direct 3=peer_relay 4=server_relay · S=preferred\n")
+	b.WriteString(hintText.Render("После смены route/preferred переподключись.") + "\n")
 	b.WriteString("\n")
 	b.WriteString(sectionTitle.Render("Mesh клиенты (DHT nearest)") + "\n")
 	if s.ClusterClientsCount > 0 && len(s.ClusterClients) > 0 {
@@ -1433,6 +1506,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r", "R":
 			if m.tab == tabCloud && !m.cloudLoading && !m.editing {
 				return m, m.reloadCloud(true)
+			}
+			if (m.tab == tabMesh || m.tab == tabCluster) && !m.meshEditing {
+				m.setMeshViewportContent()
+				m.setClusterViewportContent()
+				return m, nil
 			}
 		case "d", "D", "delete":
 			if m.tab == tabConfig && !m.adding && !m.editing && m.deletingCfg == "" && len(m.cfgs) > 0 {
@@ -2791,10 +2869,10 @@ func (m *Model) View() string {
 		footer += hintText.Render("  ") + hintKey.Render("↑/↓") + hintText.Render(" выбор  ") + hintKey.Render("P") + hintText.Render(" ping  ") + hintKey.Render("T") + hintText.Render(" volter  ") + hintKey.Render("E") + hintText.Render(" ред.  ") + hintKey.Render("R") + hintText.Render(" обновить")
 	}
 	if m.tab == tabMesh {
-		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("K") + hintText.Render(" export ticket  ") + hintKey.Render("I") + hintText.Render(" import ticket(file)  ") + hintKey.Render("X") + hintText.Render(" self-test stun/relay  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
+		footer += hintText.Render("  ") + hintKey.Render("R") + hintText.Render(" обновить сейчас  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("K") + hintText.Render(" export ticket  ") + hintKey.Render("I") + hintText.Render(" import ticket(file)  ") + hintKey.Render("X") + hintText.Render(" self-test stun/relay  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabCluster {
-		footer += hintText.Render("  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
+		footer += hintText.Render("  ") + hintKey.Render("R") + hintText.Render(" обновить  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabProtection {
 		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" редактировать  ") + hintKey.Render("1/2/3") + hintText.Render(" баланс/усил/авто  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка")
