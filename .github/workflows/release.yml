@@ -19,12 +19,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: set server version from tag
+      - name: set server version
         run: |
           RAW_VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${RAW_VERSION#v}
-          echo "Using server version $VERSION from tag $RAW_VERSION"
-          mvn -q -f server/pom.xml versions:set -DnewVersion=$VERSION -DgenerateBackupPoms=false
+          SERVER_VERSION=2.2.4
+          echo "Using server version ${SERVER_VERSION} (release tag ${RAW_VERSION})"
+          mvn -q -f server/pom.xml versions:set -DnewVersion=${SERVER_VERSION} -DgenerateBackupPoms=false
 
       - uses: actions/setup-go@v5
         with:

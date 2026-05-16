@@ -43,7 +43,7 @@ class ConnectionHandlerTest {
         Future<?> accepted = acceptPool.submit(() -> {
           try {
             Socket s = server.accept();
-            new ConnectionHandler(s, cfg, udp, tcpPool, streamPool, streamPool).run();
+            new ConnectionHandler(s, cfg, udp, tcpPool, streamPool).run();
           } catch (Exception e) {
             throw new RuntimeException(e);
           }
@@ -56,6 +56,7 @@ class ConnectionHandlerTest {
           BufferedReader r = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
           assertEquals("HTTP/1.1 200 OK", r.readLine());
           while (r.readLine() != null) {
+            // response must end quickly because handler writes Connection: close
           }
         }
         accepted.get();
@@ -133,7 +134,7 @@ class ConnectionHandlerTest {
         Future<?> accepted = acceptPool.submit(() -> {
           try {
             Socket s = server.accept();
-            new ConnectionHandler(s, cfg, udp, tcpPool, streamPool, streamPool).run();
+            new ConnectionHandler(s, cfg, udp, tcpPool, streamPool).run();
           } catch (Exception e) {
             throw new RuntimeException(e);
           }

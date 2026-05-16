@@ -19,9 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 public final class Main {
@@ -65,13 +63,8 @@ public final class Main {
     int reactorThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
     log.info("TCP reactor pool: " + reactorThreads + " threads");
     ExecutorService acceptPool = Executors.newCachedThreadPool();
-    int handshakeThreads = Math.max(64, reactorThreads * 4);
-    ExecutorService handshakePool = Executors.newFixedThreadPool(handshakeThreads);
-    log.info("handshake pool threads=" + handshakeThreads);
-    ThreadFactory sessionTf = poolThreadFactory("volter-session");
-    ThreadFactory udpTf = poolThreadFactory("volter-udp");
-    ExecutorService sessionPool = Executors.newCachedThreadPool(sessionTf);
-    ExecutorService udpWorkerPool = Executors.newCachedThreadPool(udpTf);
+    ExecutorService handshakePool = Executors.newFixedThreadPool(Math.max(16, reactorThreads * 2));
+    ExecutorService streamPool = Executors.newCachedThreadPool();
     TcpReactorPool tcpPool = new TcpReactorPool(reactorThreads);
     List<ServerSocketChannel> sockets = Collections.synchronizedList(new ArrayList<>());
     final QuicServer[] quicHolder = new QuicServer[1];
@@ -99,14 +92,12 @@ public final class Main {
       }
       ClusterRuntime.get().stop();
       tcpPool.shutdown();
-      sessionPool.shutdown();
-      udpWorkerPool.shutdown();
+      streamPool.shutdown();
       handshakePool.shutdown();
       acceptPool.shutdown();
       awaitPool(acceptPool, "accept");
       awaitPool(handshakePool, "handshake");
-      awaitPool(sessionPool, "session");
-      awaitPool(udpWorkerPool, "udpWorker");
+      awaitPool(streamPool, "stream");
       synchronized (RUN_LOCK) {
         RUN_LOCK.notifyAll();
       }
@@ -114,7 +105,7 @@ public final class Main {
 
     try (UdpSessions udp = new UdpSessions(cfg.udpChannels())) {
       if (cfg.quicEnabled()) {
-        quicHolder[0] = new QuicServer(cfg, udp, sessionPool, udpWorkerPool);
+        quicHolder[0] = new QuicServer(cfg, udp, streamPool);
         quicHolder[0].start();
       }
       dhtRpcHolder[0] = DhtRpcUdpServer.startIfEnabled(cfg);
@@ -124,7 +115,7 @@ public final class Main {
           ss.setOption(StandardSocketOptions.SO_REUSEADDR, true);
           ss.bind(new InetSocketAddress(port));
           sockets.add(ss);
-          acceptPool.submit(() -> acceptLoop(ss, cfg, udp, handshakePool, sessionPool, udpWorkerPool, tcpPool));
+          acceptPool.submit(() -> acceptLoop(ss, cfg, udp, handshakePool, streamPool, tcpPool));
         }
       }
 
@@ -149,24 +140,13 @@ public final class Main {
       }
       ClusterRuntime.get().stop();
       tcpPool.shutdown();
-      sessionPool.shutdown();
-      udpWorkerPool.shutdown();
+      streamPool.shutdown();
       handshakePool.shutdown();
       acceptPool.shutdown();
       awaitPool(acceptPool, "accept");
       awaitPool(handshakePool, "handshake");
-      awaitPool(sessionPool, "session");
-      awaitPool(udpWorkerPool, "udpWorker");
+      awaitPool(streamPool, "stream");
     }
-  }
-
-  private static ThreadFactory poolThreadFactory(String prefix) {
-    AtomicLong n = new AtomicLong();
-    return r -> {
-      Thread t = new Thread(r, prefix + "-" + n.incrementAndGet());
-      t.setDaemon(true);
-      return t;
-    };
   }
 
   private static void awaitPool(ExecutorService pool, String name) {
@@ -188,8 +168,7 @@ public final class Main {
     Config cfg,
     UdpSessions udp,
     ExecutorService handshakePool,
-    ExecutorService sessionPool,
-    ExecutorService udpWorkerPool,
+    ExecutorService streamPool,
     TcpReactorPool tcpPool
   ) {
     while (ss.isOpen()) {
@@ -197,7 +176,7 @@ public final class Main {
         SocketChannel s = ss.accept();
         s.setOption(StandardSocketOptions.TCP_NODELAY, true);
         s.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
-        handshakePool.submit(new ConnectionHandler(s.socket(), cfg, udp, tcpPool, sessionPool, udpWorkerPool));
+        handshakePool.submit(new ConnectionHandler(s.socket(), cfg, udp, tcpPool, streamPool));
       } catch (ClosedChannelException e) {
         break;
       } catch (IOException e) {

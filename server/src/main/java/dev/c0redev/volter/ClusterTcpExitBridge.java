@@ -102,14 +102,7 @@ final class ClusterTcpExitBridge {
     OutputStream upXorOut = xor.wrapOutput(upstream.getOutputStream());
     InputStream upXorIn = xor.wrapInput(upstream.getInputStream());
     try {
-      byte[] optsBytes = null;
-      if (copts.isPresent()) {
-        String optsJson = copts.get().toJsonForClusterRelay();
-        if (!optsJson.equals("{}")) {
-          optsBytes = optsJson.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        }
-      }
-      Protocol.writeVolterClientHandshake(upXorOut, Protocol.ROLE_TCP, cfg.token(), optsBytes);
+      Protocol.writeVolterClientHandshake(upXorOut, Protocol.ROLE_TCP, cfg.token(), null);
       Protocol.writeTcpConnectFrame(upXorOut, c);
     } catch (IOException e) {
       log.warning("cluster exit handshake failed: " + e.getMessage());

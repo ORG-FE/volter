@@ -49,16 +49,14 @@ final class ConnectionHandler implements Runnable {
     private final Config cfg;
     private final UdpSessions udp;
     private final TcpReactorPool tcpPool;
-    private final ExecutorService sessionPool;
-    private final ExecutorService udpWorkerPool;
+  private final ExecutorService streamPool;
 
-    ConnectionHandler(Socket sock, Config cfg, UdpSessions udp, TcpReactorPool tcpPool, ExecutorService sessionPool, ExecutorService udpWorkerPool) {
+    ConnectionHandler(Socket sock, Config cfg, UdpSessions udp, TcpReactorPool tcpPool, ExecutorService streamPool) {
         this.sock = sock;
         this.cfg = cfg;
         this.udp = udp;
         this.tcpPool = tcpPool;
-        this.sessionPool = sessionPool;
-        this.udpWorkerPool = udpWorkerPool;
+        this.streamPool = streamPool;
     }
 
     @Override
@@ -68,7 +66,6 @@ final class ConnectionHandler implements Runnable {
         BufferedInputStream rawIn = null;
         OutputStream rawOut = null;
         try {
-            log.info("tcp handshake begin peer=" + s.getRemoteSocketAddress());
             var xor = new XorStream(XorStream.keyFromToken(cfg.token()));
             s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             rawIn = new BufferedInputStream(s.getInputStream(), 128 * 1024);
@@ -104,45 +101,23 @@ final class ConnectionHandler implements Runnable {
             });
             SessionHandler.TcpHandler tcp =
                 (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts);
-            
-
             if (hs.role() == Protocol.ROLE_UDP) {
-                try {
-                    sessionPool.submit(() -> {
-                        try {
-                            session.handle(hs, hr, in, out, tcp, udpWorkerPool);
-                        } catch (IOException e) {
-                            log.fine("udp session ended: " + e.getMessage());
-                        } finally {
-                            try {
-                                s.close();
-                            } catch (IOException ignored) {}
-                        }
-                    });
-                    handedOff = true;
-                } catch (Exception e) {
-                    log.warning("failed to submit UDP session to pool: " + e.getMessage());
-                    throw new IOException("pool rejected UDP session", e);
-                }
+                session.handle(hs, hr, in, out, tcp, streamPool);
+                handedOff = true;
                 return;
             }
-            
-            try {
-                sessionPool.submit(() -> {
+            handedOff = true;
+            streamPool.submit(() -> {
+                try {
+                    session.handle(hs, hr, in, out, tcp, streamPool);
+                } catch (IOException e) {
+                    log.fine("session ended: " + e.getMessage());
                     try {
-                        session.handle(hs, hr, in, out, tcp, udpWorkerPool);
-                    } catch (IOException e) {
-                        log.fine("session ended: " + e.getMessage());
-                        try {
-                            s.close();
-                        } catch (IOException ignored) {}
-                    }
-                });
-                handedOff = true;
-            } catch (Exception e) {
-                log.warning("failed to submit TCP session to pool: " + e.getMessage());
-                throw new IOException("pool rejected TCP session", e);
-            }
+                        s.close();
+                    } catch (IOException ignored) {}
+                }
+                // при успешном ROLE_TCP сокет передан TcpReactor — закрывать здесь нельзя (иначе register гонит ClosedChannel)
+            });
             return;
         } catch (EOFException ignored) {
             CamouflageResult cr = tryCamouflage(s, rawIn, rawOut);
@@ -166,9 +141,6 @@ final class ConnectionHandler implements Runnable {
             }
         } finally {
             if (!handedOff) {
-                try {
-                    s.shutdownInput();
-                } catch (Exception ignored) {}
                 try {
                     s.close();
                 } catch (IOException ignored) {}
