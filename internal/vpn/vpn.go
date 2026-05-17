@@ -85,14 +85,11 @@ func Run(ctx context.Context, opt Options) error {
 	opt.ServerAddrs = orderedServerAddrs(opt.ServerAddrs, opt.Protection)
 	ck := clusterPollHeaderKey(opt)
 	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)
-	for _, addr := range opt.ServerAddrs {
-		a := strings.TrimSpace(addr)
-		if a == "" {
-			continue
-		}
-		go runClusterMapPoll(ctx, a, ck, mapPath)
-		go runClusterSessionsPoll(ctx, a, ck, sessPath)
-		go runClusterClientsPoll(ctx, a, ck, clientsPath)
+	entry := clusterHTTPPollTarget(opt.ServerAddrs, opt.Protection)
+	if entry != "" {
+		go runClusterMapPoll(ctx, entry, ck, mapPath)
+		go runClusterSessionsPoll(ctx, entry, ck, sessPath)
+		go runClusterClientsPoll(ctx, entry, ck, clientsPath)
 	}
 	if opt.Protection != nil && opt.Protection.ClusterRouteAssist {
 		go runClusterRouteAssist(ctx, opt)

@@ -51,7 +51,7 @@
     <string name="cluster_pool_hint_connected">VPN включен — кластер с текущего сервера. Потяни вниз для обновления.</string>
     <string name="cluster_pool_hint_disconnected">VPN выключен — свайп или подключись для poll.</string>
     <string name="cluster_refreshed_via_fmt">Кластер: ответ от %1$s</string>
-    <string name="cluster_overview_rtt_srflx_fmt">%.0f %1$s · srflx %2$s · sf %3$d/%4$d</string>
+    <string name="cluster_overview_rtt_srflx_fmt">%1$.0f %2$s · srflx %3$s · sf %4$d/%5$d</string>
     <string name="cluster_overview_srflx_sf_fmt">srflx %1$s · sf %2$d/%3$d</string>
     <string name="cluster_overview_sync_fmt">map=%1$s · sess=%2$s · cli=%3$s</string>
     <string name="cluster_overview_route_fmt">%1$s / %2$s · hop %3$s (%4$s)</string>

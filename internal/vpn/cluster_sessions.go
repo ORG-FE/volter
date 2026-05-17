@@ -16,20 +16,21 @@ func LastClusterSessions() string {
 	return s
 }
 
-func runClusterSessionsPoll(ctx context.Context, serverAddr, headerKey, httpPath string) {
-	serverAddr = strings.TrimSpace(serverAddr)
-	if serverAddr == "" {
-		return
-	}
+func runClusterSessionsPoll(ctx context.Context, entryAddr, headerKey, httpPath string) {
+	entryAddr = strings.TrimSpace(entryAddr)
 	path := strings.TrimSpace(httpPath)
 	if path == "" {
 		path = defaultClusterSessionsPath
 	}
-	u := "http://" + serverAddr + path
 	cl := &http.Client{Timeout: 6 * time.Second}
 	tk := time.NewTicker(5 * time.Second)
 	defer tk.Stop()
 	fetch := func() {
+		serverAddr := clusterHTTPPollTarget([]string{entryAddr}, nil)
+		if serverAddr == "" {
+			return
+		}
+		u := "http://" + serverAddr + path
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if strings.TrimSpace(headerKey) != "" {
 			req.Header.Set("X-Volter-Cluster-Key", strings.TrimSpace(headerKey))

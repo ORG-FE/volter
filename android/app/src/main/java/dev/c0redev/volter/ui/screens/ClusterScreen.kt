@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -423,6 +424,15 @@ private fun OverviewBlock(parsed: ParsedMeshStatus, iceRttSuffix: String) {
 }
 
 private fun ageOrDash(v: Long) = if (v >= 0L) "${v}ms" else "—"
+
+private fun clusterRowHostPort(row: String): String {
+    val p = row.indexOf('(')
+    val q = row.indexOf(')', p + 1)
+    if (p >= 0 && q > p) {
+        return row.substring(p + 1, q).trim()
+    }
+    return row.substringBefore(' ').trim()
+}
 
 private fun canonicalClusterExit(raw: String): String {
     val s = raw.trim().substringBefore(" ").trim()

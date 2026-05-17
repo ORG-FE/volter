@@ -20,6 +20,10 @@ func setActiveVolterServerAddr(addr string) {
 	activeVolterServer.Store(addr)
 }
 
+func SetActiveVolterServerForTest(addr string) {
+	setActiveVolterServerAddr(addr)
+}
+
 func ActiveVolterServer() string {
 	v := activeVolterServer.Load()
 	if v == nil {

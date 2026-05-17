@@ -26,37 +26,35 @@ func RefreshClusterEndpointsJSON(ctx context.Context, opt Options) string {
 		r.Error = "server addrs empty"
 		return marshalRefresh(r)
 	}
-	addrs := dialServerAddrs(opt.ServerAddrs, opt.Protection)
+	addr := clusterHTTPPollTarget(opt.ServerAddrs, opt.Protection)
+	if addr == "" {
+		r.Error = "server addrs empty"
+		return marshalRefresh(r)
+	}
 	ck := clusterPollHeaderKey(opt)
 	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	for _, raw := range addrs {
-		addr := strings.TrimSpace(raw)
-		if addr == "" {
-			continue
-		}
-		r.ServerUsed = addr
-		if refreshClusterHTTP(ctx, addr, ck, mapPath, 256*1024, func(body string) {
-			clusterStore(&lastClusterMap, body)
-		}) {
-			r.MapOK = true
-		}
-		if refreshClusterHTTP(ctx, addr, ck, sessPath, 512*1024, func(body string) {
-			clusterStore(&lastClusterSessions, body)
-		}) {
-			r.SessionsOK = true
-		}
-		if refreshClusterHTTP(ctx, addr, ck, clientsPath, 512*1024, func(body string) {
-			clusterStore(&lastClusterClients, body)
-			tunnel.SetGlobalClusterPeerTCPHints(peerHintsFromClusterRaw(body))
-		}) {
-			r.ClientsOK = true
-		}
-		if r.MapOK || r.SessionsOK || r.ClientsOK {
-			r.OK = true
-			return marshalRefresh(r)
-		}
+	r.ServerUsed = addr
+	if refreshClusterHTTP(ctx, addr, ck, mapPath, 256*1024, func(body string) {
+		clusterStore(&lastClusterMap, body)
+	}) {
+		r.MapOK = true
+	}
+	if refreshClusterHTTP(ctx, addr, ck, sessPath, 512*1024, func(body string) {
+		clusterStore(&lastClusterSessions, body)
+	}) {
+		r.SessionsOK = true
+	}
+	if refreshClusterHTTP(ctx, addr, ck, clientsPath, 512*1024, func(body string) {
+		clusterStore(&lastClusterClients, body)
+		tunnel.SetGlobalClusterPeerTCPHints(peerHintsFromClusterRaw(body))
+	}) {
+		r.ClientsOK = true
+	}
+	if r.MapOK || r.SessionsOK || r.ClientsOK {
+		r.OK = true
+		return marshalRefresh(r)
 	}
 	if r.Error == "" {
 		r.Error = "cluster HTTP unreachable"
