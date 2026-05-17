@@ -108,7 +108,6 @@ func relayPipe(client, remote net.Conn, opts Options) {
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(client, remote)
-		closeBoth()
 	}()
 	defer func() {
 		closeBoth()

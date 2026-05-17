@@ -18,14 +18,13 @@ import java.util.logging.Logger;
 
 final class ClusterRuntime {
   private static final Logger log = Log.logger(ClusterRuntime.class);
+  private static final Duration CLUSTER_HTTP_CONNECT = Duration.ofSeconds(3);
+  private static final Duration CLUSTER_HTTP_READ = Duration.ofSeconds(4);
   private static final ClusterRuntime INSTANCE = new ClusterRuntime();
 
   static ClusterRuntime get() {
     return INSTANCE;
   }
-
-  private static final Duration CLUSTER_HTTP_CONNECT = Duration.ofSeconds(3);
-  private static final Duration CLUSTER_HTTP_READ = Duration.ofSeconds(4);
 
   private final HttpClient http = HttpClient.newBuilder().connectTimeout(CLUSTER_HTTP_CONNECT).build();
   private final Map<String, ClusterNode> nodes = new ConcurrentHashMap<>();
