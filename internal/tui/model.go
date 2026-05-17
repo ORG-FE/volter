@@ -2441,6 +2441,7 @@ func (m *Model) protectionView() string {
 		labels := []string{
 			"obfuscation", "junkCount", "junkMin", "junkMax", "padS1", "padS2", "padS3", "padS4", "preCheck", "magicSplit", "junkStyle", "flushPolicy", "preambleProfile", "preambleRotate",
 			"standaloneDpiOnly", "dpiLocalEngine", "splitAfter", "ttlMillis", "disorder", "splitAfter2", "ttl2Millis", "jitterMaxMs", "leadInMs", "dpiLocalPreset",
+			"fakeSni", "fakeSniHost", "splitPosition", "autoTtl", "tcpSegment", "oobData", "multiSplit",
 		}
 		for i := range m.protectionInputs {
 			b.WriteString("  ")
