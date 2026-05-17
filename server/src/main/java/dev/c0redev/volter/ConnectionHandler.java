@@ -36,7 +36,7 @@ final class ConnectionHandler implements Runnable {
     private static final HttpClient CLUSTER_FWD = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5))
         .build();
-    private static final int HANDSHAKE_TIMEOUT_MS = 12_000;
+    private static final int HANDSHAKE_TIMEOUT_MS = 4_000;
     private static final int HANDSHAKE_MARK_READ_LIMIT = 2 * 1024 * 1024;
     private static final SecureRandom HELLO_RND = new SecureRandom();
     
@@ -64,10 +64,20 @@ final class ConnectionHandler implements Runnable {
         OutputStream rawOut = null;
         try {
             var xor = new XorStream(XorStream.keyFromToken(cfg.token()));
-            s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             rawIn = new BufferedInputStream(s.getInputStream(), 128 * 1024);
             rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
             rawOut = s.getOutputStream();
+            byte[] peek = new byte[8];
+            int peekN = rawIn.read(peek);
+            rawIn.reset();
+            if (peekN > 0 && (looksLikeHTTP(peek, peekN) || looksLikeTLS(peek, peekN))) {
+                s.setSoTimeout(0);
+                if (tryCamouflage(s, rawIn, rawOut)) {
+                    handedOff = true;
+                    return;
+                }
+            }
+            s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             InputStream in = xor.wrapInput(rawIn);
 
             Protocol.HandshakeResult hr = Protocol.readHandshake(in);
