@@ -37,7 +37,7 @@ func (s *DualPathSelector) PreferQUIC() bool {
 	defer s.mu.Unlock()
 	if s.degraded {
 		s.probeTick++
-		return s.probeTick%10 == 0
+		return s.probeTick%6 == 0
 	}
 	p := 0.38 + 0.54*s.ewma
 	if p < 0.42 {
@@ -63,7 +63,7 @@ func (s *DualPathSelector) RecordQuicOutcome(ok bool) {
 	}
 	s.consecutiveFails++
 	s.ewma *= 0.82
-	if s.consecutiveFails >= 2 {
+	if s.consecutiveFails >= 4 {
 		s.degraded = true
 	}
 }

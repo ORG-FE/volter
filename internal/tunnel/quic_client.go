@@ -382,6 +382,24 @@ func DialUDPMuxQUIC(serverAddrs []string, quicServer, serverName string, skipVer
 	return shutdown, conn, streams, nil
 }
 
+func ReopenUDPMuxSlot(conn *quic.Conn, channelID byte, token string, prot *config.ProtectionOptions) (UDPMuxQUICStream, error) {
+	if conn == nil {
+		return UDPMuxQUICStream{}, errors.New("quic udp mux: nil conn")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	st, err := conn.OpenStreamSync(ctx)
+	if err != nil {
+		return UDPMuxQUICStream{}, err
+	}
+	sconn, r, w, maxPad, err := openUDPChannelOnQUICStream(conn, st, channelID, token, prot, false, nil)
+	if err != nil {
+		_ = st.Close()
+		return UDPMuxQUICStream{}, err
+	}
+	return UDPMuxQUICStream{Conn: sconn, R: r, W: w, MaxPad: maxPad}, nil
+}
+
 func DialUDPChannelQUIC(serverAddrs []string, quicServer, serverName string, skipVerify bool, certPinSHA256 string, rootCAs *x509.CertPool, channelID byte, token string, prot *config.ProtectionOptions) (net.Conn, *bufio.Reader, *bufio.Writer, int, error) {
 	addr, _, err := ResolveQUICDialAddr(serverAddrs, quicServer)
 	if err != nil {

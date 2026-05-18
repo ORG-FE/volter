@@ -18,7 +18,9 @@ import (
 	"dev.c0redev.volter/internal/sockprotect"
 )
 
-const routeHandshakeTimeout = 3 * time.Second
+const volterWireHandshakeTimeout = 12 * time.Second
+
+const DualPathRaceTimeout = 12 * time.Second
 
 func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, tunPreferTCP bool) (net.Conn, error) {
 	if !tunPreferTCP && UsesQUICTransport(transport, quicServer) {
@@ -41,7 +43,7 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 				lastErr = err
 				continue
 			}
-			_ = c.SetDeadline(time.Now().Add(routeHandshakeTimeout))
+			_ = c.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
 			slot := SlotForProtection(prot)
 			bufSize := protocol.BufSizeForConn(slot)
 			r := bufio.NewReaderSize(c, bufSize)
@@ -90,7 +92,7 @@ func DialSingleTCP(addr string, targetIP net.IP, targetPort uint16, token string
 	if err != nil {
 		return nil, err
 	}
-	_ = c.SetDeadline(time.Now().Add(routeHandshakeTimeout))
+	_ = c.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
 	slot := SlotForProtection(prot)
 	bufSize := protocol.BufSizeForConn(slot)
 	r := bufio.NewReaderSize(c, bufSize)
@@ -152,7 +154,7 @@ func (c *tunnelConn) Read(p []byte) (n int, err error) {
 }
 
 func dialServer(addr, token string) (net.Conn, error) {
-	d := net.Dialer{Timeout: routeHandshakeTimeout, KeepAlive: 30 * time.Second}
+	d := net.Dialer{Timeout: volterWireHandshakeTimeout, KeepAlive: 30 * time.Second}
 	if p := sockprotect.Protect; p != nil {
 		d.Control = func(network, address string, c syscall.RawConn) error {
 			var err error
@@ -195,7 +197,7 @@ func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipV
 	if quicTraceOn() {
 		clientlog.Trace("quic tun-tcp OpenStreamSync")
 	}
-	streamCtx, streamCancel := context.WithTimeout(context.Background(), routeHandshakeTimeout)
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), volterWireHandshakeTimeout)
 	stream, err := conn.OpenStreamSync(streamCtx)
 	streamCancel()
 	if err != nil {
@@ -256,7 +258,7 @@ func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPin
 	if quicTraceOn() {
 		clientlog.Trace("quic peer tun-tcp OpenStreamSync")
 	}
-	streamCtx, streamCancel := context.WithTimeout(context.Background(), routeHandshakeTimeout)
+	streamCtx, streamCancel := context.WithTimeout(context.Background(), volterWireHandshakeTimeout)
 	stream, err := conn.OpenStreamSync(streamCtx)
 	streamCancel()
 	if err != nil {
@@ -270,7 +272,7 @@ func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPin
 		return nil, err
 	}
 	sconn := newQUICStreamConn(conn, stream, closePC)
-	_ = sconn.SetDeadline(time.Now().Add(routeHandshakeTimeout))
+	_ = sconn.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
 	slot := SlotForProtection(prot)
 	w := bufio.NewWriterSize(sconn, protocol.BufSizeForConn(slot))
 	r := bufio.NewReaderSize(sconn, protocol.BufSizeForConn(slot))

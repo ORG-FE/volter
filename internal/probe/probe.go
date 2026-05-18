@@ -16,6 +16,7 @@ import (
 
 	"dev.c0redev.volter/internal/obfuscate"
 	"dev.c0redev.volter/internal/protocol"
+	"dev.c0redev.volter/internal/sockprotect"
 )
 
 func randInt(min, max int) int {
@@ -35,17 +36,34 @@ var defaultInternetAddrs = []string{"8.8.8.8:443", "1.1.1.1:443"}
 const defaultProbeTimeout = 5 * time.Second
 
 func Ping(addr string, timeout time.Duration) (time.Duration, error) {
+	return PingTCP(addr, timeout)
+}
+
+func PingTCP(addr string, timeout time.Duration) (time.Duration, error) {
 	if timeout <= 0 {
 		timeout = defaultProbeTimeout
 	}
 	start := time.Now()
-	c, err := net.DialTimeout("tcp", addr, timeout)
-	d := time.Since(start)
+	d := net.Dialer{Timeout: timeout}
+	if p := sockprotect.Protect; p != nil {
+		d.Control = func(network, address string, c syscall.RawConn) error {
+			var err error
+			e := c.Control(func(fd uintptr) {
+				err = p(fd)
+			})
+			if e != nil {
+				return e
+			}
+			return err
+		}
+	}
+	c, err := d.Dial("tcp", addr)
+	elapsed := time.Since(start)
 	if err != nil {
 		return 0, err
 	}
 	_ = c.Close()
-	return d, nil
+	return elapsed, nil
 }
 
 func ProbeVolter(addr string, wireToken string, timeout time.Duration) (ok bool, ipv6 bool, err error) {

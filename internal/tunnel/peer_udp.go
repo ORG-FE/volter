@@ -63,7 +63,7 @@ func dialPeerUDP(addr string) (*net.UDPConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := net.Dialer{Timeout: routeHandshakeTimeout}
+	d := net.Dialer{Timeout: volterWireHandshakeTimeout}
 	if p := sockprotect.Protect; p != nil {
 		d.Control = func(network, address string, c syscall.RawConn) error {
 			var err error
@@ -93,7 +93,7 @@ func DialPeerRelayUDP(addr string, targetIP net.IP, targetPort uint16, token str
 	if err != nil {
 		return nil, err
 	}
-	_ = uc.SetDeadline(time.Now().Add(routeHandshakeTimeout))
+	_ = uc.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
 	slot := SlotForProtection(prot)
 	bufSize := protocol.BufSizeForConn(slot)
 	var raw bytes.Buffer

@@ -247,6 +247,13 @@ type udpMux struct {
 	quicClose func()
 }
 
+func (m *udpMux) quicAlive() bool {
+	if m == nil || m.quicConn == nil {
+		return false
+	}
+	return m.quicConn.Context().Err() == nil
+}
+
 func (m *udpMux) SharedQUICConn() *tunnel.QUICConn {
 	return m.quicConn
 }
@@ -291,6 +298,10 @@ func newUDPMux(addrs []string, token string, n int, prot *config.ProtectionOptio
 				maxPad: s.MaxPad,
 				stop:   make(chan struct{}),
 				cb:     m.dispatch,
+				mux:    m,
+				slot:   i,
+				token:  token,
+				prot:   prot,
 			}
 			if prot != nil && prot.ShapeMaxKbps > 0 {
 				uc.shape = tunnel.NewByteBucket(prot.ShapeMaxKbps)
@@ -377,6 +388,10 @@ type udpChan struct {
 	shapeJitterMaxMs int
 	shapeExpMeanMs   int
 	shape            *tunnel.ByteBucket
+	mux              *udpMux
+	slot             int
+	token            string
+	prot             *config.ProtectionOptions
 	mu               sync.Mutex
 	stopOnce         sync.Once
 	stop             chan struct{}
@@ -398,11 +413,14 @@ func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame
 			slot := tunnel.SlotForProtection(prot)
 			bufSize := protocol.BufSizeForConn(slot)
 			uc := &udpChan{
-				conn: c,
-				r:    bufio.NewReaderSize(c, bufSize),
-				w:    bufio.NewWriterSize(c, bufSize),
-				stop: make(chan struct{}),
-				cb:   cb,
+				conn:  c,
+				r:     bufio.NewReaderSize(c, bufSize),
+				w:     bufio.NewWriterSize(c, bufSize),
+				stop:  make(chan struct{}),
+				cb:    cb,
+				slot:  int(id),
+				token: token,
+				prot:  prot,
 			}
 			maxPad, err := tunnel.WriteUDPChannelPreambleSlot(uc.w, id, token, prot, slot)
 			if err != nil {
@@ -481,11 +499,34 @@ func (c *udpChan) readLoop() {
 		}
 		f, err := protocol.ReadUDPFrame(c.r)
 		if err != nil {
+			if c.tryRecover(err) {
+				continue
+			}
 			clientlog.Drop("vpn: udp channel read failed: %v", err)
 			return
 		}
 		c.cb(f)
 	}
+}
+
+func (c *udpChan) tryRecover(readErr error) bool {
+	if c.mux == nil || c.mux.quicConn == nil {
+		return false
+	}
+	st, err := tunnel.ReopenUDPMuxSlot(c.mux.quicConn, byte(c.slot), c.token, c.prot)
+	if err != nil {
+		clientlog.Drop("vpn: udp ch %d reopen: %v (after %v)", c.slot, err, readErr)
+		return false
+	}
+	c.mu.Lock()
+	_ = c.conn.Close()
+	c.conn = st.Conn
+	c.r = st.R
+	c.w = st.W
+	c.maxPad = st.MaxPad
+	c.mu.Unlock()
+	clientlog.Warn("vpn: udp channel %d reopened after read error: %v", c.slot, readErr)
+	return true
 }
 
 type handler struct {
@@ -610,12 +651,6 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 	}
 	r = bufio.NewReaderSize(sconn, protocol.BufSizeForConn(slot))
 	defer sconn.Close()
-
-	deadline := time.Now().Add(30 * time.Minute)
-	_ = tc.SetReadDeadline(deadline)
-	_ = tc.SetWriteDeadline(deadline)
-	_ = sconn.SetReadDeadline(deadline)
-	_ = sconn.SetWriteDeadline(deadline)
 
 	copyBufSize := protocol.CopyBufSize(slot)
 	done := make(chan struct{}, 2)

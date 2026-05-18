@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/peertransport"
 	"dev.c0redev.volter/internal/protocol"
@@ -155,6 +156,7 @@ func (r *PeerUDPRelay) dispatch(raddr *net.UDPAddr, pkt []byte) {
 		select {
 		case r.sem <- struct{}{}:
 		default:
+			clientlog.Warn("peer udp relay: max concurrent sessions, dropping new peer %s", raddr)
 			delete(r.peers, key)
 			r.mu.Unlock()
 			return
@@ -164,7 +166,7 @@ func (r *PeerUDPRelay) dispatch(raddr *net.UDPAddr, pkt []byte) {
 			relay:   r,
 			key:     key,
 			raddr:   &addrCopy,
-			in:      make(chan []byte, 64),
+			in:      make(chan []byte, 256),
 			done:    make(chan struct{}),
 			readBuf: msg,
 		}
@@ -182,6 +184,7 @@ func (r *PeerUDPRelay) dispatch(raddr *net.UDPAddr, pkt []byte) {
 	s := st.sess
 	r.mu.Unlock()
 	if closed {
+		clientlog.Warn("peer udp relay: in chan full, closing session %s", s.raddr)
 		_ = s.Close()
 	}
 }

@@ -63,23 +63,25 @@ func TestDualPathSelectorHealthyMix(t *testing.T) {
 
 func TestDualPathSelectorDegradedProbes(t *testing.T) {
 	s := newDualPathSelector(22)
-	s.RecordQuicOutcome(false)
-	s.RecordQuicOutcome(false)
+	for i := 0; i < 4; i++ {
+		s.RecordQuicOutcome(false)
+	}
 	n := 0
 	for i := 0; i < 100; i++ {
 		if s.PreferQUIC() {
 			n++
 		}
 	}
-	if n < 5 || n > 20 {
-		t.Errorf("want ~10%% QUIC probes in degraded, got %d/100", n)
+	if n < 12 || n > 25 {
+		t.Errorf("want ~17%% QUIC probes in degraded (1/6), got %d/100", n)
 	}
 }
 
 func TestDualPathSelectorRecoveryClearsDegraded(t *testing.T) {
 	s := newDualPathSelector(33)
-	s.RecordQuicOutcome(false)
-	s.RecordQuicOutcome(false)
+	for i := 0; i < 4; i++ {
+		s.RecordQuicOutcome(false)
+	}
 	s.RecordQuicOutcome(true)
 	n := 0
 	for i := 0; i < 300; i++ {

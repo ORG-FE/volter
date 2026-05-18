@@ -24,8 +24,6 @@ import (
 	"dev.c0redev.volter/internal/telemetry"
 )
 
-const dualPathCutoverTimeout = 3 * time.Second
-
 func wrapFlushJitter(prot *config.ProtectionOptions, flush func()) func() {
 	if flush == nil {
 		return nil
@@ -470,7 +468,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 			}
 			telemetry.RecordPath(telemetry.SwitchTransport, fmt.Sprintf("dual race first %s %s:%d in %s", w, dst.String(), dstPort, time.Since(raceStart).Round(time.Millisecond)))
 		} else if errors.Is(err, context.DeadlineExceeded) {
-			telemetry.RecordPath(telemetry.SwitchTransport, fmt.Sprintf("dual race 4s timeout %s:%d", dst.String(), dstPort))
+			telemetry.RecordPath(telemetry.SwitchTransport, fmt.Sprintf("dual race %s timeout %s:%d", DualPathRaceTimeout.String(), dst.String(), dstPort))
 		}
 		if sel != nil {
 			if tcpUsed {
@@ -534,7 +532,7 @@ type dualDialRes struct {
 }
 
 func dialDualRace(addrs []string, dst net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, preferTCP bool) (net.Conn, bool, bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), dualPathCutoverTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), DualPathRaceTimeout)
 	defer cancel()
 	resCh := make(chan dualDialRes, 2)
 	startDial := func(forceTCP bool, delay time.Duration) {
