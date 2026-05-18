@@ -16,6 +16,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Logger;
 
 final class UdpSessions implements AutoCloseable {
@@ -30,7 +32,8 @@ final class UdpSessions implements AutoCloseable {
     private static final int WRITE_RETRY_DELAY_MS = 2;
     private static final int WRITE_TIMEOUT_MS = 2_000;
     private static final long SESSION_IDLE_TIMEOUT_NANOS =
-        TimeUnit.MINUTES.toNanos(5);
+
+        TimeUnit.MINUTES.toNanos(1);
 
     UdpSessions(int channels) throws IOException {
         this.selector = Selector.open();
@@ -221,6 +224,7 @@ final class UdpSessions implements AutoCloseable {
         void send(byte[] payload) throws IOException {
             ByteBuffer bb = ByteBuffer.wrap(payload);
             synchronized (this) {
+                // Update activity on outbound traffic as well
                 touch();
                 long timeoutAt =
                     System.nanoTime() +
@@ -258,31 +262,36 @@ final class UdpSessions implements AutoCloseable {
         }
     }
 
-    public static final class UdpChannelWriter implements AutoCloseable {
+public static final class UdpChannelWriter implements AutoCloseable {
 
-        final int id;
-        private final OutputStream out;
-        private final Protocol.ClientOptions opts;
-        private final LinkedBlockingQueue<Protocol.UdpFrame> q =
-            new LinkedBlockingQueue<>();
-        private final AtomicBoolean closed = new AtomicBoolean(false);
-        private final Thread t;
-        private long budgetWindowStartNanos;
-        private long budgetWindowBytes;
+    final int id;
+    private final OutputStream out;
+    private final Protocol.ClientOptions opts;
+    // bounded queue to limit memory per writer (default 1024)
+    private final LinkedBlockingQueue<Protocol.UdpFrame> q =
+        new LinkedBlockingQueue<>(1024);
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+    // shared thread pool for all writers (size = 2 × CPU, max 64)
+    private static final java.util.concurrent.ExecutorService writerPool =
+        java.util.concurrent.Executors.newFixedThreadPool(
+            Math.min(64, Math.max(8, Runtime.getRuntime().availableProcessors() * 2)));
+    private final java.util.concurrent.Future<?> future;
+    private long budgetWindowStartNanos;
+    private long budgetWindowBytes;
 
-        UdpChannelWriter(
-            int id,
-            OutputStream out,
-            Protocol.ClientOptions opts
-        ) {
-            this.id = id;
-            this.out = out;
-            this.opts = opts;
-            this.t = new Thread(this::loop, "udp-writer-" + id);
-            this.t.setDaemon(true);
-            this.budgetWindowStartNanos = System.nanoTime();
-            this.t.start();
-        }
+    UdpChannelWriter(
+        int id,
+        OutputStream out,
+        Protocol.ClientOptions opts
+    ) {
+        this.id = id;
+        this.out = out;
+        this.opts = opts;
+        this.budgetWindowStartNanos = System.nanoTime();
+        // run loop in shared pool instead of dedicated thread
+        this.future = writerPool.submit(this::loop);
+    }
+
 
         void send(Protocol.UdpFrame f) {
             if (closed.get()) return;
@@ -330,16 +339,12 @@ final class UdpSessions implements AutoCloseable {
             budgetWindowBytes += Math.max(0, payloadBytes);
         }
 
-        @Override
-        public void close() {
-            closed.set(true);
-            t.interrupt();
-            try {
-                t.join(5000);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-        }
+@Override
+    public void close() {
+        closed.set(true);
+        // cancel pending tasks and stop pool thread gracefully
+        if (future != null) future.cancel(true);
+    }
     }
 
     private void closeSession(Key key, Session s) {

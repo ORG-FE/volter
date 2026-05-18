@@ -70,8 +70,12 @@ func GetState() State {
 	}
 	globalState.mu.Lock()
 	defer globalState.mu.Unlock()
-	
-	return *globalState
+
+	return State{
+		Connected: globalState.Connected,
+		Profile:   globalState.Profile,
+		PID:       globalState.PID,
+	}
 }
 
 func saveState() {

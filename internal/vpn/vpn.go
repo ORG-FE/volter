@@ -343,6 +343,11 @@ func (m *udpMux) Close() {
 		m.quicClose = nil
 	}
 	m.quicConn = nil
+	// clear assoc map to free retained references
+	m.assoc.Range(func(k, v interface{}) bool {
+		m.assoc.Delete(k)
+		return true
+	})
 }
 
 func (m *udpMux) register(k udpAssocKey, a *udpAssoc) {
