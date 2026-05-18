@@ -956,22 +956,13 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 			multiSplit = clamp(atoi(inputs[30].Value()), 0, 10)
 		}
 	}
-	defEmb := config.DpiLocalEmbedded{
-		SplitAfter: 1, TTLMillis: 8, Disorder: false,
-		SplitAfter2: 0, TTL2Millis: 0, JitterMaxMs: 0, LeadInMs: 0,
-		FakeSNI: false, FakeSNIHost: "", SplitPosition: "",
-		AutoTTL: false, TCPSegment: 0, OOBData: false, MultiSplit: 0,
-	}
 	curEmb := config.DpiLocalEmbedded{
 		SplitAfter: splitA, TTLMillis: ttl, Disorder: disorder,
 		SplitAfter2: splitA2, TTL2Millis: ttl2, JitterMaxMs: jitter, LeadInMs: leadIn,
 		FakeSNI: fakeSni, FakeSNIHost: fakeSniHost, SplitPosition: splitPos,
 		AutoTTL: autoTtl, TCPSegment: tcpSeg, OOBData: oobData, MultiSplit: multiSplit,
 	}
-	var embPtr *config.DpiLocalEmbedded
-	if curEmb != defEmb {
-		embPtr = &curEmb
-	}
+	embPtr := &curEmb
 	return config.ProtectionOptions{
 		Obfuscation:       obf,
 		JunkCount:         clamp(atoi(inputs[1].Value()), 0, 12),

@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
+	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
@@ -14,6 +16,8 @@ import (
 )
 
 func Run(ctx context.Context, listenAddr string, serverAddrs []string, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool) error {
+
+
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return err
@@ -104,23 +108,15 @@ func handleSOCKS5(client net.Conn, serverAddrs []string, token string, prot *con
 		return
 	}
 
-	ip := net.ParseIP(host)
-	if ip == nil {
-		ips, err := net.LookupIP(host)
-		if err != nil || len(ips) == 0 {
-			reply(client, 4)
-			return
-		}
-		for _, a := range ips {
-			if a.To4() != nil {
-				ip = a
-				break
-			}
-		}
-		if ip == nil {
-			ip = ips[0]
-		}
-	}
+ip := net.ParseIP(host)
+    if ip == nil {
+        ip, err = resolveHost(host)
+        if err != nil {
+            reply(client, 4)
+            return
+        }
+    }
+
 
 	remote, err := tunnel.Dial(serverAddrs, ip, port, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, nil, false)
 	if err != nil {

@@ -154,13 +154,13 @@ type DpiLocalEmbedded struct {
 	Disorder     bool `json:"disorder,omitempty"`
 	JitterMaxMs  int  `json:"jitterMaxMs,omitempty"`
 	LeadInMs     int  `json:"leadInMs,omitempty"`
-	FakeSNI      bool `json:"fakeSni,omitempty"`
-	FakeSNIHost  string `json:"fakeSniHost,omitempty"`
-	SplitPosition string `json:"splitPosition,omitempty"` // "sni", "method", "host", "random"
-	AutoTTL      bool `json:"autoTtl,omitempty"`
-	TCPSegment   int  `json:"tcpSegment,omitempty"`
-	OOBData      bool `json:"oobData,omitempty"`
-	MultiSplit   int  `json:"multiSplit,omitempty"` // количество дополнительных split'ов
+	FakeSNI       bool `json:"fakeSni"`
+	FakeSNIHost  string `json:"fakeSniHost"`
+	SplitPosition string `json:"splitPosition"` // "sni", "method", "host", "random"
+	AutoTTL      bool `json:"autoTtl"`
+	TCPSegment   int  `json:"tcpSegment"`
+	OOBData      bool `json:"oobData"`
+	MultiSplit   int  `json:"multiSplit"` 
 }
 
 func DpiLocalEngineIsExternal(p *ProtectionOptions) bool {
