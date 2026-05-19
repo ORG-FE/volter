@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 
@@ -15,19 +16,19 @@ import (
 
 func resolveHost(host string) (net.IP, error) {
 
-    ips, err := net.DefaultResolver.LookupIPAddr(context.Background(), host)
-    if err != nil {
-        return nil, err
-    }
-    for _, ia := range ips {
-        if v4 := ia.IP.To4(); v4 != nil {
-            return v4, nil
-        }
-    }
-    if len(ips) > 0 {
-        return ips[0].IP, nil
-    }
-    return nil, fmt.Errorf("no IP addresses found for %s", host)
+	ips, err := net.DefaultResolver.LookupIPAddr(context.Background(), host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ia := range ips {
+		if v4 := ia.IP.To4(); v4 != nil {
+			return v4, nil
+		}
+	}
+	if len(ips) > 0 {
+		return ips[0].IP, nil
+	}
+	return nil, fmt.Errorf("no IP addresses found for %s", host)
 }
 
 func Run(ctx context.Context, listenAddr string, serverAddrs []string, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool) error {
@@ -122,16 +123,15 @@ func handleSOCKS5(client net.Conn, serverAddrs []string, token string, prot *con
 		return
 	}
 
-ip := net.ParseIP(host)
-    if ip == nil {
-        var resolveErr error
-        ip, resolveErr = resolveHost(host)
-        if resolveErr != nil {
-            reply(client, 4)
-            return
-        }
-    }
-
+	ip := net.ParseIP(host)
+	if ip == nil {
+		var resolveErr error
+		ip, resolveErr = resolveHost(host)
+		if resolveErr != nil {
+			reply(client, 4)
+			return
+		}
+	}
 
 	remote, err := tunnel.Dial(serverAddrs, ip, port, token, prot, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, nil, false)
 	if err != nil {
