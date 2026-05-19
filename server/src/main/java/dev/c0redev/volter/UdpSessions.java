@@ -271,10 +271,9 @@ public static final class UdpChannelWriter implements AutoCloseable {
     private final LinkedBlockingQueue<Protocol.UdpFrame> q =
         new LinkedBlockingQueue<>(1024);
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    // shared thread pool for all writers (size = 2 × CPU, max 64)
+    // shared thread pool for all writers using Cached Thread Pool
     private static final java.util.concurrent.ExecutorService writerPool =
-        java.util.concurrent.Executors.newFixedThreadPool(
-            Math.min(64, Math.max(8, Runtime.getRuntime().availableProcessors() * 2)));
+        java.util.concurrent.Executors.newCachedThreadPool();
     private final java.util.concurrent.Future<?> future;
     private long budgetWindowStartNanos;
     private long budgetWindowBytes;
