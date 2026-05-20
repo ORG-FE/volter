@@ -38,7 +38,10 @@ final class RelayRegistry {
     if (v == null) return;
     while (true) {
       int cur = v.get();
-      if (cur <= 0) return;
+      if (cur <= 0) {
+        active.remove(remote == null ? "?" : remote, v);
+        return;
+      }
       if (v.compareAndSet(cur, cur - 1)) return;
     }
   }

@@ -179,22 +179,13 @@ final class UdpSessions implements AutoCloseable {
     public void close() throws Exception {
         if (!closed.compareAndSet(false, true)) return;
         for (Session s : sessions.values()) {
-            try {
-                s.close();
-            } catch (IOException ignored) {}
+            try { s.close(); } catch (IOException ignored) {}
         }
         sessions.clear();
-        try {
-            selector.wakeup();
-        } catch (Exception ignored) {}
-        try {
-            selector.close();
-        } catch (Exception ignored) {}
-        try {
-            selectorThread.join(5000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        UdpChannelWriter.shutdownPool();
+        try { selector.wakeup(); } catch (Exception ignored) {}
+        try { selector.close(); } catch (Exception ignored) {}
+        try { selectorThread.join(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
     private static final class Session implements AutoCloseable {
@@ -341,8 +332,11 @@ public static final class UdpChannelWriter implements AutoCloseable {
 @Override
     public void close() {
         closed.set(true);
-        // cancel pending tasks and stop pool thread gracefully
+        q.clear();
         if (future != null) future.cancel(true);
+    }
+    static void shutdownPool() {
+        writerPool.shutdownNow();
     }
     }
 
