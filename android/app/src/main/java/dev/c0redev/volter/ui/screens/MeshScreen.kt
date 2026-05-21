@@ -206,11 +206,16 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 ) {
                     FilledTonalButton(
+                        onClick = { draft = draft.applyMeshDefaults() },
+                    ) {
+                        Text(stringResource(R.string.mesh_fill_defaults))
+                    }
+                    FilledTonalButton(
                         onClick = {
-                            vm.upsertLocalConfig(selected, item.config.withMeshKeepingCarryOver(draft))
+                            vm.upsertLocalConfig(selected, item.config.withMeshKeepingCarryOver(draft.applyMeshDefaults()))
                         },
                     ) {
                         Text(stringResource(R.string.mesh_save))

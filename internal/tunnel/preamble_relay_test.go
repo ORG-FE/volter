@@ -103,6 +103,14 @@ func TestProtForServerRelayRouteEnforcesRelayHop(t *testing.T) {
 	}
 }
 
+func TestFallbackDialProtStripsRelayOnServerDial(t *testing.T) {
+	src := &config.ProtectionOptions{RelayHop: 1, PeerID: "p", RelayNonce: "n", RelaySig: "s"}
+	got := fallbackDialProt(src, nil, false, true)
+	if got == nil || got.RelayHop != 0 || got.PeerID != "" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestProtForServerRelayRouteKeepsClusterPreferred(t *testing.T) {
 	src := &config.ProtectionOptions{
 		ClusterPreferredServer: "ru.example:443",

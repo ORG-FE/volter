@@ -7,6 +7,9 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 final class Protocol {
@@ -411,6 +414,7 @@ final class Protocol {
       String resumeToken,
       String routeId,
       int hopIndex,
+      List<String> relayRouteHops,
       String clusterPreferredServer,
       String tlsProfileId,
       String ja3TargetHash) {
@@ -553,6 +557,7 @@ final class Protocol {
         }
         if (tlsProfileId.length() > 128) tlsProfileId = tlsProfileId.substring(0, 128);
         if (ja3TargetHash.length() > 128) ja3TargetHash = ja3TargetHash.substring(0, 128);
+        List<String> relayRouteHops = parseStringArray(json, "relayRouteHops");
         return Optional.of(new ClientOptions(
             padS4,
             probeObfsProfileId,
@@ -566,6 +571,7 @@ final class Protocol {
             resumeToken,
             routeId,
             hopIndex,
+            relayRouteHops,
             clusterPreferredServer,
             tlsProfileId,
             ja3TargetHash));
@@ -573,5 +579,28 @@ final class Protocol {
         return Optional.empty();
       }
     }
+  }
+
+  private static List<String> parseStringArray(String json, String key) {
+    String needle = "\"" + key + "\"";
+    int i = json.indexOf(needle);
+    if (i < 0) return List.of();
+    int l = json.indexOf('[', i);
+    int r = json.indexOf(']', l + 1);
+    if (l < 0 || r <= l) return List.of();
+    String arr = json.substring(l + 1, r);
+    if (arr.isBlank()) return List.of();
+    List<String> out = new ArrayList<>();
+    int q = 0;
+    while (q < arr.length()) {
+      int q1 = arr.indexOf('"', q);
+      if (q1 < 0) break;
+      int q2 = arr.indexOf('"', q1 + 1);
+      if (q2 < 0) break;
+      String s = arr.substring(q1 + 1, q2).trim();
+      if (!s.isEmpty()) out.add(s);
+      q = q2 + 1;
+    }
+    return Collections.unmodifiableList(out);
   }
 }

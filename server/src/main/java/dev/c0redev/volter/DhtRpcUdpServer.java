@@ -23,6 +23,9 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 final class DhtRpcUdpServer implements Closeable {
@@ -46,6 +49,7 @@ final class DhtRpcUdpServer implements Closeable {
   private final Config cfg;
   private final DatagramSocket socket;
   private final Thread worker;
+  private final ScheduledExecutorService kvCleaner;
   private final Map<String, KvEntry> kv = new ConcurrentHashMap<>();
   private volatile boolean running = true;
 
@@ -54,6 +58,12 @@ final class DhtRpcUdpServer implements Closeable {
     this.socket = socket;
     this.worker = new Thread(this::loop, "dht-rpc-udp");
     this.worker.setDaemon(true);
+    this.kvCleaner = Executors.newSingleThreadScheduledExecutor(r -> {
+      Thread t = new Thread(r, "dht-kv-clean");
+      t.setDaemon(true);
+      return t;
+    });
+    this.kvCleaner.scheduleAtFixedRate(this::purgeExpiredKv, 30, 30, TimeUnit.SECONDS);
   }
 
   static DhtRpcUdpServer startIfEnabled(Config cfg) throws IOException {
@@ -72,8 +82,14 @@ final class DhtRpcUdpServer implements Closeable {
   @Override
   public void close() {
     running = false;
+    kvCleaner.shutdownNow();
     socket.close();
     worker.interrupt();
+  }
+
+  private void purgeExpiredKv() {
+    long now = Instant.now().toEpochMilli();
+    kv.entrySet().removeIf(e -> e.getValue().expMs < now);
   }
 
   private void loop() {

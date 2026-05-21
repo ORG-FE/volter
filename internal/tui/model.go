@@ -553,8 +553,33 @@ func (m *Model) setClusterRouteMode(mode string) {
 		opts = *cfg.Protection
 	}
 	opts.RouteMode = strings.TrimSpace(mode)
+	config.ApplyClusterProtectionDefaults(&opts)
 	cfg.Protection = &opts
 	_ = config.Save(name, cfg)
+}
+
+func (m *Model) applyClusterDefaultsToActive() {
+	name := m.meshRelayEffectiveTarget()
+	if name == "" {
+		m.err = "нет локального профиля"
+		return
+	}
+	cfg, err := config.LoadByName(name)
+	if err != nil {
+		m.err = err.Error()
+		return
+	}
+	opts := config.ProtectionOptions{}
+	if cfg.Protection != nil {
+		opts = *cfg.Protection
+	}
+	config.ApplyClusterProtectionDefaults(&opts)
+	cfg.Protection = &opts
+	if err := config.Save(name, cfg); err != nil {
+		m.err = err.Error()
+		return
+	}
+	m.err = ""
 }
 
 func (m *Model) cycleClusterPreferredServer() {
@@ -585,6 +610,7 @@ func (m *Model) cycleClusterPreferredServer() {
 	}
 	opts.ClusterPreferredServer = clusteraddr.CanonicalHostPort(server)
 	opts.RouteMode = "server_relay"
+	config.ApplyClusterProtectionDefaults(&opts)
 	cfg.Protection = &opts
 	_ = config.Save(name, cfg)
 }
@@ -1580,6 +1606,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setClusterViewportContent()
 				return m, nil
 			}
+		case "f", "F":
+			if m.tab == tabCluster && !m.meshEditing {
+				m.applyClusterDefaultsToActive()
+				m.setClusterViewportContent()
+				return m, nil
+			}
 		case "s", "S":
 			if m.tab == tabCluster {
 				m.cycleClusterPreferredServer()
@@ -1610,13 +1642,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.tab == tabMesh && !m.meshEditing && len(m.names) > 0 {
 				name := m.meshRelayEffectiveTarget()
-				var r *config.RelayOptions
+				var cfg *config.Config
 				if name != "" {
-					if cfg, err := config.LoadByName(name); err == nil {
-						r = config.EffectiveRelayOptions(&cfg)
+					if c, err := config.LoadByName(name); err == nil {
+						cfg = &c
 					}
 				}
-				m.meshInputs = newMeshRelayInputs(r)
+				m.meshInputs = defaultMeshRelayInputs(cfg)
 				m.meshEditing = true
 				m.meshFormFocus = 0
 				m.meshInputs[0].Focus()
@@ -2864,7 +2896,7 @@ func (m *Model) View() string {
 		footer += hintText.Render("  ") + hintKey.Render("R") + hintText.Render(" обновить сейчас  ") + hintKey.Render("E") + hintText.Render(" relay/mesh  ") + hintKey.Render("K") + hintText.Render(" export ticket  ") + hintKey.Render("I") + hintText.Render(" import ticket(file)  ") + hintKey.Render("X") + hintText.Render(" self-test stun/relay  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabCluster {
-		footer += hintText.Render("  ") + hintKey.Render("R") + hintText.Render(" обновить  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
+		footer += hintText.Render("  ") + hintKey.Render("R") + hintText.Render(" обновить  ") + hintKey.Render("F") + hintText.Render(" cluster defaults  ") + hintKey.Render("1-4") + hintText.Render(" route  ") + hintKey.Render("S") + hintText.Render(" preferred  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка  ") + hintText.Render("(~2s)")
 	}
 	if m.tab == tabProtection {
 		footer += hintText.Render("  ") + hintKey.Render("E") + hintText.Render(" редактировать  ") + hintKey.Render("1/2/3") + hintText.Render(" баланс/усил/авто  ") + hintKey.Render("Ctrl+←/→") + hintText.Render(" цель  ") + hintKey.Render("↑/↓ PgUp/PgDn") + hintText.Render(" прокрутка")

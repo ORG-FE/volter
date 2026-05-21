@@ -81,6 +81,10 @@ func (a *Assembler) reset() {
 	a.got = 0
 }
 
+func (a *Assembler) InProgress() bool {
+	return a.parts != nil && a.got > 0 && a.got < a.total
+}
+
 func (a *Assembler) Feed(pkt []byte) ([]byte, bool) {
 	if len(pkt) < vp02Header {
 		a.reset()

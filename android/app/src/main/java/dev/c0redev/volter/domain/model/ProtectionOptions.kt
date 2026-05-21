@@ -40,7 +40,17 @@ data class ProtectionOptions(
     val antiDpiWithVpn: Boolean = false,
     val routeMode: String? = null,
     val routePlannerV2: Boolean = false,
+    val relayRouteHops: List<String> = emptyList(),
 ) {
+    fun applyClusterDefaults(): ProtectionOptions = copy(
+        clusterMapPath = clusterMapPath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-map.json",
+        clusterSessionsPath = clusterSessionsPath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-sessions.json",
+        clusterClientsPath = clusterClientsPath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-clients.json",
+        clusterInvitePath = clusterInvitePath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-invite",
+        clusterPeerHandshakePath = clusterPeerHandshakePath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-peer-handshake",
+        routePlannerV2 = true,
+    )
+
     fun toJson(): JSONObject {
         val j = JSONObject()
         obfuscation?.let { j.put("obfuscation", it) }
@@ -87,6 +97,13 @@ data class ProtectionOptions(
         if (antiDpiWithVpn) j.put("antiDpiWithVpn", true)
         routeMode?.let { j.put("routeMode", it) }
         if (routePlannerV2) j.put("routePlannerV2", true)
+        if (relayRouteHops.isNotEmpty()) {
+            val a = JSONArray()
+            for (h in relayRouteHops) {
+                a.put(h)
+            }
+            j.put("relayRouteHops", a)
+        }
         return j
     }
 
@@ -134,6 +151,14 @@ data class ProtectionOptions(
             antiDpiWithVpn = j.optBoolean("antiDpiWithVpn", false),
             routeMode = j.optNullableString("routeMode"),
             routePlannerV2 = j.optBoolean("routePlannerV2", false),
+            relayRouteHops = run {
+                val arr = j.optJSONArray("relayRouteHops") ?: return@run emptyList()
+                buildList(arr.length()) {
+                    for (i in 0 until arr.length()) {
+                        add(arr.getString(i))
+                    }
+                }
+            },
         )
     }
 }

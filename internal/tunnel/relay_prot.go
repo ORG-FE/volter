@@ -26,7 +26,7 @@ func RelayProtForPeerHop(base *config.ProtectionOptions, relay *config.RelayOpti
 		cp.RelayHop = 1
 	}
 	if cp.RelayMaxHop <= 0 {
-		cp.RelayMaxHop = 3
+		cp.RelayMaxHop = config.DefaultMeshMaxPeerHops
 	}
 	if cp.RoutePlannerV2 {
 		if cp.HopIndex <= 0 {

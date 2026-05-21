@@ -117,6 +117,7 @@ type ProtectionOptions struct {
 	ResumeToken                 string            `json:"resumeToken,omitempty"`
 	RouteID                     string            `json:"routeId,omitempty"`
 	HopIndex                    int               `json:"hopIndex,omitempty"`
+	RelayRouteHops              []string          `json:"relayRouteHops,omitempty"`
 	ChurnEpochSec               int               `json:"churnEpochSec,omitempty"`
 	FlushJitterMaxMs            int               `json:"flushJitterMaxMs,omitempty"`
 	BurstSmoothingMaxMs         int               `json:"burstSmoothingMaxMs,omitempty"`

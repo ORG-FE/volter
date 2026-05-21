@@ -373,12 +373,32 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 			decision.PeerTCPCandidates = decision.PeerTCPCandidates[:1]
 		}
 	}
-	if plan := BuildRoutePlan(dst.String(), decision); len(plan.Hops) > 0 {
+	plan := BuildRoutePlan(dst.String(), decision)
+	if len(plan.Hops) > 0 {
 		var parts []string
 		for _, h := range plan.Hops {
 			parts = append(parts, h.Kind+"="+h.Addr)
 		}
 		SetRouteTrace(dst.String(), strings.Join(parts, " -> "), "", "")
+	}
+	chainProt := AttachRouteHops(dialProt, plan)
+	if len(plan.Hops) > 0 && chainProt != nil {
+		h := plan.Hops[0]
+		protR := RelayProtForPeerHop(chainProt, relay)
+		if protR.HopIndex <= 0 {
+			protR.HopIndex = 1
+		}
+		c, usedTCP, err := dialRouteHopConn(h.Kind, h.Addr, dst, dstPort, token, protR, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared)
+		if err == nil {
+			SetRouteTrace(dst.String(), mode, fmt.Sprintf("%s:%s", h.Kind, h.Addr), "")
+			if pm != nil {
+				pm.Record(dst, true, decision.RelayClass, decision.PathTTL)
+			}
+			telemetry.RecordPath(telemetry.SwitchRelay, fmt.Sprintf("route %s:%s hop=%d", h.Kind, h.Addr, protR.HopIndex))
+			return c, false, usedTCP, nil
+		}
+		clientlog.Warn("vpn: route hop %s %s: %v", h.Kind, h.Addr, err)
+		SetRouteTrace(dst.String(), mode, fmt.Sprintf("%s:%s", h.Kind, h.Addr), err.Error())
 	}
 	if relay != nil && relay.PeerRelayUseQUIC && strings.TrimSpace(decision.PeerQUIC) != "" {
 		quicCands := append([]string(nil), decision.PeerQUICCandidates...)
@@ -489,13 +509,15 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		if pm != nil && decision.PreferTCP && decision.PeerAddr == "" {
 			clientlog.Info("vpn: path manager prefers TCP for %s", dst.String())
 		}
-		c, err := Dial(addrs, dst, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
+		fb := fallbackDialProt(dialProt, relay, clusterExit, allowPeerPath)
+		c, err := Dial(addrs, dst, dstPort, token, fb, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
 		if pm != nil {
 			pm.Record(dst, err == nil, decision.RelayClass, decision.PathTTL)
 		}
 		return c, false, true, err
 	}
-	c, err := Dial(addrs, dst, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, false)
+	fb := fallbackDialProt(dialProt, relay, clusterExit, allowPeerPath)
+	c, err := Dial(addrs, dst, dstPort, token, fb, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, false)
 	if err != nil && dual && quicShared != nil {
 		if sel != nil {
 			sel.RecordQuicOutcome(false)
@@ -509,7 +531,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		telemetry.NoteFailoverLatency(time.Since(flowStart))
 		telemetry.NoteTransportFallback()
 		telemetry.RecordPath(telemetry.SwitchTransport, fmt.Sprintf("quic fallback tcp %s:%d %v", dst.String(), dstPort, quicErr))
-		c, err = Dial(addrs, dst, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
+		c, err = Dial(addrs, dst, dstPort, token, fb, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
 		if pm != nil {
 			pm.Record(dst, err == nil, decision.RelayClass, decision.PathTTL)
 		}

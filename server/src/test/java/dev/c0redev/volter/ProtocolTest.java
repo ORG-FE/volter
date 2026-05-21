@@ -187,6 +187,20 @@ class ProtocolTest {
   }
 
   @Test
+  void clientOptionsParseRelayRouteHops() {
+    String sig = hmacSig("token", "p1", "n1");
+    var opt =
+        Protocol.ClientOptions.parse(
+            "{\"relayHop\":1,\"hopIndex\":1,\"relayMaxHop\":2,\"peerId\":\"p1\",\"relayNonce\":\"n1\",\"relaySig\":\""
+                + sig
+                + "\",\"relayRouteHops\":[\"peer_tcp:1.2.3.4:5\",\"peer_tcp:6.7.8.9:10\"]}");
+    assertTrue(opt.isPresent());
+    assertEquals(2, opt.get().relayRouteHops().size());
+    assertEquals("peer_tcp:1.2.3.4:5", opt.get().relayRouteHops().get(0));
+    assertEquals(1, opt.get().hopIndex());
+  }
+
+  @Test
   void udpFrameEmptyPayload() throws IOException {
     var f = new Protocol.UdpFrame(Protocol.ADDR_V4, 0,
         InetAddress.getByAddress(new byte[]{127, 0, 0, 1}), 53,

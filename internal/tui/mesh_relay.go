@@ -90,6 +90,34 @@ func atoiField(s string) int {
 	return n
 }
 
+func defaultMeshRelayInputs(cfg *config.Config) []textinput.Model {
+	var base config.RelayOptions
+	if cfg != nil && cfg.Relay != nil {
+		base = *cfg.Relay
+	}
+	mesh := &config.MeshConfig{Enabled: true}
+	if cfg != nil && cfg.Mesh != nil {
+		cp := *cfg.Mesh
+		mesh = &cp
+	}
+	if !mesh.Enabled {
+		mesh.Enabled = true
+	}
+	mesh.P2P.Enabled = true
+	mesh.Volunteer.Enabled = true
+	mesh.STUN.Enabled = true
+	mesh.ServerRelay.Enabled = true
+	config.ApplyMeshDefaults(mesh)
+	config.ApplyRelayDefaults(&base)
+	out := config.MeshToRelayOptions(mesh)
+	if out != nil {
+		config.ApplyRelayDefaults(out)
+		return newMeshRelayInputs(out)
+	}
+	config.ApplyRelayDefaults(&base)
+	return newMeshRelayInputs(&base)
+}
+
 func newMeshRelayInputs(r *config.RelayOptions) []textinput.Model {
 	ti := func(pl, val string) textinput.Model {
 		t := textinput.New()

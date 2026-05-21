@@ -15,6 +15,9 @@ const (
 	PathClassDirect byte = 1
 	PathClassServer byte = 2
 	PathClassPeer   byte = 3
+
+	pathStatTTL        = 30 * time.Minute
+	pathStatMaxEntries = 4096
 )
 
 type PathDecision struct {
@@ -40,41 +43,6 @@ type RoutePlan struct {
 	Hops   []RouteHop
 }
 
-func BuildRoutePlan(target string, decision PathDecision) RoutePlan {
-	out := RoutePlan{Target: strings.TrimSpace(target)}
-	appendHop := func(kind, addr string) {
-		addr = strings.TrimSpace(addr)
-		if addr == "" {
-			return
-		}
-		out.Hops = append(out.Hops, RouteHop{Kind: kind, Addr: addr})
-	}
-	for _, q := range decision.PeerQUICCandidates {
-		appendHop("peer_quic", q)
-	}
-	for _, u := range decision.PeerUDPCandidates {
-		appendHop("peer_udp", u)
-	}
-	for _, t := range decision.PeerTCPCandidates {
-		appendHop("peer_tcp", t)
-	}
-	if len(out.Hops) == 0 {
-		if decision.RelayClass == PathClassServer {
-			appendHop("server_relay", target)
-		} else {
-			appendHop("direct_server", target)
-		}
-	}
-	maxHops := decision.MaxPeerHops
-	if maxHops <= 0 {
-		maxHops = 1
-	}
-	if len(out.Hops) > maxHops {
-		out.Hops = out.Hops[:maxHops]
-	}
-	return out
-}
-
 type PathManager struct {
 	mu               sync.Mutex
 	paths            map[string]*pathStat
@@ -98,6 +66,7 @@ type pathStat struct {
 	lastRelay   byte
 	lastTTL     byte
 	lastAttempt time.Time
+	lastTouch   time.Time
 }
 
 func NewPathManager() *PathManager {
@@ -299,13 +268,15 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 	key := dst.String()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now()
+	m.sweepPathsLocked(now)
 	st, ok := m.paths[key]
 	if !ok {
-		st = &pathStat{ewmaOK: 1}
+		st = &pathStat{ewmaOK: 1, lastTouch: now}
 		m.paths[key] = st
 	}
-	now := time.Now()
 	st.lastAttempt = now
+	st.lastTouch = now
 
 	tryPeer := func() (PathDecision, bool) {
 		if !allowPeerPath || !m.peerDial {
@@ -431,11 +402,14 @@ func (m *PathManager) Record(dst net.IP, ok bool, relayClass byte, pathTTL byte)
 	key := dst.String()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now()
+	m.sweepPathsLocked(now)
 	st, hit := m.paths[key]
 	if !hit {
-		st = &pathStat{ewmaOK: 1}
+		st = &pathStat{ewmaOK: 1, lastTouch: now}
 		m.paths[key] = st
 	}
+	st.lastTouch = now
 	if ok {
 		st.failStreak = 0
 		st.ewmaOK = 0.85*st.ewmaOK + 0.15
@@ -454,4 +428,55 @@ func (m *PathManager) Record(dst net.IP, ok bool, relayClass byte, pathTTL byte)
 	}
 	st.lastRelay = relayClass
 	st.lastTTL = pathTTL
+}
+
+func (m *PathManager) sweepPathsLocked(now time.Time) {
+	if m == nil || len(m.paths) == 0 {
+		return
+	}
+	cut := now.Add(-pathStatTTL)
+	for k, st := range m.paths {
+		touch := st.lastTouch
+		if touch.IsZero() {
+			touch = st.lastAttempt
+		}
+		if touch.IsZero() {
+			continue
+		}
+		if touch.Before(cut) {
+			delete(m.paths, k)
+			if m.tcpStickUntil != nil {
+				delete(m.tcpStickUntil, k)
+			}
+		}
+	}
+	if len(m.paths) <= pathStatMaxEntries {
+		return
+	}
+	type kv struct {
+		key string
+		at  time.Time
+	}
+	items := make([]kv, 0, len(m.paths))
+	for k, st := range m.paths {
+		touch := st.lastTouch
+		if touch.IsZero() {
+			touch = st.lastAttempt
+		}
+		items = append(items, kv{key: k, at: touch})
+	}
+	for len(m.paths) > pathStatMaxEntries && len(items) > 0 {
+		oldest := 0
+		for i := 1; i < len(items); i++ {
+			if items[i].at.Before(items[oldest].at) {
+				oldest = i
+			}
+		}
+		delete(m.paths, items[oldest].key)
+		if m.tcpStickUntil != nil {
+			delete(m.tcpStickUntil, items[oldest].key)
+		}
+		items[oldest] = items[len(items)-1]
+		items = items[:len(items)-1]
+	}
 }

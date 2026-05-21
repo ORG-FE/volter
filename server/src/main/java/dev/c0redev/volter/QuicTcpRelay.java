@@ -5,6 +5,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.logging.Logger;
 
 final class QuicTcpRelay {
@@ -24,18 +26,22 @@ final class QuicTcpRelay {
       remote.setTcpNoDelay(true);
       var remoteIn = remote.getInputStream();
       var remoteOut = remote.getOutputStream();
-      Thread up = new Thread(() -> copy(quicIn, remoteOut), "quic-pair-up");
-      Thread down = new Thread(() -> copy(remoteIn, quicOut), "quic-pair-down");
-      up.start();
-      down.start();
+      Future<?> up = RelayCopyPool.submit(() -> copy(quicIn, remoteOut), "quic-pair-up");
+      Future<?> down = RelayCopyPool.submit(() -> copy(remoteIn, quicOut), "quic-pair-down");
       try {
-        up.join();
-        down.join();
+        up.get();
+        down.get();
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        up.interrupt();
-        down.interrupt();
+        up.cancel(true);
+        down.cancel(true);
         throw new IOException(e);
+      } catch (ExecutionException e) {
+        Throwable cause = e.getCause();
+        if (cause instanceof IOException io) {
+          throw io;
+        }
+        throw new IOException(cause);
       }
     }
   }

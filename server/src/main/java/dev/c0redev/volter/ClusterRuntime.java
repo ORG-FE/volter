@@ -20,6 +20,7 @@ final class ClusterRuntime {
   private static final Logger log = Log.logger(ClusterRuntime.class);
   private static final Duration CLUSTER_HTTP_CONNECT = Duration.ofSeconds(3);
   private static final Duration CLUSTER_HTTP_READ = Duration.ofSeconds(4);
+  private static final long CLUSTER_NODE_STALE_MS = 10 * 60_000L;
   private static final ClusterRuntime INSTANCE = new ClusterRuntime();
 
   static ClusterRuntime get() {
@@ -382,6 +383,7 @@ final class ClusterRuntime {
     if (raw == null || raw.isBlank()) return 0;
     List<Map<String, String>> parsed = parseNodes(raw);
     long now = System.currentTimeMillis();
+    evictStaleNodes(now);
     int merged = 0;
     for (Map<String, String> row : parsed) {
       String id = row.getOrDefault("id", "").trim();
@@ -389,10 +391,29 @@ final class ClusterRuntime {
       String dhtRpc = row.getOrDefault("dhtRpc", "").trim();
       if (id.isEmpty()) continue;
       if (endpoint.isEmpty()) endpoint = "";
-      nodes.put(id, new ClusterNode(id, endpoint, dhtRpc, now, true));
+      long seen = now;
+      String ts = row.get("ts");
+      if (ts != null && !ts.isBlank()) {
+        try {
+          seen = Long.parseLong(ts.trim());
+        } catch (NumberFormatException ignored) {
+        }
+      }
+      nodes.put(id, new ClusterNode(id, endpoint, dhtRpc, seen, true));
       merged++;
     }
     return merged;
+  }
+
+  private void evictStaleNodes(long now) {
+    Config c = cfg;
+    String self = c != null ? c.clusterNodeId() : "";
+    nodes.entrySet().removeIf(e -> {
+      if (e.getKey().equals(self)) {
+        return false;
+      }
+      return now - e.getValue().lastSeenMs > CLUSTER_NODE_STALE_MS;
+    });
   }
 
   private static List<Map<String, String>> parseNodes(String json) {
@@ -414,9 +435,11 @@ final class ClusterRuntime {
       String id = jsonField(c, "id");
       String endpoint = jsonField(c, "endpoint");
       String dhtRpc = jsonField(c, "dhtRpc");
+      String ts = jsonFieldLong(c, "ts");
       if (id != null) m.put("id", id);
       if (endpoint != null) m.put("endpoint", endpoint);
       if (dhtRpc != null) m.put("dhtRpc", dhtRpc);
+      if (ts != null) m.put("ts", ts);
       if (!m.isEmpty()) out.add(m);
     }
     return out;
@@ -433,6 +456,24 @@ final class ClusterRuntime {
     int q2 = json.indexOf('"', q1 + 1);
     if (q2 < 0) return null;
     return json.substring(q1 + 1, q2);
+  }
+
+  private static String jsonFieldLong(String json, String key) {
+    String needle = "\"" + key + "\"";
+    int i = json.indexOf(needle);
+    if (i < 0) return null;
+    int colon = json.indexOf(':', i + needle.length());
+    if (colon < 0) return null;
+    int p = colon + 1;
+    while (p < json.length() && Character.isWhitespace(json.charAt(p))) {
+      p++;
+    }
+    int end = p;
+    while (end < json.length() && Character.isDigit(json.charAt(end))) {
+      end++;
+    }
+    if (end <= p) return null;
+    return json.substring(p, end);
   }
 
   private static String selfDhtRpc(String publicHost, String listenUdp) {

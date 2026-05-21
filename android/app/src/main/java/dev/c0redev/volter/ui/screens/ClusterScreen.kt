@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -199,8 +200,11 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                     onClick = {
                                         val name = activeName ?: return@FilterChip
                                         val cfg = activeCfg ?: return@FilterChip
-                                        val prot =
+                                        var prot =
                                             (cfg.protection ?: dev.c0redev.volter.domain.model.ProtectionOptions()).copy(routeMode = mode)
+                                        if (mode == "server_relay") {
+                                            prot = prot.applyClusterDefaults()
+                                        }
                                         vm.upsertLocalConfig(name, cfg.copy(protection = prot))
                                     },
                                     label = {
@@ -212,6 +216,29 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                     },
                                     shape = RoundedCornerShape(VolterSpacing.chipRadius),
                                 )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            FilledTonalButton(
+                                onClick = {
+                                    val name = activeName ?: return@FilledTonalButton
+                                    val cfg = activeCfg ?: return@FilledTonalButton
+                                    val prot =
+                                        (cfg.protection ?: dev.c0redev.volter.domain.model.ProtectionOptions())
+                                            .applyClusterDefaults()
+                                    vm.upsertLocalConfig(name, cfg.copy(protection = prot))
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.cluster_fill_defaults_done),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                                enabled = activeName != null && activeCfg != null,
+                            ) {
+                                Text(stringResource(R.string.cluster_fill_defaults))
                             }
                         }
                     }

@@ -7,6 +7,8 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.logging.Logger;
 
 final class ClusterTcpExitBridge {
@@ -116,20 +118,22 @@ final class ClusterTcpExitBridge {
       return false;
     }
     log.info("cluster tcp exit bridge -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
-    Thread up = new Thread(() -> copyQuiet("cluster-br-up", clientIn, upXorOut), "cluster-br-up");
-    Thread down = new Thread(() -> copyQuiet("cluster-br-down", upXorIn, clientXorOut), "cluster-br-down");
-    up.setDaemon(true);
-    down.setDaemon(true);
-    up.start();
-    down.start();
+    Future<?> up = RelayCopyPool.submit(() -> copyQuiet("cluster-br-up", clientIn, upXorOut), "cluster-br-up");
+    Future<?> down = RelayCopyPool.submit(() -> copyQuiet("cluster-br-down", upXorIn, clientXorOut), "cluster-br-down");
     try {
-      up.join();
-      down.join();
+      up.get();
+      down.get();
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      up.interrupt();
-      down.interrupt();
+      up.cancel(true);
+      down.cancel(true);
       throw new IOException(e);
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof IOException io) {
+        throw io;
+      }
+      throw new IOException(cause);
     } finally {
       try {
         upstream.close();

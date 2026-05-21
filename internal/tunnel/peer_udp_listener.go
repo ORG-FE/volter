@@ -150,6 +150,9 @@ func (r *PeerUDPRelay) dispatch(raddr *net.UDPAddr, pkt []byte) {
 	}
 	msg, ok := st.asm.Feed(pkt)
 	if !ok {
+		if st.sess == nil && !st.asm.InProgress() {
+			delete(r.peers, key)
+		}
 		r.mu.Unlock()
 		return
 	}
@@ -214,11 +217,6 @@ func (r *PeerUDPRelay) handleSession(s *peerUDPSession) {
 	if err != nil {
 		return
 	}
-	target, err := dialPeerRelayTarget(tc.IP, tc.Port)
-	if err != nil {
-		return
-	}
-	defer target.Close()
 	if needHopAck(&opts) {
 		bw := bufio.NewWriter(s)
 		if err := protocol.WriteHopAck(bw, protocol.HopAck{
@@ -233,16 +231,12 @@ func (r *PeerUDPRelay) handleSession(s *peerUDPSession) {
 			return
 		}
 	}
-
 	budget := opts.RelayBudgetKbps
 	if r.budgetKbps > 0 && (budget <= 0 || budget > r.budgetKbps) {
 		budget = r.budgetKbps
 	}
 	bucket := NewByteBucket(budget)
-	errc := make(chan error, 2)
-	go func() { errc <- copyRelay(target, br, bucket) }()
-	go func() { errc <- copyRelay(s, target, bucket) }()
-	<-errc
+	_ = runPeerRelaySession(s, &opts, &tc, r.token, bucket)
 }
 
 func hopIndexByte(v int) byte {
@@ -292,7 +286,7 @@ func allowPeerRelayOptions(opts *config.ProtectionOptions, token string) bool {
 	if maxHop <= 0 || maxHop > peerRelayHopHardLimit {
 		maxHop = peerRelayHopHardLimit
 	}
-	if opts.RelayHop >= maxHop {
+	if opts.RelayHop > maxHop {
 		return false
 	}
 	if opts.PeerID == "" || opts.RelayNonce == "" || opts.RelaySig == "" {

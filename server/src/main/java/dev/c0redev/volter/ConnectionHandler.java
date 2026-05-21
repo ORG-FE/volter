@@ -25,7 +25,9 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.logging.Logger;
 
 import org.json.JSONObject;
@@ -859,7 +861,7 @@ final class ConnectionHandler implements Runnable {
             upstream.setSoTimeout(0);
             InputStream uin = upstream.getInputStream();
             OutputStream uout = upstream.getOutputStream();
-            Thread up = new Thread(() -> {
+            Future<?> up = streamPool.submit(() -> {
                 byte[] b = new byte[32 * 1024];
                 try {
                     int r;
@@ -872,15 +874,20 @@ final class ConnectionHandler implements Runnable {
                 } finally {
                     try { upstream.shutdownOutput(); } catch (Exception ignored) {}
                 }
-            }, "camouflage-up");
-            up.setDaemon(true);
-            up.start();
+            });
             byte[] b = new byte[32 * 1024];
             int r;
             while ((r = uin.read(b)) >= 0) {
                 if (r == 0) continue;
                 cout.write(b, 0, r);
                 cout.flush();
+            }
+            try {
+                up.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                up.cancel(true);
+            } catch (ExecutionException ignored) {
             }
             return true;
         } catch (IOException e) {

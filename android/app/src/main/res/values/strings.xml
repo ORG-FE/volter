@@ -81,6 +81,9 @@
     <string name="mesh_title">Mesh</string>
     <string name="mesh_profile_label">Profile</string>
     <string name="mesh_save">Save mesh to profile</string>
+    <string name="mesh_fill_defaults">Fill mesh defaults</string>
+    <string name="cluster_fill_defaults">Fill cluster defaults</string>
+    <string name="cluster_fill_defaults_done">Cluster defaults applied</string>
     <string name="mesh_section_ice">ICE (STUN)</string>
     <string name="mesh_stun_servers">STUN servers (comma)</string>
     <string name="mesh_turn_urls">Legacy TURN URIs (not used by mesh)</string>

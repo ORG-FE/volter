@@ -182,6 +182,32 @@ class MeshConfigTest {
     }
 
     @Test
+    fun applyMeshDefaultsFillsStunAndVolunteer() {
+        val mesh = MeshConfig(enabled = true, volunteer = MeshVolunteerOptions(enabled = true))
+        val filled = mesh.applyMeshDefaults()
+        assertTrue(filled.stun.servers.orEmpty().size >= 2)
+        assertTrue(filled.volunteer.peerId.orEmpty().isNotBlank())
+        assertTrue(filled.volunteer.udpListen == "0.0.0.0:0")
+        assertTrue(filled.policy.maxPeerHops >= 2)
+    }
+
+    @Test
+    fun protectionRelayRouteHopsRoundTrip() {
+        val hops = listOf("peer_tcp:1.2.3.4:5", "peer_tcp:6.7.8.9:10")
+        val raw = ProtectionOptions(relayRouteHops = hops).toJson()
+        val out = ProtectionOptions.fromJson(raw)
+        assertTrue(out.relayRouteHops == hops)
+    }
+
+    @Test
+    fun applyClusterDefaultsFillsPaths() {
+        val prot = ProtectionOptions()
+        val out = prot.applyClusterDefaults()
+        assertTrue(out.clusterMapPath.orEmpty().isNotBlank())
+        assertTrue(out.routePlannerV2)
+    }
+
+    @Test
     fun disabledMeshProfileKeepsPreparedFields() {
         val cfg = Config(
             server = "1.2.3.4:443",

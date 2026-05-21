@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const registryStaleAge = 10 * time.Minute
+
 type Entry struct {
 	ClientUUID   string
 	Volunteer    bool
@@ -26,15 +28,31 @@ func (r *Registry) Upsert(e Entry) {
 	if r == nil || e.ClientUUID == "" {
 		return
 	}
+	if e.LastSeen.IsZero() {
+		e.LastSeen = time.Now()
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.evictStaleLocked(time.Now())
 	r.m[e.ClientUUID] = e
+}
+
+func (r *Registry) evictStaleLocked(now time.Time) {
+	cut := now.Add(-registryStaleAge)
+	for id, e := range r.m {
+		if e.LastSeen.Before(cut) {
+			delete(r.m, id)
+		}
+	}
 }
 
 func (r *Registry) Snapshot() []Entry {
 	if r == nil {
 		return nil
 	}
+	r.mu.Lock()
+	r.evictStaleLocked(time.Now())
+	r.mu.Unlock()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]Entry, 0, len(r.m))

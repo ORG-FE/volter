@@ -34,7 +34,60 @@ data class MeshConfig(
         )
     }
 
+    fun applyMeshDefaults(): MeshConfig {
+        var m = copy(
+            enabled = true,
+            volunteer = volunteer.copy(
+                enabled = true,
+                udpListen = volunteer.udpListen?.takeIf { it.isNotBlank() } ?: "0.0.0.0:0",
+                maxConcurrent = volunteer.maxConcurrent.takeIf { it > 0 } ?: 32,
+                budgetKbps = volunteer.budgetKbps.takeIf { it > 0 } ?: 768,
+                peerId = volunteer.peerId?.takeIf { it.isNotBlank() } ?: "peer-${System.currentTimeMillis()}",
+            ),
+            p2p = p2p.copy(
+                enabled = true,
+                useUdp = true,
+                useQuic = true,
+                useTcp = true,
+            ),
+            serverRelay = serverRelay.copy(
+                enabled = true,
+                allowedClasses = serverRelay.allowedClasses?.takeIf { it.isNotEmpty() }
+                    ?: listOf("server", "peer"),
+            ),
+            stun = stun.copy(
+                enabled = true,
+                servers = stun.servers?.takeIf { it.isNotEmpty() } ?: defaultStunServers(),
+                publishSrflx = true,
+                symmetricNatHolePunch = true,
+            ),
+            discovery = discovery.copy(
+                gossipEnabled = true,
+                gossipIntervalSec = discovery.gossipIntervalSec.takeIf { it > 0 } ?: 180,
+                gossipMaxAgeSec = discovery.gossipMaxAgeSec.takeIf { it > 0 } ?: 900,
+                dhtRpcIntervalSec = discovery.dhtRpcIntervalSec.takeIf { it > 0 } ?: 120,
+                dhtRpcFindK = discovery.dhtRpcFindK.takeIf { it > 0 } ?: 20,
+                dhtIterativeAlpha = discovery.dhtIterativeAlpha.takeIf { it > 0 } ?: 3,
+            ),
+            policy = policy.copy(
+                routeMode = policy.routeMode.ifBlank { "auto" },
+                maxPeerHops = policy.maxPeerHops.coerceAtLeast(1).let { if (it < 2) 2 else it },
+                budgetKbps = policy.budgetKbps.takeIf { it > 0 } ?: 2048,
+                healthMaxAgeSec = policy.healthMaxAgeSec.takeIf { it > 0 } ?: 300,
+                pathAggressive = true,
+            ),
+        )
+        return m
+    }
+
     companion object {
+        fun defaultStunServers(): List<String> = listOf(
+            "stun.rtc.yandex.net:3478",
+            "stun.l.google.com:19302",
+            "stun.cloudflare.com:3478",
+            "stun1.l.google.com:19302",
+        )
+
         fun fromJson(j: JSONObject): MeshConfig {
             return MeshConfig(
                 enabled = j.optBoolean("enabled", false),
