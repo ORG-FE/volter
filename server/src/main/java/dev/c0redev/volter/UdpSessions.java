@@ -30,10 +30,10 @@ final class UdpSessions implements AutoCloseable {
     private final AtomicInteger writerSeq = new AtomicInteger(1);
     private static final int UDP_BUFFER_SIZE = 64 * 1024;
     private static final int WRITE_RETRY_DELAY_MS = 2;
-
     private static final int WRITE_TIMEOUT_MS = 2_000;
     private static final long SESSION_IDLE_TIMEOUT_NANOS =
-        TimeUnit.SECONDS.toNanos(10);
+
+        TimeUnit.MINUTES.toNanos(1);
 
     UdpSessions(int channels) throws IOException {
         this.selector = Selector.open();
@@ -139,7 +139,8 @@ final class UdpSessions implements AutoCloseable {
                                             payload
                                         )
                                     );
-    }
+                                }
+                            }
                         } catch (IOException e) {
                             log.warning(
                                 "udp read failed for key=" +
@@ -262,55 +263,7 @@ public static final class UdpChannelWriter implements AutoCloseable {
         new LinkedBlockingQueue<>(1024);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private static final java.util.concurrent.ExecutorService writerPool =
-        java.util.concurrent.Executors.newFixedThreadPool(
-            Integer.getInteger("volter.writerPoolSize", Math.max(2, Runtime.getRuntime().availableProcessors())));
-
-    private static final java.util.concurrent.BlockingQueue<WriteTask> GLOBAL_QUEUE =
-        new java.util.concurrent.LinkedBlockingQueue<>(
-            writerPool instanceof java.util.concurrent.ThreadPoolExecutor ?
-                ((java.util.concurrent.ThreadPoolExecutor) writerPool).getMaximumPoolSize() * 1024 : 8192);
-
-static {
-        int workers = ((java.util.concurrent.ThreadPoolExecutor) writerPool).getMaximumPoolSize();
-        for (int i = 0; i < workers; i++) {
-            writerPool.submit(UdpSessions::workerLoop);
-        }
-    }
-    }
-
-    private static void workerLoop() {
-        while (true) {
-            WriteTask task;
-            try {
-                task = GLOBAL_QUEUE.take();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-            UdpChannelWriter w = task.writer;
-            if (w == null || w.closed.get()) continue;
-            synchronized (w.out) {
-                int pad = w.opts != null ? w.opts.padS4() : 0;
-                int maxPad = (pad > 0 && pad <= 64) ? pad : Protocol.MAX_PAD;
-                try {
-                    w.applyRelayBudget(task.frame.payload().length);
-                    Protocol.writeUdpFrame(w.out, task.frame, maxPad);
-                    w.out.flush();
-                } catch (IOException | InterruptedException ignored) {
-                    w.closed.set(true);
-                }
-            }
-        }
-    }
-
-    private static final class WriteTask {
-        final UdpChannelWriter writer;
-        final Protocol.UdpFrame frame;
-        WriteTask(UdpChannelWriter writer, Protocol.UdpFrame frame) {
-            this.writer = writer;
-            this.frame = frame;
-        }
-    }
+        java.util.concurrent.Executors.newCachedThreadPool();
     private final java.util.concurrent.Future<?> future;
     private long budgetWindowStartNanos;
     private long budgetWindowBytes;
