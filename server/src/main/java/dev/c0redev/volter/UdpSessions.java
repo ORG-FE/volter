@@ -271,11 +271,12 @@ public static final class UdpChannelWriter implements AutoCloseable {
             writerPool instanceof java.util.concurrent.ThreadPoolExecutor ?
                 ((java.util.concurrent.ThreadPoolExecutor) writerPool).getMaximumPoolSize() * 1024 : 8192);
 
-    static {
+static {
         int workers = ((java.util.concurrent.ThreadPoolExecutor) writerPool).getMaximumPoolSize();
         for (int i = 0; i < workers; i++) {
-            writerPool.submit(this::workerLoop);
+            writerPool.submit(UdpSessions::workerLoop);
         }
+    }
     }
 
     private static void workerLoop() {
