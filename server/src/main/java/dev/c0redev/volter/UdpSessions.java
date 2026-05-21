@@ -139,8 +139,7 @@ final class UdpSessions implements AutoCloseable {
                                             payload
                                         )
                                     );
-                                }
-                            }
+    }
                         } catch (IOException e) {
                             log.warning(
                                 "udp read failed for key=" +
