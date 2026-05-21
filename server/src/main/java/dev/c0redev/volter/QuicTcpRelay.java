@@ -11,8 +11,6 @@ import java.util.logging.Logger;
 
 final class QuicTcpRelay {
   private static final Logger log = Log.logger(QuicTcpRelay.class);
-  private static final int BUF = 32 * 1024;
-
   private QuicTcpRelay() {}
 
   static void run(
@@ -26,8 +24,12 @@ final class QuicTcpRelay {
       remote.setTcpNoDelay(true);
       var remoteIn = remote.getInputStream();
       var remoteOut = remote.getOutputStream();
-      Future<?> up = RelayCopyPool.submit(() -> copy(quicIn, remoteOut), "quic-pair-up");
-      Future<?> down = RelayCopyPool.submit(() -> copy(remoteIn, quicOut), "quic-pair-down");
+      Future<?> up = RelayCopyPool.submit(
+          () -> RelayCopy.pump(quicIn, remoteOut, remote, true),
+          "quic-pair-up");
+      Future<?> down = RelayCopyPool.submit(
+          () -> RelayCopy.pump(remoteIn, quicOut, null, false),
+          "quic-pair-down");
       try {
         up.get();
         down.get();
@@ -46,19 +48,4 @@ final class QuicTcpRelay {
     }
   }
 
-  private static void copy(InputStream in, OutputStream out) {
-    byte[] buf = new byte[BUF];
-    try {
-      while (true) {
-        int n = in.read(buf);
-        if (n < 0) {
-          return;
-        }
-        out.write(buf, 0, n);
-        out.flush();
-      }
-    } catch (IOException e) {
-      log.fine("quic relay copy end: " + e.getMessage());
-    }
-  }
 }

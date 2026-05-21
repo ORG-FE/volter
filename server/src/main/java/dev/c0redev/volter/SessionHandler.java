@@ -3,6 +3,7 @@ package dev.c0redev.volter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.Socket;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.logging.Logger;
@@ -19,15 +20,21 @@ final class SessionHandler {
   private final UdpSessions udp;
   private final String remote;
   private final Runnable onDone;
+  private final Socket clientSocket;
   private static final int RELAY_HOP_HARD_LIMIT = 4;
   private static final PeerRelayGuard PEER_GUARD = new PeerRelayGuard();
   private static volatile RelayRegistry relayRegistry;
 
   SessionHandler(Config cfg, UdpSessions udp, String remote, Runnable onDone) {
+    this(cfg, udp, remote, onDone, null);
+  }
+
+  SessionHandler(Config cfg, UdpSessions udp, String remote, Runnable onDone, Socket clientSocket) {
     this.cfg = cfg;
     this.udp = udp;
     this.remote = remote;
     this.onDone = onDone;
+    this.clientSocket = clientSocket;
   }
 
   
@@ -113,7 +120,11 @@ final class SessionHandler {
       sendHopAck(out, routeId, hopIndex, 1, "");
       try {
         if (PeerRelayForward.hasNextHop(opt)) {
-          PeerRelayForward.forward(cfg, c, in, out, opt);
+          try {
+            PeerRelayForward.forward(cfg, c, in, out, opt, clientSocket);
+          } finally {
+            onDone.run();
+          }
         } else {
           tcpHandler.onTcp(c, in, hr.opts());
         }

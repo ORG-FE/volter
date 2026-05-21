@@ -104,7 +104,7 @@ final class ConnectionHandler implements Runnable {
                 try {
                     s.close();
                 } catch (IOException ignored) {}
-            });
+            }, s);
             SessionHandler.TcpHandler tcp =
                 (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts);
             if (hs.role() == Protocol.ROLE_UDP) {
@@ -122,7 +122,6 @@ final class ConnectionHandler implements Runnable {
                         s.close();
                     } catch (IOException ignored) {}
                 }
-                // при успешном ROLE_TCP сокет передан TcpReactor — закрывать здесь нельзя (иначе register гонит ClosedChannel)
             });
             return;
         } catch (EOFException ignored) {

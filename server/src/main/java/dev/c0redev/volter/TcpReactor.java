@@ -250,6 +250,7 @@ final class TcpReactorPool {
       private static final Logger log = Log.logger(Session.class);
 
       private final ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
+      private final byte[] readScratch = new byte[BUFFER_SIZE];
       private final ArrayDeque<ByteBuffer> toClient = new ArrayDeque<>();
       private final ArrayDeque<ByteBuffer> toRemote = new ArrayDeque<>();
       private final XorStream xor;
@@ -352,10 +353,10 @@ final class TcpReactorPool {
           if (n == 0) return;
 
           buffer.flip();
-          byte[] data = new byte[n];
-          buffer.get(data);
-          xor.decode(data, 0, n);
-          toRemote.add(ByteBuffer.wrap(data));
+          buffer.get(readScratch, 0, n);
+          xor.decode(readScratch, 0, n);
+          byte[] chunk = java.util.Arrays.copyOf(readScratch, n);
+          toRemote.add(ByteBuffer.wrap(chunk));
           pendingToRemoteBytes += n;
           if (pendingToRemoteBytes >= MAX_PENDING_BYTES) {
             setInterestOps(clientKey, clientKey.interestOps() & ~SelectionKey.OP_READ);
@@ -385,10 +386,10 @@ final class TcpReactorPool {
           if (n == 0) return;
 
           buffer.flip();
-          byte[] data = new byte[n];
-          buffer.get(data);
-          xor.encode(data, 0, n);
-          toClient.add(ByteBuffer.wrap(data));
+          buffer.get(readScratch, 0, n);
+          xor.encode(readScratch, 0, n);
+          byte[] chunk = java.util.Arrays.copyOf(readScratch, n);
+          toClient.add(ByteBuffer.wrap(chunk));
           pendingToClientBytes += n;
           if (pendingToClientBytes >= MAX_PENDING_BYTES) {
             setInterestOps(remoteKey, remoteKey.interestOps() & ~SelectionKey.OP_READ);

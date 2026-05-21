@@ -14,8 +14,6 @@ import java.util.logging.Logger;
 final class ClusterTcpExitBridge {
 
   private static final Logger log = Log.logger(ClusterTcpExitBridge.class);
-  private static final int BUF = 32 * 1024;
-
   private ClusterTcpExitBridge() {}
 
   static InetSocketAddress parseHostPort(String raw) throws IOException {
@@ -118,8 +116,12 @@ final class ClusterTcpExitBridge {
       return false;
     }
     log.info("cluster tcp exit bridge -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
-    Future<?> up = RelayCopyPool.submit(() -> copyQuiet("cluster-br-up", clientIn, upXorOut), "cluster-br-up");
-    Future<?> down = RelayCopyPool.submit(() -> copyQuiet("cluster-br-down", upXorIn, clientXorOut), "cluster-br-down");
+    Future<?> up = RelayCopyPool.submit(
+        () -> RelayCopy.pump(clientIn, upXorOut, upstream, true),
+        "cluster-br-up");
+    Future<?> down = RelayCopyPool.submit(
+        () -> RelayCopy.pump(upXorIn, clientXorOut, null, false),
+        "cluster-br-down");
     try {
       up.get();
       down.get();
@@ -143,19 +145,4 @@ final class ClusterTcpExitBridge {
     return true;
   }
 
-  private static void copyQuiet(String tag, InputStream in, OutputStream out) {
-    byte[] buf = new byte[BUF];
-    try {
-      while (true) {
-        int n = in.read(buf);
-        if (n < 0) {
-          return;
-        }
-        out.write(buf, 0, n);
-        out.flush();
-      }
-    } catch (IOException e) {
-      log.fine(tag + " end: " + e.getMessage());
-    }
-  }
 }

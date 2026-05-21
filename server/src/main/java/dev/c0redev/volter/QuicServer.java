@@ -253,7 +253,9 @@ final class QuicServer implements AutoCloseable {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
+      pending = null;
       if (io != null) {
+        io.discard();
         io.endInput();
       }
     }

@@ -31,7 +31,8 @@ final class PeerRelayForward {
       Protocol.TcpConnect target,
       InputStream clientIn,
       OutputStream clientOut,
-      Protocol.ClientOptions opt)
+      Protocol.ClientOptions opt,
+      Socket clientSocket)
       throws IOException {
     if (opt == null || !hasNextHop(opt)) {
       throw new IOException("peer relay forward: no next hop");
@@ -74,13 +75,19 @@ final class PeerRelayForward {
       throw e;
     }
     Log.logger(PeerRelayForward.class).info("peer relay chain -> " + addr + " dst=" + target.ip().getHostAddress() + ":" + target.port());
-    var up = RelayCopyPool.submit(() -> copyQuiet(clientIn, upXorOut), "peer-fwd-up");
-    var down = RelayCopyPool.submit(() -> copyQuiet(upXorIn, clientOut), "peer-fwd-down");
+    var up = RelayCopyPool.submit(
+        () -> RelayCopy.pump(clientIn, upXorOut, upstream, true),
+        "peer-fwd-up");
+    var down = RelayCopyPool.submit(
+        () -> RelayCopy.pump(upXorIn, clientOut, clientSocket, true),
+        "peer-fwd-down");
     try {
       up.get();
       down.get();
     } catch (Exception e) {
-      Thread.currentThread().interrupt();
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
       up.cancel(true);
       down.cancel(true);
       throw new IOException(e);
@@ -89,21 +96,12 @@ final class PeerRelayForward {
         upstream.close();
       } catch (IOException ignored) {
       }
-    }
-  }
-
-  private static void copyQuiet(InputStream in, OutputStream out) {
-    byte[] buf = new byte[32 * 1024];
-    try {
-      while (true) {
-        int n = in.read(buf);
-        if (n < 0) {
-          return;
+      if (clientSocket != null) {
+        try {
+          clientSocket.close();
+        } catch (IOException ignored) {
         }
-        out.write(buf, 0, n);
-        out.flush();
       }
-    } catch (IOException ignored) {
     }
   }
 

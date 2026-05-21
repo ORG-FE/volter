@@ -37,6 +37,10 @@ final class QuicStreamIO {
     });
   }
 
+  void discard() {
+    ring.clear();
+  }
+
   InputStream input() {
     return new InputStream() {
       private byte[] cur;

@@ -334,7 +334,7 @@ final class Config {
     int quicIdleTimeoutMs = Math.max(0, parseInt(p.getProperty("quicIdleTimeoutMs"), 900_000));
     int quicHandshakeTimeoutMs = Math.max(0, parseInt(p.getProperty("quicHandshakeTimeoutMs"), 60_000));
     int quicTcpConnectTimeoutMs = Math.max(1_000, parseInt(p.getProperty("quicTcpConnectTimeoutMs"), 10_000));
-    int quicIngressRingSlots = Math.max(64, parseInt(p.getProperty("quicIngressRingSlots"), 4096));
+    int quicIngressRingSlots = Math.max(64, parseInt(p.getProperty("quicIngressRingSlots"), 512));
     boolean quicTraceLog = "true".equalsIgnoreCase(p.getProperty("quicTraceLog", "").trim());
     boolean camouflageTcpEnabled = "true".equalsIgnoreCase(p.getProperty("camouflageTcpEnabled", "true").trim());
     String camouflageTcpProxyHost = firstNonEmpty(p.getProperty("camouflageTcpProxyHost"), "127.0.0.1");

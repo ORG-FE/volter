@@ -20,5 +20,13 @@ final class SpscChunkRing {
   byte[] take() throws InterruptedException {
     return q.take();
   }
+
+  void clear() {
+    q.clear();
+  }
+
+  int size() {
+    return q.size();
+  }
 }
  
