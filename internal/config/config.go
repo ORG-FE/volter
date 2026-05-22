@@ -214,6 +214,17 @@ func MergeDpiLocalEmbeddedDefaults(e *DpiLocalEmbedded) DpiLocalEmbedded {
 		if e.LeadInMs > 0 {
 			out.LeadInMs = e.LeadInMs
 		}
+		out.FakeSNI = e.FakeSNI
+		out.FakeSNIHost = e.FakeSNIHost
+		out.SplitPosition = e.SplitPosition
+		out.AutoTTL = e.AutoTTL
+		if e.TCPSegment > 0 {
+			out.TCPSegment = e.TCPSegment
+		}
+		out.OOBData = e.OOBData
+		if e.MultiSplit > 0 {
+			out.MultiSplit = e.MultiSplit
+		}
 	}
 	if out.SplitAfter > 65536 {
 		out.SplitAfter = 65536
@@ -235,6 +246,12 @@ func MergeDpiLocalEmbeddedDefaults(e *DpiLocalEmbedded) DpiLocalEmbedded {
 	}
 	if out.LeadInMs > 60_000 {
 		out.LeadInMs = 60_000
+	}
+	if out.TCPSegment > 65536 {
+		out.TCPSegment = 65536
+	}
+	if out.MultiSplit > 10 {
+		out.MultiSplit = 10
 	}
 	return out
 }
@@ -551,6 +568,10 @@ func mergeProtectionOptions(base, override *ProtectionOptions) {
 		if strings.TrimSpace(e.FakeSNIHost) != "" {
 			base.DpiLocalEmbedded.FakeSNIHost = e.FakeSNIHost
 		}
+		base.DpiLocalEmbedded.FakeSNI = base.DpiLocalEmbedded.FakeSNI || e.FakeSNI
+		base.DpiLocalEmbedded.AutoTTL = base.DpiLocalEmbedded.AutoTTL || e.AutoTTL
+		base.DpiLocalEmbedded.OOBData = base.DpiLocalEmbedded.OOBData || e.OOBData
+		base.DpiLocalEmbedded.Disorder = base.DpiLocalEmbedded.Disorder || e.Disorder
 	}
 }
 
