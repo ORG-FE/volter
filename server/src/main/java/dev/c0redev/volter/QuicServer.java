@@ -323,7 +323,7 @@ final class QuicServer implements AutoCloseable {
                 in,
                 out,
                 (connect, rest, copts) -> {
-                  if (ClusterTcpExitBridge.maybeBridge(cfg, connect, rest, out, copts)) {
+                  if (ClusterTcpExitBridge.maybeBridge(cfg, connect, rest, out, copts, null)) {
                     return;
                   }
                   QuicTcpRelay.run(connect, rest, out, cfg.quicTcpConnectTimeoutMs());

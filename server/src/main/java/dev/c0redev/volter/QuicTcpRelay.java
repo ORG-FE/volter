@@ -19,16 +19,17 @@ final class QuicTcpRelay {
       OutputStream quicOut,
       int connectTimeoutMs
   ) throws IOException {
+    int readTimeoutMs = RelayCopy.relayReadTimeoutMs(connectTimeoutMs);
     try (Socket remote = new Socket()) {
       remote.connect(new InetSocketAddress(c.ip(), c.port()), connectTimeoutMs);
       remote.setTcpNoDelay(true);
       var remoteIn = remote.getInputStream();
       var remoteOut = remote.getOutputStream();
       Future<?> up = RelayCopyPool.submit(
-          () -> RelayCopy.pump(quicIn, remoteOut, remote, true),
+          () -> RelayCopy.pump(quicIn, remoteOut, null, remote, true, readTimeoutMs),
           "quic-pair-up");
       Future<?> down = RelayCopyPool.submit(
-          () -> RelayCopy.pump(remoteIn, quicOut, null, false),
+          () -> RelayCopy.pump(remoteIn, quicOut, remote, null, false, readTimeoutMs),
           "quic-pair-down");
       try {
         up.get();

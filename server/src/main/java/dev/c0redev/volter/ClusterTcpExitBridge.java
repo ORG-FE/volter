@@ -58,7 +58,8 @@ final class ClusterTcpExitBridge {
       Protocol.TcpConnect c,
       InputStream clientIn,
       OutputStream clientXorOut,
-      Optional<Protocol.ClientOptions> copts)
+      Optional<Protocol.ClientOptions> copts,
+      Socket clientSocket)
       throws IOException {
     if (cfg == null || c == null || clientIn == null || clientXorOut == null) {
       return false;
@@ -83,10 +84,12 @@ final class ClusterTcpExitBridge {
     }
     InetSocketAddress exitAddr = resolved.get();
     int timeoutMs = Math.max(1_000, cfg.quicTcpConnectTimeoutMs());
+    int readTimeoutMs = RelayCopy.relayReadTimeoutMs(timeoutMs);
     Socket upstream = new Socket();
     try {
       upstream.connect(exitAddr, timeoutMs);
       upstream.setTcpNoDelay(true);
+      RelayCopy.applyReadTimeout(clientSocket, readTimeoutMs);
     } catch (IOException e) {
       log.warning("cluster exit connect " + exitAddr + ": " + e.getMessage());
       try {
@@ -117,10 +120,10 @@ final class ClusterTcpExitBridge {
     }
     log.info("cluster tcp exit bridge -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
     Future<?> up = RelayCopyPool.submit(
-        () -> RelayCopy.pump(clientIn, upXorOut, upstream, true),
+        () -> RelayCopy.pump(clientIn, upXorOut, clientSocket, upstream, true, readTimeoutMs),
         "cluster-br-up");
     Future<?> down = RelayCopyPool.submit(
-        () -> RelayCopy.pump(upXorIn, clientXorOut, null, false),
+        () -> RelayCopy.pump(upXorIn, clientXorOut, upstream, null, false, readTimeoutMs),
         "cluster-br-down");
     try {
       up.get();

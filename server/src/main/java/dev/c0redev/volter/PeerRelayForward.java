@@ -49,10 +49,12 @@ final class PeerRelayForward {
       throw new IOException("peer relay forward: unsupported hop kind " + kind);
     }
     int timeoutMs = Math.max(1_000, cfg.quicTcpConnectTimeoutMs());
+    int readTimeoutMs = RelayCopy.relayReadTimeoutMs(timeoutMs);
     Socket upstream = new Socket();
     try {
       upstream.connect(ClusterTcpExitBridge.parseHostPort(addr), timeoutMs);
       upstream.setTcpNoDelay(true);
+      RelayCopy.applyReadTimeout(clientSocket, readTimeoutMs);
     } catch (IOException e) {
       try {
         upstream.close();
@@ -76,10 +78,10 @@ final class PeerRelayForward {
     }
     Log.logger(PeerRelayForward.class).info("peer relay chain -> " + addr + " dst=" + target.ip().getHostAddress() + ":" + target.port());
     var up = RelayCopyPool.submit(
-        () -> RelayCopy.pump(clientIn, upXorOut, upstream, true),
+        () -> RelayCopy.pump(clientIn, upXorOut, clientSocket, upstream, true, readTimeoutMs),
         "peer-fwd-up");
     var down = RelayCopyPool.submit(
-        () -> RelayCopy.pump(upXorIn, clientOut, clientSocket, true),
+        () -> RelayCopy.pump(upXorIn, clientOut, upstream, clientSocket, true, readTimeoutMs),
         "peer-fwd-down");
     try {
       up.get();

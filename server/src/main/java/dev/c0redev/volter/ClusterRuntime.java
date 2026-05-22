@@ -14,12 +14,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 final class ClusterRuntime {
   private static final Logger log = Log.logger(ClusterRuntime.class);
-  private static final Duration CLUSTER_HTTP_CONNECT = Duration.ofSeconds(3);
-  private static final Duration CLUSTER_HTTP_READ = Duration.ofSeconds(4);
+  private static final Duration CLUSTER_HTTP_CONNECT = Duration.ofSeconds(1);
+  private static final Duration CLUSTER_HTTP_READ = Duration.ofSeconds(2);
+  private static final ExecutorService CLUSTER_HTTP_EXEC = Executors.newFixedThreadPool(2, r -> {
+    Thread t = new Thread(r, "cluster-http");
+    t.setDaemon(true);
+    return t;
+  });
   private static final long CLUSTER_NODE_STALE_MS = 10 * 60_000L;
   private static final ClusterRuntime INSTANCE = new ClusterRuntime();
 
@@ -27,7 +35,11 @@ final class ClusterRuntime {
     return INSTANCE;
   }
 
-  private final HttpClient http = HttpClient.newBuilder().connectTimeout(CLUSTER_HTTP_CONNECT).build();
+  private final HttpClient http = HttpClient.newBuilder()
+      .connectTimeout(CLUSTER_HTTP_CONNECT)
+      .version(HttpClient.Version.HTTP_1_1)
+      .executor(CLUSTER_HTTP_EXEC)
+      .build();
   private final Map<String, ClusterNode> nodes = new ConcurrentHashMap<>();
   private volatile Config cfg;
   private volatile boolean running;
@@ -214,7 +226,12 @@ final class ClusterRuntime {
   private void pullPeers() {
     Config c = cfg;
     if (c == null) return;
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
     for (String peer : c.clusterPeers()) {
+      if (System.nanoTime() > deadline) {
+        log.warning("cluster pull: cycle budget exceeded, skip remaining peers");
+        break;
+      }
       String u = peer;
       if (!u.startsWith("http://") && !u.startsWith("https://")) {
         u = "http://" + u;
@@ -235,6 +252,9 @@ final class ClusterRuntime {
         int merged = mergeFromJson(resp.body());
         int after = nodes.size();
         log.info("cluster pull map ok peer=" + normalizeEndpoint(u) + " merged=" + merged + " nodes=" + before + "->" + after);
+        if (System.nanoTime() > deadline) {
+          continue;
+        }
         String sessUrl = sessionsUrlFromMapUrl(u, c);
         String clientsUrl = clientsUrlFromMapUrl(u, c);
         try {
@@ -247,6 +267,9 @@ final class ClusterRuntime {
           }
         } catch (Exception ex) {
           log.warning("cluster pull sessions failed peer=" + normalizeEndpoint(sessUrl) + " err=" + ex.getMessage());
+        }
+        if (System.nanoTime() > deadline) {
+          continue;
         }
         try {
           HttpRequest creq = clusterPeerGet(URI.create(clientsUrl));

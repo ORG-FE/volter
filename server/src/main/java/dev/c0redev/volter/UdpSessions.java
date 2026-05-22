@@ -31,9 +31,11 @@ final class UdpSessions implements AutoCloseable {
     private static final int UDP_BUFFER_SIZE = 64 * 1024;
     private static final int WRITE_RETRY_DELAY_MS = 2;
     private static final int WRITE_TIMEOUT_MS = 2_000;
-    private static final long SESSION_IDLE_TIMEOUT_NANOS =
-
-        TimeUnit.MINUTES.toNanos(1);
+    private static final long SESSION_IDLE_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(20);
+    private static final int MAX_UDP_SESSIONS = 2048;
+    private static final int UDP_SOCKET_BUF = 64 * 1024;
+    private static final int EVICT_BATCH = 64;
+    private static final int HIGH_WATER_MARK = 512;
 
     UdpSessions(int channels) throws IOException {
         this.selector = Selector.open();
@@ -71,6 +73,7 @@ final class UdpSessions implements AutoCloseable {
         );
         Session s = sessions.get(k);
         if (s == null) {
+            evictIfNeeded();
             Session created = createSession(k, f, writer);
             Session raced = sessions.putIfAbsent(k, created);
             if (raced != null) {
@@ -95,8 +98,8 @@ final class UdpSessions implements AutoCloseable {
     ) throws IOException {
         DatagramChannel dc = DatagramChannel.open();
         dc.configureBlocking(false);
-        dc.setOption(StandardSocketOptions.SO_RCVBUF, 1 << 20);
-        dc.setOption(StandardSocketOptions.SO_SNDBUF, 1 << 20);
+        dc.setOption(StandardSocketOptions.SO_RCVBUF, UDP_SOCKET_BUF);
+        dc.setOption(StandardSocketOptions.SO_SNDBUF, UDP_SOCKET_BUF);
         dc.connect(new InetSocketAddress(f.dst(), f.dstPort()));
         SelectionKey sk = dc.register(selector, SelectionKey.OP_READ);
         Session s = new Session(k, f.dst(), dc, sk, writer);
@@ -156,8 +159,12 @@ final class UdpSessions implements AutoCloseable {
                     selector.selectedKeys().clear();
                 }
                 long now = System.nanoTime();
-                if (now - lastCleanup >= TimeUnit.SECONDS.toNanos(10)) {
+                if (now - lastCleanup >= TimeUnit.SECONDS.toNanos(5)) {
                     cleanupIdleSessions(now);
+                    int sessN = sessions.size();
+                    if (sessN >= HIGH_WATER_MARK) {
+                        log.warning("udp sessions=" + sessN + " cap=" + MAX_UDP_SESSIONS);
+                    }
                     lastCleanup = now;
                 }
             } catch (IOException e) {
@@ -172,6 +179,24 @@ final class UdpSessions implements AutoCloseable {
             if (idleNanos >= SESSION_IDLE_TIMEOUT_NANOS) {
                 closeSession(s.key, s);
             }
+        }
+    }
+
+    private void evictIfNeeded() {
+        int evicted = 0;
+        while (sessions.size() >= MAX_UDP_SESSIONS && evicted < EVICT_BATCH) {
+            Session oldest = null;
+            for (Session s : sessions.values()) {
+                if (oldest == null || s.lastActivityNanos() < oldest.lastActivityNanos()) {
+                    oldest = s;
+                }
+            }
+            if (oldest == null) {
+                break;
+            }
+            log.warning("udp sessions cap " + MAX_UDP_SESSIONS + ", evict key dstPort=" + oldest.key.dstPort);
+            closeSession(oldest.key, oldest);
+            evicted++;
         }
     }
 
@@ -263,7 +288,11 @@ public static final class UdpChannelWriter implements AutoCloseable {
         new LinkedBlockingQueue<>(1024);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private static final java.util.concurrent.ExecutorService writerPool =
-        java.util.concurrent.Executors.newCachedThreadPool();
+        java.util.concurrent.Executors.newFixedThreadPool(32, r -> {
+            Thread t = new Thread(r, "udp-writer");
+            t.setDaemon(true);
+            return t;
+        });
     private final java.util.concurrent.Future<?> future;
     private long budgetWindowStartNanos;
     private long budgetWindowBytes;

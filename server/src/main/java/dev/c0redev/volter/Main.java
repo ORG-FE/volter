@@ -17,15 +17,19 @@ import java.net.StandardSocketOptions;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 public final class Main {
   private static Logger log;
 
   private static final Object RUN_LOCK = new Object();
+  private static final AtomicInteger SESSION_THREAD_SEQ = new AtomicInteger();
 
   public static void main(String[] args) throws Exception {
     Path base = jarDir();
@@ -61,10 +65,23 @@ public final class Main {
     }
 
     int reactorThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
+    int sessionMax = Math.max(64, reactorThreads * 32);
     log.info("TCP reactor pool: " + reactorThreads + " threads");
+    log.info("Session pool: core=" + Math.max(16, reactorThreads * 4) + " max=" + sessionMax);
     ExecutorService acceptPool = Executors.newCachedThreadPool();
     ExecutorService handshakePool = Executors.newFixedThreadPool(Math.max(16, reactorThreads * 2));
-    ExecutorService streamPool = Executors.newCachedThreadPool();
+    ExecutorService streamPool = new ThreadPoolExecutor(
+        Math.max(16, reactorThreads * 4),
+        sessionMax,
+        60L,
+        TimeUnit.SECONDS,
+        new ArrayBlockingQueue<>(sessionMax),
+        r -> {
+          Thread t = new Thread(r, "volter-session-" + SESSION_THREAD_SEQ.incrementAndGet());
+          t.setDaemon(true);
+          return t;
+        },
+        new ThreadPoolExecutor.AbortPolicy());
     TcpReactorPool tcpPool = new TcpReactorPool(reactorThreads);
     List<ServerSocketChannel> sockets = Collections.synchronizedList(new ArrayList<>());
     final QuicServer[] quicHolder = new QuicServer[1];

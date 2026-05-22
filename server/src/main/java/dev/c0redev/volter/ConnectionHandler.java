@@ -65,6 +65,7 @@ final class ConnectionHandler implements Runnable {
         BufferedInputStream rawIn = null;
         OutputStream rawOut = null;
         try {
+            s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             var xor = new XorStream(XorStream.keyFromToken(cfg.token()));
             rawIn = new BufferedInputStream(s.getInputStream(), 128 * 1024);
             rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
@@ -73,13 +74,11 @@ final class ConnectionHandler implements Runnable {
             int peekN = rawIn.read(peek);
             rawIn.reset();
             if (peekN > 0 && (looksLikeHTTP(peek, peekN) || looksLikeTLS(peek, peekN))) {
-                s.setSoTimeout(0);
                 if (tryCamouflage(s, rawIn, rawOut)) {
-                    handedOff = true;
                     return;
                 }
+                s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             }
-            s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             InputStream in = xor.wrapInput(rawIn);
 
             Protocol.HandshakeResult hr = Protocol.readHandshake(in);
@@ -107,38 +106,28 @@ final class ConnectionHandler implements Runnable {
             }, s);
             SessionHandler.TcpHandler tcp =
                 (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts);
-            if (hs.role() == Protocol.ROLE_UDP) {
-                session.handle(hs, hr, in, out, tcp, streamPool);
-                handedOff = true;
-                return;
-            }
             handedOff = true;
-            streamPool.submit(() -> {
-                try {
-                    session.handle(hs, hr, in, out, tcp, streamPool);
-                } catch (IOException e) {
-                    log.fine("session ended: " + e.getMessage());
-                    try {
-                        s.close();
-                    } catch (IOException ignored) {}
-                }
-            });
+            byte role = hs.role();
+            try {
+                streamPool.submit(() -> runSession(session, hs, hr, in, out, tcp, role, s));
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                handedOff = false;
+                log.warning("session pool saturated, rejecting " + s.getRemoteSocketAddress());
+                throw new IOException("server busy");
+            }
             return;
         } catch (EOFException ignored) {
             if (tryCamouflage(s, rawIn, rawOut)) {
-                handedOff = true;
                 return;
             }
         } catch (SocketTimeoutException e) {
             log.warning("handshake timeout from " + s.getRemoteSocketAddress() + " after " + HANDSHAKE_TIMEOUT_MS + "ms");
             if (tryCamouflage(s, rawIn, rawOut)) {
-                handedOff = true;
                 return;
             }
         } catch (IOException e) {
             log.fine("conn closed: " + e.getMessage());
             if (tryCamouflage(s, rawIn, rawOut)) {
-                handedOff = true;
                 return;
             }
         } finally {
@@ -150,10 +139,41 @@ final class ConnectionHandler implements Runnable {
         }
     }
 
+    private void runSession(
+            SessionHandler session,
+            Protocol.Handshake hs,
+            Protocol.HandshakeResult hr,
+            InputStream in,
+            OutputStream out,
+            SessionHandler.TcpHandler tcp,
+            byte role,
+            Socket s) {
+        try {
+            if (role == Protocol.ROLE_UDP) {
+                s.setSoTimeout(180_000); // 3 minutes idle timeout
+            }
+            session.handle(hs, hr, in, out, tcp, null);
+        } catch (Exception e) {
+            log.fine("session ended: " + e.getMessage());
+            try {
+                s.close();
+            } catch (IOException ignored) {}
+        } finally {
+            if (role == Protocol.ROLE_UDP) {
+                try {
+                    s.close();
+                } catch (IOException ignored) {}
+            }
+        }
+    }
+
     private boolean tryCamouflage(Socket client, BufferedInputStream rawIn, OutputStream rawOut) {
         if (rawIn == null || rawOut == null) {
             return false;
         }
+        try {
+            client.setSoTimeout(0);
+        } catch (Exception ignored) {}
         try {
             rawIn.reset();
             rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
@@ -180,6 +200,7 @@ final class ConnectionHandler implements Runnable {
         if (looksHTTP) {
             try {
                 if (tryOpsHintsHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -187,6 +208,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (DhtFindHttp.tryServe(cfg, rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -194,6 +216,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (tryRelayIndexHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -201,6 +224,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (tryGossipNodesHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -208,6 +232,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (tryClusterMapHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -215,6 +240,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (tryClusterSessionsHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -222,6 +248,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (tryClusterClientsHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -229,6 +256,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (tryClusterInviteHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -236,6 +264,7 @@ final class ConnectionHandler implements Runnable {
             }
             try {
                 if (tryClusterPeerHandshakeHttp(rawIn, rawOut)) {
+                    try { client.close(); } catch (IOException ignored) {}
                     return true;
                 }
             } catch (IOException e) {
@@ -251,7 +280,11 @@ final class ConnectionHandler implements Runnable {
             return proxyRaw(client, rawIn, rawOut, host, port);
         }
         if (looksHTTP) {
-            return writeFakeHttp(rawOut);
+            boolean ok = writeFakeHttp(rawOut);
+            if (ok) {
+                try { client.close(); } catch (IOException ignored) {}
+            }
+            return ok;
         }
         return false;
     }
@@ -966,9 +999,8 @@ final class ConnectionHandler implements Runnable {
         if (tcpPool == null) {
             throw new IOException("tcp reactor unavailable");
         }
-        s.setSoTimeout(0);
         OutputStream clientXorOut = xor.wrapOutput(s.getOutputStream());
-        if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientXorOut, copts)) {
+        if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientXorOut, copts, s)) {
             try {
                 s.close();
             } catch (IOException ignored) {}

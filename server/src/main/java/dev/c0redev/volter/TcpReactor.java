@@ -61,7 +61,8 @@ final class TcpReactorPool {
   private static final class Reactor {
     private static final int BUFFER_SIZE = 32 * 1024;
     private static final long CONNECT_TIMEOUT_MS = 10_000;
-    private static final int MAX_PENDING_BYTES = 4 * 1024 * 1024;
+    private static final long SESSION_IDLE_TIMEOUT_NANOS = TimeUnit.MINUTES.toNanos(5);
+    private static final int MAX_PENDING_BYTES = 1024 * 1024;
     private static final Logger log = Log.logger(Reactor.class);
 
     private final Selector selector;
@@ -211,6 +212,10 @@ final class TcpReactorPool {
           if (!(key.attachment() instanceof Session session)) continue;
           if (session.isConnecting() && nowNanos > session.connectDeadlineNanos()) {
             session.close("tcp connect timeout");
+            continue;
+          }
+          if (!session.isConnecting() && nowNanos > session.idleDeadlineNanos()) {
+            session.close("tcp idle timeout");
           }
         }
       } catch (Exception e) {
@@ -262,6 +267,7 @@ final class TcpReactorPool {
       private boolean connected;
       private boolean connecting = true;
       private final long connectDeadlineNanos = System.nanoTime() + CONNECT_TIMEOUT_NANOS;
+      private long idleDeadlineNanos = System.nanoTime() + SESSION_IDLE_TIMEOUT_NANOS;
       private long pendingToClientBytes;
       private long pendingToRemoteBytes;
 
@@ -294,6 +300,14 @@ final class TcpReactorPool {
 
       long connectDeadlineNanos() {
         return connectDeadlineNanos;
+      }
+
+      long idleDeadlineNanos() {
+        return idleDeadlineNanos;
+      }
+
+      private void touch() {
+        idleDeadlineNanos = System.nanoTime() + SESSION_IDLE_TIMEOUT_NANOS;
       }
 
       void onConnected() {
@@ -351,6 +365,7 @@ final class TcpReactorPool {
             return;
           }
           if (n == 0) return;
+          touch();
 
           buffer.flip();
           buffer.get(readScratch, 0, n);
@@ -384,6 +399,7 @@ final class TcpReactorPool {
             return;
           }
           if (n == 0) return;
+          touch();
 
           buffer.flip();
           buffer.get(readScratch, 0, n);
@@ -437,6 +453,7 @@ final class TcpReactorPool {
             q.poll();
             onFlushed.accept((long) b.capacity());
           }
+          touch();
           setInterestOps(key, key.interestOps() & ~SelectionKey.OP_WRITE);
         } catch (IOException e) {
           if (key == clientKey) {
