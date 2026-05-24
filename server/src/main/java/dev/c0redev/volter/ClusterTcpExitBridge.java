@@ -69,8 +69,8 @@ final class ClusterTcpExitBridge {
       return false;
     }
     String pref = copts.get().clusterPreferredServer();
-    log.info("cluster exit: client clusterPreferredServer=%s relayHop=%d peerId=%s relayRouteHops=%s",
-        pref, copts.get().relayHop(), copts.get().peerId(), copts.get().relayRouteHops());
+    log.info("cluster exit: client clusterPreferredServer=" + pref + " relayHop=" + copts.get().relayHop() +
+        " peerId=" + copts.get().peerId() + " relayRouteHops=" + copts.get().relayRouteHops());
     if (pref == null || pref.isBlank()) {
       log.fine("cluster exit: empty clusterPreferredServer, skip bridge");
       return false;
