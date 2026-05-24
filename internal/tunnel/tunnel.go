@@ -32,14 +32,18 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 	start := pickAddrIndex(serverAddrs, targetIP, targetPort)
 	var lastErr error
 	backoff := 200 * time.Millisecond
+	clientlog.Trace("Dial start dst=%s:%d addrs=%v start=%d needHopAck=%v",
+		targetIP.String(), targetPort, serverAddrs, start, needHopAck(prot))
 	for round := 0; round < 3; round++ {
 		for i := 0; i < len(serverAddrs); i++ {
 			if round == 0 && i == 0 {
 				time.Sleep(time.Duration(rand.Int63n(56)) * time.Millisecond)
 			}
 			addr := serverAddrs[(start+i)%len(serverAddrs)]
+			clientlog.Trace("Dial attempt round=%d i=%d addr=%s", round, i, addr)
 			c, err := dialServer(addr, token)
 			if err != nil {
+				clientlog.Trace("Dial dialServer %s: %v", addr, err)
 				lastErr = err
 				continue
 			}
@@ -50,30 +54,37 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 			w := bufio.NewWriterSize(c, bufSize)
 			if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
 				_ = c.Close()
+				clientlog.Trace("Dial tcpRelayPreamble %s: %v", addr, err)
 				lastErr = err
 				continue
 			}
 			if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
 				_ = c.Close()
+				clientlog.Trace("Dial WriteTcpConnect %s: %v", addr, err)
 				lastErr = err
 				continue
 			}
 			if needHopAck(prot) {
+				clientlog.Trace("Dial reading HopAck from %s", addr)
 				ack, err := protocol.ReadHopAck(r)
 				if err != nil {
 					_ = c.Close()
+					clientlog.Trace("Dial HopAck read %s: %v", addr, err)
 					lastErr = err
 					continue
 				}
 				if ack.Status == 0 {
 					_ = c.Close()
 					lastErr = fmt.Errorf("hop ack rejected: %s", ack.Reason)
+					clientlog.Trace("Dial HopAck rejected %s: %s", addr, ack.Reason)
 					SetRouteTrace(targetIP.String(), strings.TrimSpace(prot.RouteMode), "", ack.Reason)
 					continue
 				}
+				clientlog.Trace("Dial HopAck OK from %s (status=1)", addr)
 			}
 			_ = c.SetDeadline(time.Time{})
 			setActiveVolterServerAddr(addr)
+			clientlog.Trace("Dial success addr=%s", addr)
 			return &tunnelConn{Conn: c, r: r}, nil
 		}
 		time.Sleep(backoff)
@@ -84,6 +95,7 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 	if lastErr == nil {
 		lastErr = fmt.Errorf("tcp dial failed")
 	}
+	clientlog.Trace("Dial all attempts failed for %s:%d: %v", targetIP.String(), targetPort, lastErr)
 	return nil, lastErr
 }
 
@@ -304,11 +316,14 @@ func needHopAck(prot *config.ProtectionOptions) bool {
 		return false
 	}
 	if prot.RoutePlannerV2 {
+		clientlog.Trace("needHopAck: true (RoutePlannerV2)")
 		return true
 	}
 	if strings.TrimSpace(prot.RouteID) != "" {
+		clientlog.Trace("needHopAck: true (RouteID=%q)", strings.TrimSpace(prot.RouteID))
 		return true
 	}
+	clientlog.Trace("needHopAck: false (no RoutePlannerV2, no RouteID)")
 	return false
 }
 

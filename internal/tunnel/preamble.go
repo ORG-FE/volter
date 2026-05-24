@@ -198,9 +198,12 @@ func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOpti
 		optsJSON, _ = json.Marshal(eff)
 		clusterExit := strings.TrimSpace(prot.ClusterPreferredServer) != ""
 		hasPeerRelay := strings.TrimSpace(eff.PeerID) != ""
-		if (eff.RelayHop > 0 || eff.RelayMaxHop > 0) && !clusterExit && hasPeerRelay {
+		needRelay := (eff.RelayHop > 0 || eff.RelayMaxHop > 0) && !clusterExit && hasPeerRelay
+		if needRelay {
 			role = protocol.RoleRelayTCP()
 		}
+		clientlog.Trace("handshake role=%d relayHop=%d relayMaxHop=%d peerId=%q clusterExit=%v hasPeerRelay=%v needRelay=%v",
+			role, eff.RelayHop, eff.RelayMaxHop, eff.PeerID, clusterExit, hasPeerRelay, needRelay)
 	}
 	return protocol.WriteHandshakeWithPrefixAndOptsSlot(w, role, 0, token, prefixLen, optsJSON, slot)
 }
@@ -299,6 +302,9 @@ func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.Relay
 		cp.RelayNonce = ""
 		cp.RelaySig = ""
 		cp.RoutePlannerV2 = false
+		clientlog.Trace("cluster exit prot: peerId/relayNonce/sig/rpv2 cleared, preferred=%s", strings.TrimSpace(cp.ClusterPreferredServer))
+	} else {
+		clientlog.Trace("server relay prot: relayHop=%d relayMaxHop=%d rpv2=%v", cp.RelayHop, cp.RelayMaxHop, cp.RoutePlannerV2)
 	}
 	if cp.RelayHop <= 0 {
 		cp.RelayHop = 1
@@ -328,6 +334,10 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 	SetRouteTrace(dst.String(), mode, "", "")
 	quicEnabled := UsesQUICTransport(transport, quicServer) && quicShared != nil
 	clusterExit := prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != ""
+	clientlog.Trace("DialTunFlow dst=%s:%d mode=%s clusterExit=%v allowPeerPath=%v rpv2=%v relayHop=%d",
+		dst.String(), dstPort, mode, clusterExit, allowPeerPath,
+		prot != nil && prot.RoutePlannerV2,
+		func() int { if prot != nil { return prot.RelayHop }; return 0 }())
 	if clusterExit {
 		quicEnabled = false
 		preferTCP = true
@@ -337,13 +347,16 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		allowPeerPath = false
 		decision = PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
 		dialProt = protForDirectRoute(prot)
+		clientlog.Trace("mode=direct: allowPeerPath=false relayClass=direct")
 	case "server_relay":
 		allowPeerPath = false
 		decision = PathDecision{PreferTCP: true, RelayClass: PathClassServer, PathTTL: 2}
 		preferTCP = true
 		dialProt = protForServerRelayRoute(prot, relay)
+		clientlog.Trace("mode=server_relay: relayClass=server pathTTL=2 clusterPreferred=%q", strings.TrimSpace(prot.ClusterPreferredServer))
 	case "peer_relay":
 		allowPeerPath = !clusterExit
+		clientlog.Trace("mode=peer_relay: allowPeerPath=%v", allowPeerPath)
 		if pm != nil {
 			if clusterExit {
 				decision = pm.Decide(dst, dual, quicEnabled, false, false)
@@ -352,6 +365,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 			}
 		}
 	default:
+		clientlog.Trace("mode=auto: allowPeerPath=%v clusterExit=%v", allowPeerPath, clusterExit)
 		if pm != nil {
 			ap := allowPeerPath
 			if clusterExit {
@@ -366,6 +380,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		dialProt = protForServerRelayRoute(prot, relay)
 		preferTCP = true
 		quicEnabled = false
+		clientlog.Trace("clusterExit override: relayClass=server pathTTL=2 preferTCP=true preferServer=%q", strings.TrimSpace(prot.ClusterPreferredServer))
 	}
 	if decision.PreferTCP {
 		preferTCP = true
@@ -402,7 +417,11 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		for _, h := range plan.Hops {
 			parts = append(parts, h.Kind+"="+h.Addr)
 		}
-		SetRouteTrace(dst.String(), strings.Join(parts, " -> "), "", "")
+		routePlan := strings.Join(parts, " -> ")
+		SetRouteTrace(dst.String(), routePlan, "", "")
+		clientlog.Trace("route plan: %s hops=%d", routePlan, len(plan.Hops))
+	} else {
+		clientlog.Trace("route plan: empty (fallback to direct dial)")
 	}
 	chainProt := AttachRouteHops(dialProt, plan)
 	if len(plan.Hops) > 0 && chainProt != nil {
@@ -411,6 +430,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		if protR.HopIndex <= 0 {
 			protR.HopIndex = 1
 		}
+		clientlog.Trace("route hop attempt: kind=%s addr=%s hopIndex=%d", h.Kind, h.Addr, protR.HopIndex)
 		c, usedTCP, err := dialRouteHopConn(h.Kind, h.Addr, dst, dstPort, token, protR, addrs, relay, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared)
 		if err == nil {
 			SetRouteTrace(dst.String(), mode, fmt.Sprintf("%s:%s", h.Kind, h.Addr), "")

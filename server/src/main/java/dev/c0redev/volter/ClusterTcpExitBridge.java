@@ -65,10 +65,14 @@ final class ClusterTcpExitBridge {
       return false;
     }
     if (copts.isEmpty()) {
+      log.fine("cluster exit: copts empty, skip bridge");
       return false;
     }
     String pref = copts.get().clusterPreferredServer();
+    log.info("cluster exit: client clusterPreferredServer=%s relayHop=%d peerId=%s relayRouteHops=%s",
+        pref, copts.get().relayHop(), copts.get().peerId(), copts.get().relayRouteHops());
     if (pref == null || pref.isBlank()) {
+      log.fine("cluster exit: empty clusterPreferredServer, skip bridge");
       return false;
     }
     pref = pref.trim();
@@ -76,13 +80,14 @@ final class ClusterTcpExitBridge {
     ClusterRuntime rt = ClusterRuntime.get();
     Optional<InetSocketAddress> resolved = rt.resolveClusterExitDialAddress(pref);
     if (resolved.isEmpty()) {
-      log.warning("cluster exit unresolved or not authorized: " + pref);
+      log.warning("cluster exit unresolved or not authorized: " + pref + " (strict=" + strictExit + ")");
       if (strictExit) {
         throw new IOException("cluster exit unresolved or not authorized: " + pref);
       }
       return false;
     }
     InetSocketAddress exitAddr = resolved.get();
+    log.info("cluster exit resolved: " + exitAddr);
     int timeoutMs = Math.max(1_000, cfg.quicTcpConnectTimeoutMs());
     int readTimeoutMs = RelayCopy.relayReadTimeoutMs(timeoutMs);
     Socket upstream = new Socket();
@@ -90,6 +95,7 @@ final class ClusterTcpExitBridge {
       upstream.connect(exitAddr, timeoutMs);
       upstream.setTcpNoDelay(true);
       RelayCopy.applyReadTimeout(clientSocket, readTimeoutMs);
+      log.info("cluster exit connected to " + exitAddr);
     } catch (IOException e) {
       log.warning("cluster exit connect " + exitAddr + ": " + e.getMessage());
       try {
@@ -107,8 +113,9 @@ final class ClusterTcpExitBridge {
     try {
       Protocol.writeVolterClientHandshake(upXorOut, Protocol.ROLE_TCP, cfg.token(), null);
       Protocol.writeTcpConnectFrame(upXorOut, c);
+      log.info("cluster exit handshake sent to " + exitAddr);
     } catch (IOException e) {
-      log.warning("cluster exit handshake failed: " + e.getMessage());
+      log.warning("cluster exit handshake to " + exitAddr + " failed: " + e.getMessage());
       try {
         upstream.close();
       } catch (IOException ignored) {
@@ -118,7 +125,7 @@ final class ClusterTcpExitBridge {
       }
       return false;
     }
-    log.info("cluster tcp exit bridge -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
+    log.info("cluster tcp exit bridge active -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
     Future<?> up = RelayCopyPool.submit(
         () -> RelayCopy.pump(clientIn, upXorOut, clientSocket, upstream, true, readTimeoutMs),
         "cluster-br-up");

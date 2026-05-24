@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
 	"dev.c0redev.volter/internal/dht"
 	"dev.c0redev.volter/internal/ice"
@@ -277,6 +278,8 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 	}
 	st.lastAttempt = now
 	st.lastTouch = now
+	clientlog.Trace("PathManager.Decide dst=%s allowPeerPath=%v forcePeerPath=%v peerDial=%v failStreak=%d ewmaOK=%.2f globalCand=%d",
+		key, allowPeerPath, forcePeerPath, m.peerDial, st.failStreak, st.ewmaOK, m.globalCand)
 
 	tryPeer := func() (PathDecision, bool) {
 		if !allowPeerPath || !m.peerDial {
@@ -285,10 +288,12 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		if !forcePeerPath {
 			cand := m.globalCand
 			if cand != ice.CandidateSrflx && cand != ice.CandidateRelay {
+				clientlog.Trace("  tryPeer skip: globalCand=%d (need srflx/relay)", cand)
 				return PathDecision{}, false
 			}
 		}
 		if !forcePeerPath && st.failStreak < 1 && st.ewmaOK >= 0.42 {
+			clientlog.Trace("  tryPeer skip: failStreak=%d ewmaOK=%.2f (too healthy)", st.failStreak, st.ewmaOK)
 			return PathDecision{}, false
 		}
 		epSnap := m.peerUDPEndpoints
@@ -308,8 +313,10 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		tcpAddr, quicAddr, udpAddr, udpEnds, tcpCands, quicCands := pickPeerRoutes(epSnap, useUDP, peerLimit, maxAge, now)
 		m.mu.Lock()
 		if tcpAddr == "" && quicAddr == "" && udpAddr == "" {
+			clientlog.Trace("  tryPeer: no peer candidates found")
 			return PathDecision{}, false
 		}
+		clientlog.Trace("  tryPeer: tcp=%s quic=%s udp=%s tcpCands=%d quicCands=%d", tcpAddr, quicAddr, udpAddr, len(tcpCands), len(quicCands))
 		if !m.peerRelayUseQuic {
 			quicAddr = ""
 		}
@@ -351,6 +358,7 @@ func (m *PathManager) Decide(dst net.IP, dual bool, quicEnabled bool, allowPeerP
 		if d, ok := tryPeer(); ok {
 			return d
 		}
+		clientlog.Trace("  final: PathClassDirect (no peer candidates)")
 		return dec
 	}
 	if m.pathCooldown > 0 && m.tcpStickUntil != nil {

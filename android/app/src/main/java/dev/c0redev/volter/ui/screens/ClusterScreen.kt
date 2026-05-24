@@ -464,10 +464,16 @@ private fun clusterRowHostPort(row: String): String {
 private fun canonicalClusterExit(raw: String): String {
     val s = raw.trim().substringBefore(" ").trim()
     if (s.isEmpty()) return ""
-    if (s.startsWith("[")) return s
-    val colon = s.lastIndexOf(':')
-    if (colon <= 0 || colon >= s.length - 1) return s
-    val host = s.substring(0, colon).trim()
-    val port = s.substring(colon + 1).trim()
+    // strip http(s):// prefix if present
+    val clean = when {
+        s.startsWith("https://") -> s.removePrefix("https://")
+        s.startsWith("http://") -> s.removePrefix("http://")
+        else -> s
+    }
+    if (clean.startsWith("[")) return clean
+    val colon = clean.lastIndexOf(':')
+    if (colon <= 0 || colon >= clean.length - 1) return clean
+    val host = clean.substring(0, colon).trim()
+    val port = clean.substring(colon + 1).trim()
     return "${host.lowercase()}:$port"
 }
