@@ -212,8 +212,11 @@ func ApplyClusterProtectionDefaults(p *ProtectionOptions) {
 	if strings.TrimSpace(p.ClusterPeerHandshakePath) == "" {
 		p.ClusterPeerHandshakePath = DefaultClusterPeerHandshake
 	}
-	if !p.RoutePlannerV2 {
-		p.RoutePlannerV2 = true
+	mode := strings.ToLower(strings.TrimSpace(p.RouteMode))
+	if mode == "server_relay" || mode == "peer_relay" {
+		if !p.RoutePlannerV2 {
+			p.RoutePlannerV2 = true
+		}
 	}
 }
 

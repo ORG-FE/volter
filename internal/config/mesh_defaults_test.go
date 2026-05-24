@@ -55,14 +55,33 @@ func TestDefaultSTUNServerListDedupes(t *testing.T) {
 }
 
 func TestApplyClusterProtectionDefaults(t *testing.T) {
-	p := &ProtectionOptions{}
-	ApplyClusterProtectionDefaults(p)
-	if p.ClusterMapPath == "" || !p.RoutePlannerV2 {
-		t.Fatalf("cluster defaults: %+v", p)
-	}
-	if p.ClusterSessionsPath == "" || p.ClusterClientsPath == "" {
-		t.Fatal("cluster paths incomplete")
-	}
+	t.Run("auto mode no routePlannerV2", func(t *testing.T) {
+		p := &ProtectionOptions{}
+		ApplyClusterProtectionDefaults(p)
+		if p.ClusterMapPath == "" || p.ClusterSessionsPath == "" || p.ClusterClientsPath == "" {
+			t.Fatal("cluster paths should be set")
+		}
+		if p.RoutePlannerV2 {
+			t.Fatal("routePlannerV2 should be false for auto/direct mode")
+		}
+	})
+	t.Run("server_relay enables routePlannerV2", func(t *testing.T) {
+		p := &ProtectionOptions{RouteMode: "server_relay"}
+		ApplyClusterProtectionDefaults(p)
+		if p.ClusterMapPath == "" {
+			t.Fatal("cluster paths not set")
+		}
+		if !p.RoutePlannerV2 {
+			t.Fatal("routePlannerV2 should be true for server_relay mode")
+		}
+	})
+	t.Run("direct mode no routePlannerV2", func(t *testing.T) {
+		p := &ProtectionOptions{RouteMode: "direct"}
+		ApplyClusterProtectionDefaults(p)
+		if p.RoutePlannerV2 {
+			t.Fatal("routePlannerV2 should be false for direct mode")
+		}
+	})
 }
 
 func TestMeshToRelayAfterDefaults(t *testing.T) {

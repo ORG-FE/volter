@@ -48,7 +48,7 @@ data class ProtectionOptions(
         clusterClientsPath = clusterClientsPath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-clients.json",
         clusterInvitePath = clusterInvitePath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-invite",
         clusterPeerHandshakePath = clusterPeerHandshakePath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-peer-handshake",
-        routePlannerV2 = true,
+        routePlannerV2 = routeMode in listOf("server_relay", "peer_relay"),
     )
 
     fun toJson(): JSONObject {

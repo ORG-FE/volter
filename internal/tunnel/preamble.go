@@ -285,6 +285,7 @@ func protForDirectRoute(base *config.ProtectionOptions) *config.ProtectionOption
 	cp.PeerID = ""
 	cp.RelayNonce = ""
 	cp.RelaySig = ""
+	cp.RoutePlannerV2 = false
 	return &cp
 }
 
@@ -297,6 +298,7 @@ func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.Relay
 		cp.PeerID = ""
 		cp.RelayNonce = ""
 		cp.RelaySig = ""
+		cp.RoutePlannerV2 = false
 	}
 	if cp.RelayHop <= 0 {
 		cp.RelayHop = 1
