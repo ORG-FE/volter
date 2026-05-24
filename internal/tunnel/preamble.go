@@ -350,10 +350,16 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		clientlog.Trace("mode=direct: allowPeerPath=false relayClass=direct")
 	case "server_relay":
 		allowPeerPath = false
-		decision = PathDecision{PreferTCP: true, RelayClass: PathClassServer, PathTTL: 2}
-		preferTCP = true
-		dialProt = protForServerRelayRoute(prot, relay)
-		clientlog.Trace("mode=server_relay: relayClass=server pathTTL=2 clusterPreferred=%q", strings.TrimSpace(prot.ClusterPreferredServer))
+		if clusterExit {
+			decision = PathDecision{PreferTCP: true, RelayClass: PathClassServer, PathTTL: 2}
+			preferTCP = true
+			dialProt = protForServerRelayRoute(prot, relay)
+			clientlog.Trace("mode=server_relay with exit: relayClass=server pathTTL=2 clusterPreferred=%q", strings.TrimSpace(prot.ClusterPreferredServer))
+		} else {
+			decision = PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
+			dialProt = protForDirectRoute(prot)
+			clientlog.Trace("mode=server_relay no preferred: fallback to direct")
+		}
 	case "peer_relay":
 		allowPeerPath = !clusterExit
 		clientlog.Trace("mode=peer_relay: allowPeerPath=%v", allowPeerPath)
