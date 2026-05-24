@@ -257,6 +257,12 @@ func relayOptsForHandshake(src *config.ProtectionOptions, token string) *config.
 }
 
 func routeModeOf(prot *config.ProtectionOptions) string {
+	if m := liveRouteModeValue(); m != "" {
+		switch m {
+		case "direct", "peer_relay", "server_relay", "auto":
+			return m
+		}
+	}
 	if prot == nil {
 		return "auto"
 	}
@@ -362,6 +368,21 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 	if decision.PreferTCP {
 		preferTCP = true
 	}
+	if mode == "direct" {
+		fb := protForDirectRoute(dialProt)
+		if preferTCP || !UsesQUICTransport(transport, quicServer) || quicShared == nil {
+			c, err := Dial(addrs, dst, dstPort, token, fb, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
+			if pm != nil {
+				pm.Record(dst, err == nil, PathClassDirect, 1)
+			}
+			return c, false, true, err
+		}
+		c, err := Dial(addrs, dst, dstPort, token, fb, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, false)
+		if pm != nil {
+			pm.Record(dst, err == nil, PathClassDirect, 1)
+		}
+		return c, false, false, err
+	}
 	if prot == nil || !prot.RoutePlannerV2 {
 		if len(decision.PeerQUICCandidates) > 1 {
 			decision.PeerQUICCandidates = decision.PeerQUICCandidates[:1]
@@ -373,7 +394,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 			decision.PeerTCPCandidates = decision.PeerTCPCandidates[:1]
 		}
 	}
-	plan := BuildRoutePlan(dst.String(), decision)
+	plan := BuildRoutePlan(dst.String(), firstServerAddr(addrs), decision)
 	if len(plan.Hops) > 0 {
 		var parts []string
 		for _, h := range plan.Hops {
@@ -388,7 +409,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 		if protR.HopIndex <= 0 {
 			protR.HopIndex = 1
 		}
-		c, usedTCP, err := dialRouteHopConn(h.Kind, h.Addr, dst, dstPort, token, protR, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared)
+		c, usedTCP, err := dialRouteHopConn(h.Kind, h.Addr, dst, dstPort, token, protR, addrs, relay, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared)
 		if err == nil {
 			SetRouteTrace(dst.String(), mode, fmt.Sprintf("%s:%s", h.Kind, h.Addr), "")
 			if pm != nil {

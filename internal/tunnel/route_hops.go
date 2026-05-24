@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"dev.c0redev.volter/internal/config"
@@ -77,8 +78,34 @@ func ProtForRelayForward(base *config.ProtectionOptions, token string) *config.P
 	return relayOptsForHandshake(&cp, token)
 }
 
-func BuildRoutePlan(target string, decision PathDecision) RoutePlan {
+func firstServerAddr(addrs []string) string {
+	for _, a := range addrs {
+		if s := strings.TrimSpace(a); s != "" {
+			return s
+		}
+	}
+	if s := strings.TrimSpace(ActiveVolterServer()); s != "" {
+		return s
+	}
+	return ""
+}
+
+func hopServerAddrs(addr string, fallbacks []string) []string {
+	addr = strings.TrimSpace(addr)
+	if addr != "" {
+		if _, _, err := net.SplitHostPort(addr); err == nil {
+			return []string{addr}
+		}
+	}
+	if s := firstServerAddr(fallbacks); s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+func BuildRoutePlan(target string, serverAddr string, decision PathDecision) RoutePlan {
 	out := RoutePlan{Target: strings.TrimSpace(target)}
+	serverAddr = strings.TrimSpace(serverAddr)
 	maxHops := decision.MaxPeerHops
 	if maxHops <= 0 {
 		maxHops = 1
@@ -117,11 +144,11 @@ func BuildRoutePlan(target string, decision PathDecision) RoutePlan {
 			add("peer_tcp", decision.PeerAddr)
 		}
 	}
-	if len(out.Hops) == 0 {
+	if len(out.Hops) == 0 && serverAddr != "" {
 		if decision.RelayClass == PathClassServer {
-			add("server_relay", target)
+			add("server_relay", serverAddr)
 		} else {
-			add("direct_server", target)
+			add("direct_server", serverAddr)
 		}
 	}
 	if len(out.Hops) > maxHops {

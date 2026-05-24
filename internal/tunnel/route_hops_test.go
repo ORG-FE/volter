@@ -54,13 +54,32 @@ func TestAttachRouteHops(t *testing.T) {
 	}
 }
 
+func TestBuildRoutePlanDirectServerUsesServerAddr(t *testing.T) {
+	dec := PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
+	plan := BuildRoutePlan("1.1.1.1", "212.80.7.230:26771", dec)
+	if len(plan.Hops) != 1 {
+		t.Fatalf("want 1 hop, got %d %+v", len(plan.Hops), plan.Hops)
+	}
+	if plan.Hops[0].Kind != "direct_server" || plan.Hops[0].Addr != "212.80.7.230:26771" {
+		t.Fatalf("unexpected hop %+v", plan.Hops[0])
+	}
+}
+
+func TestBuildRoutePlanServerRelayUsesServerAddr(t *testing.T) {
+	dec := PathDecision{RelayClass: PathClassServer, PathTTL: 2}
+	plan := BuildRoutePlan("8.8.8.8", "212.80.7.230:26771", dec)
+	if len(plan.Hops) != 1 || plan.Hops[0].Kind != "server_relay" || plan.Hops[0].Addr != "212.80.7.230:26771" {
+		t.Fatalf("%+v", plan.Hops)
+	}
+}
+
 func TestBuildRoutePlanPeerChain(t *testing.T) {
 	dec := PathDecision{
 		MaxPeerHops:        2,
 		PeerTCPCandidates:  []string{"a:1", "b:2", "c:3"},
 		PeerQUICCandidates: []string{"q:1"},
 	}
-	plan := BuildRoutePlan("dst", dec)
+	plan := BuildRoutePlan("dst", "srv:443", dec)
 	if len(plan.Hops) != 2 {
 		t.Fatalf("want 2 hops, got %d %+v", len(plan.Hops), plan.Hops)
 	}

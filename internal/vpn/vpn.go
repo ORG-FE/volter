@@ -80,8 +80,17 @@ func Run(ctx context.Context, opt Options) error {
 		return errors.New("server addrs empty")
 	}
 	tunnel.ClearActiveVolterServer()
-	defer tunnel.ClearActiveVolterServer()
+	tunnel.ClearLiveRouteMode()
+	defer func() {
+		tunnel.ClearActiveVolterServer()
+		tunnel.ClearLiveRouteMode()
+	}()
 	opt.Protection = protectionWithMeshPolicy(opt.Protection, opt.Mesh)
+	if opt.Protection != nil {
+		tunnel.SetLiveRouteMode(opt.Protection.RouteMode)
+	} else {
+		tunnel.ClearLiveRouteMode()
+	}
 	opt.ServerAddrs = orderedServerAddrs(opt.ServerAddrs, opt.Protection)
 	ck := clusterPollHeaderKey(opt)
 	mapPath, sessPath, clientsPath := clusterPollPaths(opt.Protection)

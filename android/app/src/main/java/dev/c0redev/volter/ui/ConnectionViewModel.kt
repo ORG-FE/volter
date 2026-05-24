@@ -650,7 +650,13 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveClientSettings(s: ClientSettings) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveClientSettings(s); reloadProtectionAndSettings() } }
     fun saveGlobalProtection(p: dev.c0redev.volter.domain.model.ProtectionOptions?) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveProtection(p); reloadProtectionAndSettings() } }
-    fun upsertLocalConfig(name: String, cfg: Config) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveConfig(name, cfg); refreshLocalConfigs() } }
+    fun upsertLocalConfig(name: String, cfg: Config) {
+        viewModelScope.launch(Dispatchers.IO) {
+            localRepo.saveConfig(name, cfg)
+            cfg.protection?.routeMode?.let { CoreBridge.setRouteMode(it) }
+            refreshLocalConfigs()
+        }
+    }
     fun deleteLocalConfig(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             localRepo.deleteConfig(name)

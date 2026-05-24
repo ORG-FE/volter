@@ -21,6 +21,7 @@ import (
 	"dev.c0redev.volter/internal/metrics"
 	"dev.c0redev.volter/internal/probe"
 	"dev.c0redev.volter/internal/protocol"
+	"dev.c0redev.volter/internal/tunnel"
 	"dev.c0redev.volter/internal/update"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -556,6 +557,7 @@ func (m *Model) setClusterRouteMode(mode string) {
 	config.ApplyClusterProtectionDefaults(&opts)
 	cfg.Protection = &opts
 	_ = config.Save(name, cfg)
+	tunnel.SetLiveRouteMode(opts.RouteMode)
 }
 
 func (m *Model) applyClusterDefaultsToActive() {

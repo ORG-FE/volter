@@ -206,6 +206,16 @@ object CoreBridge {
         }
     }
 
+    fun setRouteMode(mode: String) {
+        try {
+            val c = Class.forName("core.Core")
+            val m = c.getMethod("setRouteMode", String::class.java)
+            m.invoke(null, mode)
+        } catch (e: Exception) {
+            VolterLog.w("setRouteMode: ${e.message}")
+        }
+    }
+
     data class ClusterRefreshResult(
         val ok: Boolean,
         val mapOk: Boolean,

@@ -634,6 +634,10 @@ func MeshStatus() string {
 	return jsonString(meshstatus.Gather())
 }
 
+func SetRouteMode(mode string) {
+	tunnel.SetLiveRouteMode(mode)
+}
+
 func RefreshClusterServers(cfgJSON string, configDir string) string {
 	_ = configDir
 	cfgJSON = strings.TrimSpace(cfgJSON)

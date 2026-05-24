@@ -33,7 +33,7 @@ func runPeerRelaySession(s *peerUDPSession, opts *config.ProtectionOptions, tc *
 		return errors.New("peer relay: bad forward opts")
 	}
 	clientlog.Info("peer relay forward hop=%d -> %s %s", fwd.HopIndex, kind, addr)
-	nextConn, err := dialRelayHop(kind, addr, tc.IP, tc.Port, token, fwd)
+	nextConn, err := dialRelayHop(kind, addr, tc.IP, tc.Port, token, fwd, nil, nil, "", "", "", false, "", nil, nil)
 	if err != nil {
 		return err
 	}
@@ -44,8 +44,8 @@ func runPeerRelaySession(s *peerUDPSession, opts *config.ProtectionOptions, tc *
 	return <-errc
 }
 
-func dialRouteHopConn(kind, addr string, dstIP net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn) (net.Conn, bool, error) {
-	c, err := dialRelayHop(kind, addr, dstIP, dstPort, token, prot)
+func dialRouteHopConn(kind, addr string, dstIP net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, serverAddrs []string, relay *config.RelayOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn) (net.Conn, bool, error) {
+	c, err := dialRelayHop(kind, addr, dstIP, dstPort, token, prot, serverAddrs, relay, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared)
 	if err != nil {
 		return nil, false, err
 	}
@@ -66,7 +66,7 @@ func fallbackDialProt(dialProt *config.ProtectionOptions, relay *config.RelayOpt
 	return cp
 }
 
-func dialRelayHop(kind, addr string, dstIP net.IP, dstPort uint16, token string, prot *config.ProtectionOptions) (net.Conn, error) {
+func dialRelayHop(kind, addr string, dstIP net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, serverAddrs []string, relay *config.RelayOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn) (net.Conn, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "peer_udp":
 		return DialPeerRelayUDP(addr, dstIP, dstPort, token, prot)
@@ -74,10 +74,20 @@ func dialRelayHop(kind, addr string, dstIP net.IP, dstPort uint16, token string,
 		return DialPeerRelayQUIC(addr, "", false, "", nil, dstIP, dstPort, token, prot)
 	case "peer_tcp":
 		return DialSingleTCP(addr, dstIP, dstPort, token, prot)
-	case "server_relay", "direct_server":
-		srv := []string{addr}
-		dialProt := protForServerRelayRoute(prot, nil)
-		return Dial(srv, dstIP, dstPort, token, dialProt, "", "", "", false, "", nil, nil, true)
+	case "direct_server":
+		addrs := hopServerAddrs(addr, serverAddrs)
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("direct_server: no server address")
+		}
+		dialProt := protForDirectRoute(prot)
+		return Dial(addrs, dstIP, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
+	case "server_relay":
+		addrs := hopServerAddrs(addr, serverAddrs)
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("server_relay: no server address")
+		}
+		dialProt := protForServerRelayRoute(prot, relay)
+		return Dial(addrs, dstIP, dstPort, token, dialProt, transport, quicServer, quicServerName, quicSkipVerify, quicCertPinSHA256, quicTLSRoots, quicShared, true)
 	default:
 		return nil, fmt.Errorf("peer relay: unknown hop kind %q", kind)
 	}
