@@ -71,7 +71,7 @@ final class ClusterRuntime {
     String dhtRpc = "";
     if (!c.listenPorts().isEmpty()) {
       String host = resolveSelfHost(c);
-      endpoint = "http://" + host.trim() + ":" + c.listenPorts().get(0) + c.clusterMapPath();
+      endpoint = "http://" + host.trim() + ":" + c.listenPorts().get(0);
       dhtRpc = selfDhtRpc(host, c.dhtRpcListenUdp());
     }
     nodes.put(c.clusterNodeId(), new ClusterNode(c.clusterNodeId(), endpoint, dhtRpc, System.currentTimeMillis(), true));

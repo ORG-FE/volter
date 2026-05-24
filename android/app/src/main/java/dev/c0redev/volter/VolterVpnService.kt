@@ -474,6 +474,10 @@ class VolterVpnService : VpnService() {
 
     private fun collectRelayBypassHosts(cfg: Config): Set<String> {
         val out = linkedSetOf<String>()
+        // add clusterPreferredServer host for exit bridge bypass
+        cfg.protection?.clusterPreferredServer?.let { hp ->
+            parseHostPort(hp)?.first?.trim()?.takeIf { it.isNotEmpty() }?.let(out::add)
+        }
         val mesh = cfg.mesh
         if (mesh.enabled) {
             mesh.discovery.dhtRpcSeedPeers.orEmpty().forEach { hp ->
