@@ -1,10 +1,12 @@
 package dev.c0redev.volter.update
 
-import android.content.ClipData
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import androidx.core.content.FileProvider
+import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import dev.c0redev.volter.BuildConfig
+import dev.c0redev.volter.VolterLog
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -15,7 +17,6 @@ import java.util.Locale
 class UpdateManager {
     companion object {
         private const val API_LATEST = "https://api.github.com/repos/ORG-FE/volter/releases/latest"
-        private const val APK_MIME = "application/vnd.android.package-archive"
         private const val MIN_APK_BYTES = 64 * 1024L
     }
 
@@ -56,18 +57,38 @@ class UpdateManager {
         val outFile = File(dir, "install.apk")
         val partFile = File(dir, "install.apk.part")
         downloadApkToFile(candidate.apkUrl, partFile, outFile, onDownloadProgress)
-
-        val authority = "${context.packageName}.fileprovider"
-        val uri = FileProvider.getUriForFile(context, authority, outFile)
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            clipData = ClipData.newRawUri("apk", uri)
-            setDataAndType(uri, APK_MIME)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+        installApkSession(context, outFile)
         return true
+    }
+
+    private fun installApkSession(context: Context, apkFile: File) {
+        val installer = context.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setInstallReason(PackageManager.INSTALL_REASON_USER)
+        }
+        val sessionId = installer.createSession(params)
+        val session = installer.openSession(sessionId)
+        try {
+            session.openWrite("base.apk", 0, apkFile.length()).use { out ->
+                apkFile.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+                session.fsync(out)
+            }
+            val callback = PendingIntent.getBroadcast(
+                context,
+                sessionId,
+                Intent(context, ApkInstallReceiver::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+            )
+            session.commit(callback.intentSender)
+            VolterLog.i("apk install session committed id=$sessionId bytes=${apkFile.length()}")
+        } catch (e: Exception) {
+            session.abandon()
+            throw e
+        } finally {
+            session.close()
+        }
     }
 
     private fun pickBestApkAsset(assets: JSONArray): Pair<String, String>? {
