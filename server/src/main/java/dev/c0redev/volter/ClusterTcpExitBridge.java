@@ -7,8 +7,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
 final class ClusterTcpExitBridge {
@@ -126,32 +125,27 @@ final class ClusterTcpExitBridge {
       return false;
     }
     log.info("cluster tcp exit bridge active -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
-    Future<?> up = RelayCopyPool.submit(
+    // Run pumps asynchronously on RelayCopyPool and chain cleanup after both complete.
+    // Does NOT block the calling streamPool thread — prevents thread pool exhaustion.
+    CompletableFuture<Void> upFuture = CompletableFuture.runAsync(
         () -> RelayCopy.pump(clientIn, upXorOut, clientSocket, upstream, true, readTimeoutMs),
-        "cluster-br-up");
-    Future<?> down = RelayCopyPool.submit(
+        RelayCopyPool.executor());
+    CompletableFuture<Void> downFuture = CompletableFuture.runAsync(
         () -> RelayCopy.pump(upXorIn, clientXorOut, upstream, null, false, readTimeoutMs),
-        "cluster-br-down");
-    try {
-      up.get();
-      down.get();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      up.cancel(true);
-      down.cancel(true);
-      throw new IOException(e);
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof IOException io) {
-        throw io;
+        RelayCopyPool.executor());
+    CompletableFuture.allOf(upFuture, downFuture).whenComplete((unused, ex) -> {
+      if (ex != null) {
+        log.warning("cluster exit pump failed: " + ex.getMessage());
       }
-      throw new IOException(cause);
-    } finally {
       try {
         upstream.close();
       } catch (IOException ignored) {
       }
-    }
+      try {
+        clientSocket.close();
+      } catch (IOException ignored) {
+      }
+    });
     return true;
   }
 

@@ -1,5 +1,6 @@
 package dev.c0redev.volter;
 
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -11,6 +12,10 @@ final class RelayCopyPool {
   private static final ExecutorService POOL = Executors.newFixedThreadPool(SIZE, new Factory());
 
   private RelayCopyPool() {}
+
+  static Executor executor() {
+    return POOL;
+  }
 
   static Future<?> submit(Runnable task, String name) {
     return POOL.submit(() -> {

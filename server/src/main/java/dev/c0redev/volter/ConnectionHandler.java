@@ -1011,9 +1011,8 @@ final class ConnectionHandler implements Runnable {
         }
         OutputStream clientXorOut = xor.wrapOutput(s.getOutputStream());
         if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientXorOut, copts, s)) {
-            try {
-                s.close();
-            } catch (IOException ignored) {}
+            // Bridge owns the client socket lifecycle — it will be closed
+            // by the async cleanup when both relay pumps complete.
             return;
         }
         byte[] initialClientData = drainAvailableWithoutBlocking(in);
