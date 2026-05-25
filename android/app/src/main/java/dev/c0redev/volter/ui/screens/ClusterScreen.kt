@@ -289,8 +289,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 parsed.clusterNodes.forEach { row ->
-                                    val normalized =
-                                        row.substringAfter("(").substringBefore(")").ifBlank { row.substringBefore(" ").trim() }
+                                    val normalized = clusterRowHostPort(row)
                                     FilterChip(
                                         selected = !selectedServer.isNullOrBlank() && (selectedServer == normalized || selectedServer == row),
                                         onClick = {
@@ -470,10 +469,11 @@ private fun canonicalClusterExit(raw: String): String {
         s.startsWith("http://") -> s.removePrefix("http://")
         else -> s
     }
-    if (clean.startsWith("[")) return clean
-    val colon = clean.lastIndexOf(':')
-    if (colon <= 0 || colon >= clean.length - 1) return clean
-    val host = clean.substring(0, colon).trim()
-    val port = clean.substring(colon + 1).trim()
+    val hostPort = clean.substringBefore('/').trim()
+    if (hostPort.startsWith("[")) return hostPort
+    val colon = hostPort.lastIndexOf(':')
+    if (colon <= 0 || colon >= hostPort.length - 1) return hostPort
+    val host = hostPort.substring(0, colon).trim()
+    val port = hostPort.substring(colon + 1).trim()
     return "${host.lowercase()}:$port"
 }

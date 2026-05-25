@@ -131,7 +131,7 @@ final class ClusterTcpExitBridge {
         () -> RelayCopy.pump(clientIn, upXorOut, clientSocket, upstream, true, readTimeoutMs),
         RelayCopyPool.executor());
     CompletableFuture<Void> downFuture = CompletableFuture.runAsync(
-        () -> RelayCopy.pump(upXorIn, clientXorOut, upstream, null, false, readTimeoutMs),
+        () -> RelayCopy.pump(upXorIn, clientXorOut, upstream, clientSocket, true, readTimeoutMs),
         RelayCopyPool.executor());
     CompletableFuture.allOf(upFuture, downFuture).whenComplete((unused, ex) -> {
       if (ex != null) {

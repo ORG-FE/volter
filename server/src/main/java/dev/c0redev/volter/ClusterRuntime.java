@@ -116,6 +116,10 @@ final class ClusterRuntime {
       return false;
     }
     for (String id : nodes.keySet()) {
+      ClusterNode node = nodes.get(id);
+      if (node == null || !node.alive) {
+        continue;
+      }
       Optional<String> ohp = resolveVolterHttpHostPort(id);
       if (ohp.isEmpty()) {
         continue;
@@ -170,6 +174,11 @@ final class ClusterRuntime {
     }
     String h = ClusterPreferredCanonical.canonical(hint.trim());
     if (nodes.containsKey(h)) {
+      ClusterNode node = nodes.get(h);
+      if (node == null || !node.alive) {
+        log.info("cluster exit " + h + " is offline, skip bridge");
+        return Optional.empty();
+      }
       return resolveVolterHttpHostPort(h).flatMap(hp -> {
         try {
           InetSocketAddress addr = ClusterTcpExitBridge.parseHostPort(hp);
@@ -307,9 +316,11 @@ final class ClusterRuntime {
             SessionResumeRegistry.get().mergeFromJson(sresp.body());
           } else {
             log.warning("cluster pull sessions non-2xx peer=" + normalizeEndpoint(sessUrl) + " status=" + sresp.statusCode());
+            markPeerDown(sessUrl);
           }
         } catch (Exception ex) {
           log.warning("cluster pull sessions failed peer=" + normalizeEndpoint(sessUrl) + " err=" + ex.getMessage());
+          markPeerDown(sessUrl);
         }
         if (System.nanoTime() > deadline) {
           continue;
@@ -321,9 +332,11 @@ final class ClusterRuntime {
             ClusterClientRegistry.get().mergeFromJson(cresp.body());
           } else {
             log.warning("cluster pull clients non-2xx peer=" + normalizeEndpoint(clientsUrl) + " status=" + cresp.statusCode());
+            markPeerDown(clientsUrl);
           }
         } catch (Exception ex) {
           log.warning("cluster pull clients failed peer=" + normalizeEndpoint(clientsUrl) + " err=" + ex.getMessage());
+          markPeerDown(clientsUrl);
         }
       } catch (Exception e) {
         log.warning("cluster pull map failed peer=" + normalizeEndpoint(u) + " err=" + e.getMessage());
@@ -372,8 +385,10 @@ final class ClusterRuntime {
   }
 
   private void markPeerDown(String endpoint) {
+    String want = normalizeEndpoint(endpoint);
+    if (want.isBlank()) return;
     for (Map.Entry<String, ClusterNode> e : nodes.entrySet()) {
-      if (!e.getValue().endpoint.equals(endpoint)) continue;
+      if (!normalizeEndpoint(e.getValue().endpoint).equals(want)) continue;
       ClusterNode n = e.getValue();
       nodes.put(e.getKey(), new ClusterNode(n.nodeId, n.endpoint, n.dhtRpc, System.currentTimeMillis(), false));
     }
