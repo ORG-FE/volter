@@ -204,6 +204,7 @@ func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOpti
 		}
 		clientlog.Trace("handshake role=%d relayHop=%d relayMaxHop=%d peerId=%q clusterExit=%v hasPeerRelay=%v needRelay=%v",
 			role, eff.RelayHop, eff.RelayMaxHop, eff.PeerID, clusterExit, hasPeerRelay, needRelay)
+		clientlog.Trace("handshake optsJSON: %s", string(optsJSON))
 	}
 	return protocol.WriteHandshakeWithPrefixAndOptsSlot(w, role, 0, token, prefixLen, optsJSON, slot)
 }
