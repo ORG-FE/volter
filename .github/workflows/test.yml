@@ -3,6 +3,8 @@ name: test
 on:
   push:
     branches: [main, master, mew]
+    tags:
+      - "v*"
   pull_request:
 
 concurrency:
@@ -25,11 +27,55 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: go vet
+        run: go vet ./...
+
       - name: go test
         run: go test ./...
 
       - name: java test
         run: mvn -q -f server/pom.xml test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: set server version
+        run: |
+          VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          mvn -q -f server/pom.xml versions:set -DnewVersion=2.2.0 -DgenerateBackupPoms=false
+
+      - name: build server
+        run: mvn -q -f server/pom.xml package -DskipTests
+
+      - name: build client linux
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/volter-client-linux-amd64 ./cmd/volter-client
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/volter-client-linux-arm64 ./cmd/volter-client
+
+      - name: collect artifacts
+        run: |
+          mkdir -p dist
+          cp server/target/server.jar dist/
+          cp config.properties.example dist/config.properties.example
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.sha }}
+          path: dist/
 
   android:
     uses: ./.github/workflows/android-reusable.yml
