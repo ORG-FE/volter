@@ -290,6 +290,7 @@ func protForDirectRoute(base *config.ProtectionOptions) *config.ProtectionOption
 	cp.RelayNonce = ""
 	cp.RelaySig = ""
 	cp.RoutePlannerV2 = false
+	cp.ClusterPreferredServer = ""
 	return &cp
 }
 

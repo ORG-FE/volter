@@ -23,6 +23,7 @@ func SetLiveRouteMode(mode string) {
 
 func ClearLiveRouteMode() {
 	liveRouteMode.Store("")
+	liveClusterPreferredServer.Store("")
 }
 
 func liveRouteModeValue() string {
