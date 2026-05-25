@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const maxOptsLen = 512
+const maxOptsLen = 2048
 
 const HelloCapsHeaderLen = 11
 const HelloCapsMaxNonceLen = 32

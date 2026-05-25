@@ -996,6 +996,12 @@ final class ConnectionHandler implements Runnable {
             Optional<Protocol.ClientOptions> copts)
             throws IOException {
         log.info("TCP connect to " + c.ip().getHostAddress() + ":" + c.port());
+        if (copts.isPresent()) {
+            Protocol.ClientOptions o = copts.get();
+            log.info("handleTcp opts: relayHop=" + o.relayHop() + " clusterPreferredServer=" + o.clusterPreferredServer() + " peerId=" + o.peerId());
+        } else {
+            log.info("handleTcp opts: EMPTY");
+        }
         if (tcpPool == null) {
             throw new IOException("tcp reactor unavailable");
         }

@@ -25,7 +25,7 @@ final class Protocol {
   static final int MAX_TOKEN = 4096;
   static final int MAX_FRAME = 64 * 1024 + 64;
   static final int MAX_PAD = 32;
-  static final int MAX_OPTS = 512;
+  static final int MAX_OPTS = 2048;
   static final int MAX_HELLO_CAPS_NONCE = 32;
   static final int CAPS_VERSION = 1;
   static final int TRANSPORT_TCP = 1;
