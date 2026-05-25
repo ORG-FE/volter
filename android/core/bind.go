@@ -638,6 +638,10 @@ func SetRouteMode(mode string) {
 	tunnel.SetLiveRouteMode(mode)
 }
 
+func SetClusterPreferredServer(server string) {
+	tunnel.SetLiveClusterPreferredServer(server)
+}
+
 func RefreshClusterServers(cfgJSON string, configDir string) string {
 	_ = configDir
 	cfgJSON = strings.TrimSpace(cfgJSON)

@@ -634,6 +634,19 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 	var sconn net.Conn
 	var r *bufio.Reader
 	dialProt := h.routeDirectiveProtection(dstIP, dstPort, time.Now())
+	// apply live clusterPreferredServer override from the runtime state
+	if live := tunnel.LiveClusterPreferredServerValue(); live != "" {
+		if dialProt == nil {
+			dialProt = &config.ProtectionOptions{ClusterPreferredServer: live}
+			if h.opt.Protection != nil {
+				dialProt.RouteMode = h.opt.Protection.RouteMode
+			}
+		} else if dialProt.ClusterPreferredServer != live {
+			cp := *dialProt
+			cp.ClusterPreferredServer = live
+			dialProt = &cp
+		}
+	}
 	slot := tunnel.SlotForProtection(dialProt)
 	var err error
 	var fellBackTCP, tcpOnly bool

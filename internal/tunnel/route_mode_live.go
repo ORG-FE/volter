@@ -11,9 +11,14 @@ func SetLiveRouteMode(mode string) {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
 		liveRouteMode.Store("")
+		liveClusterPreferredServer.Store("")
 		return
 	}
 	liveRouteMode.Store(mode)
+	// clear clusterPreferredServer when mode doesn't support exit routing
+	if mode != "server_relay" {
+		liveClusterPreferredServer.Store("")
+	}
 }
 
 func ClearLiveRouteMode() {

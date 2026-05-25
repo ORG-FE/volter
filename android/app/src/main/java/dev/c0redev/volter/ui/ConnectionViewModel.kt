@@ -653,7 +653,13 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     fun upsertLocalConfig(name: String, cfg: Config) {
         viewModelScope.launch(Dispatchers.IO) {
             localRepo.saveConfig(name, cfg)
-            cfg.protection?.routeMode?.let { CoreBridge.setRouteMode(it) }
+            val mode = cfg.protection?.routeMode
+            if (mode != null) {
+                CoreBridge.setRouteMode(mode)
+            }
+            if (mode == "server_relay") {
+                cfg.protection?.clusterPreferredServer?.let { CoreBridge.setClusterPreferredServer(it) }
+            }
             refreshLocalConfigs()
         }
     }

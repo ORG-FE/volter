@@ -216,6 +216,16 @@ object CoreBridge {
         }
     }
 
+    fun setClusterPreferredServer(server: String) {
+        try {
+            val c = Class.forName("core.Core")
+            val m = c.getMethod("setClusterPreferredServer", String::class.java)
+            m.invoke(null, server)
+        } catch (e: Exception) {
+            VolterLog.w("setClusterPreferredServer: ${e.message}")
+        }
+    }
+
     data class ClusterRefreshResult(
         val ok: Boolean,
         val mapOk: Boolean,
