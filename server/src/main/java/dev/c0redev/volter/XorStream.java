@@ -52,12 +52,13 @@ final class XorStream {
 
             @Override
             public void write(byte[] b, int off, int len) throws IOException {
-                int end = off + len;
-                for (int i = off; i < end; i++) {
-                    b[i] ^= (byte) (key[wPos % key.length] & 0xff);
+                if (len <= 0) return;
+                byte[] encoded = new byte[len];
+                for (int i = 0; i < len; i++) {
+                    encoded[i] = (byte) (b[off + i] ^ (key[wPos % key.length] & 0xff));
                     wPos++;
                 }
-                out.write(b, off, len);
+                out.write(encoded, 0, len);
             }
         };
     }

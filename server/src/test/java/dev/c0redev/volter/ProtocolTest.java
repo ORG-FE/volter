@@ -86,6 +86,49 @@ class ProtocolTest {
   }
 
   @Test
+  void writeVolterClientHandshakeThroughXorKeepsMagicImmutable() throws IOException {
+    byte[] magic = Protocol.MAGIC.clone();
+    var raw = new ByteArrayOutputStream();
+    var xorOut = new XorStream(XorStream.keyFromToken("secret")).wrapOutput(raw);
+
+    Protocol.writeVolterClientHandshake(xorOut, Protocol.ROLE_TCP, "secret", null);
+    Protocol.writeTcpConnectFrame(xorOut, new Protocol.TcpConnect(
+        Protocol.ADDR_V4,
+        InetAddress.getByAddress(new byte[]{8, 8, 8, 8}),
+        853));
+    xorOut.flush();
+
+    assertArrayEquals(magic, Protocol.MAGIC);
+
+    var xorIn = new XorStream(XorStream.keyFromToken("secret"))
+        .wrapInput(new ByteArrayInputStream(raw.toByteArray()));
+    var in = new BufferedInputStream(xorIn);
+    var hr = Protocol.readHandshake(in);
+    assertEquals(Protocol.ROLE_TCP, hr.handshake().role());
+    assertEquals("secret", hr.handshake().token());
+    var c = Protocol.readTcpConnect(in);
+    assertArrayEquals(InetAddress.getByAddress(new byte[]{8, 8, 8, 8}).getAddress(), c.ip().getAddress());
+    assertEquals(853, c.port());
+  }
+
+  @Test
+  void writeVolterClientHandshakeThroughXorWorksTwiceInSameJvm() throws IOException {
+    for (int i = 0; i < 2; i++) {
+      var raw = new ByteArrayOutputStream();
+      var xorOut = new XorStream(XorStream.keyFromToken("secret")).wrapOutput(raw);
+      Protocol.writeVolterClientHandshake(xorOut, Protocol.ROLE_TCP, "secret", null);
+      xorOut.flush();
+
+      var xorIn = new XorStream(XorStream.keyFromToken("secret"))
+          .wrapInput(new ByteArrayInputStream(raw.toByteArray()));
+      var hr = Protocol.readHandshake(new BufferedInputStream(xorIn));
+      assertEquals(Protocol.ROLE_TCP, hr.handshake().role());
+      assertEquals("secret", hr.handshake().token());
+      assertArrayEquals(new byte[]{'V', 'O', 'L', 'T', 1}, Protocol.MAGIC);
+    }
+  }
+
+  @Test
   void readHandshakeRelayTcp() throws IOException {
     byte[] tok = "secret".getBytes();
     String opts = "{\"relayHop\":1,\"relayMaxHop\":2,\"relayBudgetKbps\":512,\"peerId\":\"p1\",\"relayNonce\":\"n1\",\"relaySig\":\"s1\"}";
