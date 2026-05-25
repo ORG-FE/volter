@@ -44,6 +44,10 @@ final class ConnectionHandler implements Runnable {
     
     private static final String PROBE_HANDSHAKE_TOKEN = "probe-bad-token";
 
+    static {
+        Log.logger(ConnectionHandler.class).info("Protocol MAX_OPTS=" + Protocol.MAX_OPTS + " (client opts max bytes)");
+    }
+
     private final Socket sock;
     private final Config cfg;
     private final UdpSessions udp;
