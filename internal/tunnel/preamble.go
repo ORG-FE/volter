@@ -381,7 +381,7 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 			decision = pm.Decide(dst, dual, quicEnabled, ap, false)
 		}
 	}
-	if clusterExit {
+	if clusterExit && mode != "direct" {
 		allowPeerPath = false
 		decision = PathDecision{PreferTCP: true, RelayClass: PathClassServer, PathTTL: 2}
 		dialProt = protForServerRelayRoute(prot, relay)
