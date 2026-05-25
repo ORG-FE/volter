@@ -230,6 +230,12 @@ func relayOptsForHandshake(src *config.ProtectionOptions, token string) *config.
 		return nil
 	}
 	cp := *src
+	if strings.TrimSpace(cp.ClusterPreferredServer) != "" {
+		cp.PeerID = ""
+		cp.RelayNonce = ""
+		cp.RelaySig = ""
+		return &cp
+	}
 	activeRelay := cp.RelayHop > 0 || cp.RelayMaxHop > 0 || strings.TrimSpace(cp.PeerID) != ""
 	if !activeRelay {
 		return &cp
@@ -343,13 +349,24 @@ func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot 
 	decision := PathDecision{RelayClass: PathClassDirect, PathTTL: 1}
 	dialProt := prot
 	mode := routeModeOf(prot)
+	if mode != "server_relay" && prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != "" {
+		p := *prot
+		p.ClusterPreferredServer = ""
+		prot = &p
+		dialProt = prot
+	}
 	SetRouteTrace(dst.String(), mode, "", "")
 	quicEnabled := UsesQUICTransport(transport, quicServer) && quicShared != nil
 	clusterExit := prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != ""
 	clientlog.Trace("DialTunFlow dst=%s:%d mode=%s clusterExit=%v allowPeerPath=%v rpv2=%v relayHop=%d",
 		dst.String(), dstPort, mode, clusterExit, allowPeerPath,
 		prot != nil && prot.RoutePlannerV2,
-		func() int { if prot != nil { return prot.RelayHop }; return 0 }())
+		func() int {
+			if prot != nil {
+				return prot.RelayHop
+			}
+			return 0
+		}())
 	if clusterExit {
 		quicEnabled = false
 		preferTCP = true

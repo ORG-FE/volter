@@ -652,16 +652,34 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     fun saveGlobalProtection(p: dev.c0redev.volter.domain.model.ProtectionOptions?) { viewModelScope.launch(Dispatchers.IO) { localRepo.saveProtection(p); reloadProtectionAndSettings() } }
     fun upsertLocalConfig(name: String, cfg: Config) {
         viewModelScope.launch(Dispatchers.IO) {
-            localRepo.saveConfig(name, cfg)
-            val mode = cfg.protection?.routeMode
+            val normalized = cfg.withRuntimeRouteNormalization()
+            localRepo.saveConfig(name, normalized)
+            if (name == activeConfigName) {
+                activeConfig = mergeEffectiveConfig(normalized)
+            }
+            val mode = normalized.protection?.routeMode
             if (mode != null) {
                 CoreBridge.setRouteMode(mode)
             }
-            if (mode == "server_relay") {
-                cfg.protection?.clusterPreferredServer?.let { CoreBridge.setClusterPreferredServer(it) }
+            if (mode.equals("server_relay", ignoreCase = true)) {
+                CoreBridge.setClusterPreferredServer(normalized.protection?.clusterPreferredServer?.trim().orEmpty())
+            } else {
+                CoreBridge.setClusterPreferredServer("")
             }
             refreshLocalConfigs()
         }
+    }
+
+    private fun Config.withRuntimeRouteNormalization(): Config {
+        val prot = protection ?: return this
+        val mode = prot.routeMode?.trim().orEmpty()
+        if (mode.equals("server_relay", ignoreCase = true)) {
+            return this
+        }
+        if (prot.clusterPreferredServer.isNullOrBlank()) {
+            return this
+        }
+        return copy(protection = prot.copy(clusterPreferredServer = null))
     }
     fun deleteLocalConfig(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -748,7 +766,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         clearActiveProfileUi()
         activeStartedAt = null
         autoFallbackDone = false
-        clearClusterPreferredServer()
         runCatching { appCtx.startService(VolterVpnService.stopIntent(appCtx)) }
         val draft = activeMetric
         if (draft != null) {
@@ -756,24 +773,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             finalizeActiveMetric(Instant.now(), draft.handshakeOk || lastReady, "graceful")
         }
         runCatching { appCtx.stopService(Intent(appCtx, VolterVpnService::class.java)) }
-    }
-
-    private fun clearClusterPreferredServer() {
-        val name = activeConfigName ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val cfg = localRepo.loadConfig(name) ?: return@runCatching
-                val prot = cfg.protection ?: return@runCatching
-                if (prot.clusterPreferredServer.isNullOrBlank()) return@runCatching
-                val updated = cfg.copy(
-                    protection = prot.copy(clusterPreferredServer = null)
-                )
-                localRepo.saveConfig(name, updated)
-                VolterLog.i("clearClusterPreferredServer name=$name")
-            }.onFailure {
-                VolterLog.e("clearClusterPreferredServer failed", it)
-            }
-        }
     }
 
     private suspend fun restartAsTcpFallback() {

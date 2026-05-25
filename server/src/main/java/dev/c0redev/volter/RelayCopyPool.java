@@ -8,7 +8,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 final class RelayCopyPool {
-  private static final int SIZE = Math.max(4, Runtime.getRuntime().availableProcessors() * 2);
+  private static final int SIZE = Math.max(64, Runtime.getRuntime().availableProcessors() * 16);
   private static final ExecutorService POOL = Executors.newFixedThreadPool(SIZE, new Factory());
 
   private RelayCopyPool() {}

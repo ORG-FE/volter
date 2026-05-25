@@ -66,6 +66,26 @@ class ProtocolTest {
   }
 
   @Test
+  void writeBridgeHandshakeTcpWithEmptyOptsThenTcpConnect() throws IOException {
+    var out = new ByteArrayOutputStream();
+    Protocol.writeVolterClientHandshake(out, Protocol.ROLE_TCP, "secret", null);
+    Protocol.writeTcpConnectFrame(out, new Protocol.TcpConnect(
+        Protocol.ADDR_V4,
+        InetAddress.getByAddress(new byte[]{1, 1, 1, 1}),
+        853));
+
+    var in = new BufferedInputStream(new ByteArrayInputStream(out.toByteArray()));
+    var hr = Protocol.readHandshake(in);
+    assertEquals(Protocol.ROLE_TCP, hr.handshake().role());
+    assertEquals("secret", hr.handshake().token());
+    assertTrue(hr.opts().isEmpty());
+
+    var c = Protocol.readTcpConnect(in);
+    assertArrayEquals(InetAddress.getByAddress(new byte[]{1, 1, 1, 1}).getAddress(), c.ip().getAddress());
+    assertEquals(853, c.port());
+  }
+
+  @Test
   void readHandshakeRelayTcp() throws IOException {
     byte[] tok = "secret".getBytes();
     String opts = "{\"relayHop\":1,\"relayMaxHop\":2,\"relayBudgetKbps\":512,\"peerId\":\"p1\",\"relayNonce\":\"n1\",\"relaySig\":\"s1\"}";

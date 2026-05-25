@@ -21,12 +21,18 @@ func TestTcpRelayPreambleUsesTcpRoleWhenClusterExitRelayHop(t *testing.T) {
 	if err := tcpRelayPreamble(w, "tok", prot, protocol.TimeSlot()); err != nil {
 		t.Fatal(err)
 	}
-	hs, err := protocol.ReadHandshakeAfterSkip(bufio.NewReader(bytes.NewReader(buf.Bytes())))
+	hs, opts, err := protocol.ReadHandshakeAfterSkipWithOpts(bufio.NewReader(bytes.NewReader(buf.Bytes())))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if hs.Role != protocol.RoleTCP() {
 		t.Fatalf("cluster exit must use tcp role on entry, got %d", hs.Role)
+	}
+	if !bytes.Contains(opts, []byte(`"clusterPreferredServer":"ru.example:443"`)) {
+		t.Fatalf("clusterPreferredServer missing from opts: %s", string(opts))
+	}
+	if bytes.Contains(opts, []byte(`"peerId":"`)) {
+		t.Fatalf("peer relay identity must not be sent for cluster exit: %s", string(opts))
 	}
 }
 
@@ -68,12 +74,13 @@ func TestTcpRelayPreambleUsesTcpRoleWithoutRelay(t *testing.T) {
 
 func TestProtForDirectRouteClearsRelayFields(t *testing.T) {
 	src := &config.ProtectionOptions{
-		RouteMode:   "direct",
-		RelayHop:    2,
-		RelayMaxHop: 3,
-		PeerID:      "peer-a",
-		RelayNonce:  "n",
-		RelaySig:    "s",
+		RouteMode:              "direct",
+		RelayHop:               2,
+		RelayMaxHop:            3,
+		PeerID:                 "peer-a",
+		RelayNonce:             "n",
+		RelaySig:               "s",
+		ClusterPreferredServer: "ru.example:443",
 	}
 	got := protForDirectRoute(src)
 	if got == nil {
@@ -84,6 +91,26 @@ func TestProtForDirectRouteClearsRelayFields(t *testing.T) {
 	}
 	if got.PeerID != "" || got.RelayNonce != "" || got.RelaySig != "" {
 		t.Fatalf("expected peer relay fields cleared, got peer=%q nonce=%q sig=%q", got.PeerID, got.RelayNonce, got.RelaySig)
+	}
+	if got.ClusterPreferredServer != "" {
+		t.Fatalf("expected clusterPreferredServer cleared, got %q", got.ClusterPreferredServer)
+	}
+}
+
+func TestLiveRouteModeClearsClusterPreferredServer(t *testing.T) {
+	SetLiveClusterPreferredServer("ru.example:443")
+	if got := LiveClusterPreferredServerValue(); got != "ru.example:443" {
+		t.Fatalf("expected live cluster preferred set, got %q", got)
+	}
+	SetLiveRouteMode("direct")
+	if got := LiveClusterPreferredServerValue(); got != "" {
+		t.Fatalf("expected cluster preferred cleared by direct mode, got %q", got)
+	}
+
+	SetLiveClusterPreferredServer("ru.example:443")
+	ClearLiveRouteMode()
+	if got := LiveClusterPreferredServerValue(); got != "" {
+		t.Fatalf("expected cluster preferred cleared by ClearLiveRouteMode, got %q", got)
 	}
 }
 
