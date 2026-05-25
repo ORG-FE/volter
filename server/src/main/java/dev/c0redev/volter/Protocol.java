@@ -60,15 +60,28 @@ final class Protocol {
     return new HandshakeResult(hs, opts);
   }
 
-  static Optional<ClientOptions> readClientOptions(InputStream in) throws IOException {
-    int optsLen = readU16(in);
-    if (optsLen == 0) return Optional.empty();
-    if (optsLen > MAX_OPTS) throw new IOException("bad opts len");
-    byte[] buf = readN(in, optsLen);
-    Optional<ClientOptions> parsed = ClientOptions.parse(new String(buf, StandardCharsets.UTF_8));
-    if (parsed.isEmpty()) throw new IOException("bad client options json");
-    return parsed;
-  }
+static Optional<ClientOptions> readClientOptions(InputStream in) throws IOException {
+        int optsLen = readU16(in);
+        if (optsLen == 0) return Optional.empty();
+        if (optsLen > MAX_OPTS) throw new IOException("bad opts len");
+        byte[] buf = readN(in, optsLen);
+        String raw = new String(buf, StandardCharsets.UTF_8);
+        var log = Log.logger(Protocol.class);
+        if (raw.contains("clusterPreferredServer")) {
+            log.info("RAW opts CONTAINS clusterPreferredServer");
+            int idx = raw.indexOf("clusterPreferredServer");
+            log.info("RAW opts snippet around cPS: " + raw.substring(Math.max(0, idx - 30), Math.min(raw.length(), idx + 60)));
+        } else {
+            log.warning("RAW opts MISSING clusterPreferredServer! Full length=" + optsLen);
+            log.info("RAW opts last 200 chars: " + raw.substring(Math.max(0, raw.length() - 200)));
+        }
+        Optional<ClientOptions> parsed = ClientOptions.parse(raw);
+        if (parsed.isEmpty()) {
+            log.warning("RAW opts parse FAILED: " + raw.substring(0, Math.min(raw.length(), 200)));
+            throw new IOException("bad client options json");
+        }
+        return parsed;
+    }
 
   static void skipUntilMagic(InputStream in) throws IOException {
     byte[] buf = new byte[5];

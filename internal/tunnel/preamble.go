@@ -323,9 +323,19 @@ func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.Relay
 
 func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, dual bool, sel *DualPathSelector, pm *PathManager, allowPeerPath bool, relay *config.RelayOptions) (net.Conn, bool, bool, error) {
 	if prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != "" {
-		p := *prot
-		p.ClusterPreferredServer = clusteraddr.CanonicalHostPort(strings.TrimSpace(prot.ClusterPreferredServer))
-		prot = &p
+		canonical := clusteraddr.CanonicalHostPort(strings.TrimSpace(prot.ClusterPreferredServer))
+		// if preferred server matches one of the entry server addresses,
+		// clear it and treat as direct — no bridge-to-self needed
+		if canonical != "" && clusteraddr.MatchPreferred(addrs, canonical) >= 0 {
+			clientlog.Trace("DialTunFlow clusterPreferredServer %q matches entry server %v, using direct mode", canonical, addrs)
+			p := *prot
+			p.ClusterPreferredServer = ""
+			prot = &p
+		} else {
+			p := *prot
+			p.ClusterPreferredServer = canonical
+			prot = &p
+		}
 	}
 	flowStart := time.Now()
 	preferTCP := false

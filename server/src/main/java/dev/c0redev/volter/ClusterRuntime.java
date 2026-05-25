@@ -1,5 +1,6 @@
 package dev.c0redev.volter;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -130,6 +131,39 @@ final class ClusterRuntime {
     return false;
   }
 
+  boolean isOwnAddress(InetSocketAddress addr) {
+    if (addr == null) return false;
+    Config c = cfg;
+    if (c == null) return false;
+    // compare against self node endpoint from cluster map
+    ClusterNode self = nodes.get(c.clusterNodeId());
+    if (self != null && self.endpoint != null && !self.endpoint.isBlank()) {
+      try {
+        URI u = URI.create(self.endpoint.trim());
+        InetAddress selfHost = InetAddress.getByName(u.getHost());
+        int selfPort = u.getPort();
+        if (selfPort <= 0) {
+          selfPort = "https".equalsIgnoreCase(u.getScheme()) ? 443 : 80;
+        }
+        if (selfPort == addr.getPort() && selfHost.equals(addr.getAddress())) {
+          return true;
+        }
+      } catch (Exception ignored) {
+      }
+    }
+    // fallback: compare against each listen port on loopback
+    for (int port : c.listenPorts()) {
+      if (port == addr.getPort()) {
+        try {
+          InetAddress loop = InetAddress.getByName("127.0.0.1");
+          if (loop.equals(addr.getAddress())) return true;
+        } catch (Exception ignored) {
+        }
+      }
+    }
+    return false;
+  }
+
   Optional<InetSocketAddress> resolveClusterExitDialAddress(String hint) {
     if (hint == null || hint.isBlank()) {
       return Optional.empty();
@@ -138,7 +172,12 @@ final class ClusterRuntime {
     if (nodes.containsKey(h)) {
       return resolveVolterHttpHostPort(h).flatMap(hp -> {
         try {
-          return Optional.of(ClusterTcpExitBridge.parseHostPort(hp));
+          InetSocketAddress addr = ClusterTcpExitBridge.parseHostPort(hp);
+          if (isOwnAddress(addr)) {
+            log.info("cluster exit " + h + " resolved to self: " + addr + ", skip bridge");
+            return Optional.empty();
+          }
+          return Optional.of(addr);
         } catch (Exception e) {
           return Optional.empty();
         }
@@ -146,6 +185,10 @@ final class ClusterRuntime {
     }
     try {
       InetSocketAddress addr = ClusterTcpExitBridge.parseHostPort(h);
+      if (isOwnAddress(addr)) {
+        log.info("cluster exit resolved to self: " + h + ", skip bridge");
+        return Optional.empty();
+      }
       if (isAuthorizedClusterExit(h)) {
         return Optional.of(addr);
       }
