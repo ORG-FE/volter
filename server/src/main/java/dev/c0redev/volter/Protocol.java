@@ -67,11 +67,13 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
         byte[] buf = readN(in, optsLen);
         String raw = new String(buf, StandardCharsets.UTF_8);
         var log = Log.logger(Protocol.class);
-        if (raw.contains("clusterPreferredServer")) {
+        boolean hasClusterPreferred = raw.contains("clusterPreferredServer");
+        boolean directRoute = raw.contains("\"routeMode\":\"direct\"");
+        if (hasClusterPreferred) {
             log.info("RAW opts CONTAINS clusterPreferredServer");
             int idx = raw.indexOf("clusterPreferredServer");
             log.info("RAW opts snippet around cPS: " + raw.substring(Math.max(0, idx - 30), Math.min(raw.length(), idx + 60)));
-        } else {
+        } else if (!directRoute) {
             log.warning("RAW opts MISSING clusterPreferredServer! Full length=" + optsLen);
             log.info("RAW opts last 200 chars: " + raw.substring(Math.max(0, raw.length() - 200)));
         }

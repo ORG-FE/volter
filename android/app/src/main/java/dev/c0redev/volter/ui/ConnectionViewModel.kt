@@ -82,6 +82,12 @@ data class ConfigItemState(
     val geo: ServerGeo? = null,
 )
 
+private data class ConfigHealthCache(
+    val ping: CoreBridge.PingResult,
+    val probe: CoreBridge.ProbeResult,
+    val geo: ServerGeo?,
+)
+
 data class ConnectionState(
     val connected: Boolean = false,
     val ready: Boolean = false,
@@ -107,6 +113,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     private var pendingConnectSettings: ClientSettings? = null
     private var activeConfig: Config? = null
     private var activeConfigName: String? = null
+    private val configHealth = java.util.concurrent.ConcurrentHashMap<String, ConfigHealthCache>()
     private var activeStartedAt: Instant? = null
     private var autoFallbackDone = false
     private var pendingMetric: MetricDraft? = null
@@ -212,6 +219,17 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    private fun enrichConfigItemFromCache(name: String, config: Config): ConfigItemState {
+        val cached = configHealth[name]
+        return enrichConfigItem(
+            name,
+            config,
+            cached?.ping ?: CoreBridge.PingResult(rttMs = 0, error = "not refreshed"),
+            cached?.probe ?: CoreBridge.ProbeResult(ok = false, ipv6 = false, mode = "", leafPin = "", error = "not refreshed"),
+            cached?.geo,
+        )
+    }
+
     private data class MetricDraft(
         val start: Instant,
         val configName: String,
@@ -303,6 +321,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                             val geo = withTimeoutOrNull(8000) {
                                 IpWhoLookup.lookupForServerField(stored.config.server)
                             }
+                            configHealth[stored.name] = ConfigHealthCache(ping, probe, geo)
                             enrichConfigItem(stored.name, stored.config, ping, probe, geo)
                         }
                     }.awaitAll()
@@ -392,6 +411,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             activeStartedAt = Instant.now()
             autoFallbackDone = false
             activateMetric()
+            applyRuntimeRoute(effective)
             startService(effective.toJson().toString(), settings.toJson().toString())
         }
     }
@@ -410,6 +430,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             activeStartedAt = Instant.now()
             autoFallbackDone = false
             activateMetric()
+            applyRuntimeRoute(cfg)
             startService(cfg.toJson().toString(), settings.toJson().toString())
         }
     }
@@ -656,17 +677,31 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             localRepo.saveConfig(name, normalized)
             if (name == activeConfigName) {
                 activeConfig = mergeEffectiveConfig(normalized)
+                val mode = activeConfig?.protection?.routeMode
+                if (mode != null) {
+                    CoreBridge.setRouteMode(mode)
+                }
+                if (mode.equals("server_relay", ignoreCase = true)) {
+                    CoreBridge.setClusterPreferredServer(activeConfig?.protection?.clusterPreferredServer?.trim().orEmpty())
+                } else {
+                    CoreBridge.setClusterPreferredServer("")
+                }
             }
-            val mode = normalized.protection?.routeMode
-            if (mode != null) {
-                CoreBridge.setRouteMode(mode)
+            _localConfigs.value = _localConfigs.value.map {
+                if (it.name == name) enrichConfigItemFromCache(name, normalized) else it
             }
-            if (mode.equals("server_relay", ignoreCase = true)) {
-                CoreBridge.setClusterPreferredServer(normalized.protection?.clusterPreferredServer?.trim().orEmpty())
-            } else {
-                CoreBridge.setClusterPreferredServer("")
-            }
-            refreshLocalConfigs()
+        }
+    }
+
+    private fun applyRuntimeRoute(cfg: Config?) {
+        val mode = cfg?.protection?.routeMode
+        if (mode != null) {
+            CoreBridge.setRouteMode(mode)
+        }
+        if (mode.equals("server_relay", ignoreCase = true)) {
+            CoreBridge.setClusterPreferredServer(cfg?.protection?.clusterPreferredServer?.trim().orEmpty())
+        } else {
+            CoreBridge.setClusterPreferredServer("")
         }
     }
 
@@ -800,6 +835,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         setActiveProfileUi(name)
         activeStartedAt = Instant.now()
         val settings = localRepo.loadClientSettings()
+        applyRuntimeRoute(fallbackCfg)
         startService(fallbackCfg.toJson().toString(), settings.toJson().toString())
     }
 
@@ -819,6 +855,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         activeStartedAt = Instant.now()
         autoFallbackDone = false
         activateMetric()
+        applyRuntimeRoute(effective)
         startService(effective.toJson().toString(), settings.toJson().toString())
     }
 
