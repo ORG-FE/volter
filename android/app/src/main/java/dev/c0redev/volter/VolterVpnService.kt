@@ -195,6 +195,9 @@ class VolterVpnService : VpnService() {
         if (handle > 0) {
             runCatching { CoreBridge.stop(handle) }
                 .onFailure { VolterLog.e("Core.stop failed", it) }
+            waitCoreStopped(handle)
+        } else if (tunFd >= 0) {
+            closeRawFd(tunFd)
         }
         coreHandle = -1
 
@@ -206,6 +209,16 @@ class VolterVpnService : VpnService() {
         tunPfd = null
 
         stopForeground(STOP_FOREGROUND_DETACH)
+    }
+
+    private fun waitCoreStopped(handle: Long) {
+        if (handle <= 0) return
+        repeat(20) {
+            val state = runCatching { CoreBridge.pollState(handle) }.getOrNull()
+            if (state == null || !state.running) return
+            Thread.sleep(50)
+        }
+        VolterLog.w("Core.stop wait timeout handle=$handle")
     }
 
     private fun flushTrafficSnapshot() {

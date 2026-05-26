@@ -659,12 +659,24 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             val normalized = cfg.withRuntimeRouteNormalization()
             localRepo.saveConfig(name, normalized)
             if (name == activeConfigName) {
-                activeConfig = mergeEffectiveConfig(normalized)
-                val settings = localRepo.loadClientSettings()
-                startService(activeConfig!!.toJson().toString(), settings.toJson().toString())
+                val effective = mergeEffectiveConfig(normalized)
+                activeConfig = effective
+                reconnectActiveService(effective, localRepo.loadClientSettings())
             }
             refreshLocalConfigs(probeServers = false)
         }
+    }
+
+    private fun reconnectActiveService(cfg: Config, settings: ClientSettings) {
+        pollJob?.cancel()
+        pollJob = null
+        ++pollGeneration
+        coreHandle = -1
+        activeStartedAt = Instant.now()
+        autoFallbackDone = false
+        _connection.value = ConnectionState(connected = false, ready = false, mode = settings.mode, error = null, socksListen = null)
+        VolterLog.i("reconnectActiveService profile=${activeConfigName ?: "active"} mode=${settings.mode} routeMode=${cfg.protection?.routeMode ?: ""} clusterPreferred=${cfg.protection?.clusterPreferredServer ?: ""}")
+        startService(cfg.toJson().toString(), settings.toJson().toString())
     }
 
     private fun Config.withRuntimeRouteNormalization(): Config {
