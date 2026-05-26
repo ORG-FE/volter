@@ -290,7 +290,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
     }
 
-    fun refreshLocalConfigs() {
+    fun refreshLocalConfigs(probeServers: Boolean = true) {
         viewModelScope.launch(Dispatchers.IO) {
             _localRefreshing.value = true
             try {
@@ -298,10 +298,14 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                 _localConfigs.value = coroutineScope {
                     list.map { stored ->
                         async {
-                            val ping = CoreBridge.ping(stored.config.server, PING_TIMEOUT_MS)
-                            val probe = probeWithRetry(stored.config.server, stored.config.token)
-                            val geo = withTimeoutOrNull(8000) {
-                                IpWhoLookup.lookupForServerField(stored.config.server)
+                            val ping = if (probeServers) CoreBridge.ping(stored.config.server, PING_TIMEOUT_MS) else CoreBridge.PingResult(0L, "skipped")
+                            val probe = if (probeServers) probeWithRetry(stored.config.server, stored.config.token) else CoreBridge.ProbeResult(ok = false, ipv6 = false, mode = "", leafPin = "", error = "skipped", capsNoQuic = null)
+                            val geo = if (probeServers) {
+                                withTimeoutOrNull(8000) {
+                                    IpWhoLookup.lookupForServerField(stored.config.server)
+                                }
+                            } else {
+                                null
                             }
                             enrichConfigItem(stored.name, stored.config, ping, probe, geo)
                         }
@@ -656,17 +660,10 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             localRepo.saveConfig(name, normalized)
             if (name == activeConfigName) {
                 activeConfig = mergeEffectiveConfig(normalized)
+                val settings = localRepo.loadClientSettings()
+                startService(activeConfig!!.toJson().toString(), settings.toJson().toString())
             }
-            val mode = normalized.protection?.routeMode
-            if (mode != null) {
-                CoreBridge.setRouteMode(mode)
-            }
-            if (mode.equals("server_relay", ignoreCase = true)) {
-                CoreBridge.setClusterPreferredServer(normalized.protection?.clusterPreferredServer?.trim().orEmpty())
-            } else {
-                CoreBridge.setClusterPreferredServer("")
-            }
-            refreshLocalConfigs()
+            refreshLocalConfigs(probeServers = false)
         }
     }
 

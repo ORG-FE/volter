@@ -90,7 +90,7 @@ class VolterVpnService : VpnService() {
             runCatching {
                 VolterLog.i("worker start mode=${settings.mode}")
                 val standaloneDpi = cfg.protection?.standaloneDpiOnly == true
-                val effective = if (standaloneDpi) cfg else configAfterTcpOnlyProbe(cfg)
+                val effective = if (standaloneDpi || cfg.protection?.clusterPreferredServer?.isNotBlank() == true) cfg else configAfterTcpOnlyProbe(cfg)
                 if (!isActiveGeneration(generation)) {
                     VolterLog.i("worker stale before start generation=$generation")
                     return@runCatching
@@ -571,4 +571,3 @@ class VolterVpnService : VpnService() {
         }
     }
 }
-
