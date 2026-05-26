@@ -1,6 +1,7 @@
 name: release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -114,4 +115,3 @@ jobs:
             dist/config.properties.example
             dist/volter-android-debug.apk
             dist/volter-core.aar
-
