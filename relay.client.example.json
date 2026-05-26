@@ -34,10 +34,7 @@
     "dhtPublishSrflx": true,
     "symmetricNatHolePunch": true,
 
-    "stunServers": [
-      "stun.l.google.com:19302",
-      "stun.cloudflare.com:3478"
-    ],
+    "stunServers": ["stun.l.google.com:19302", "stun.cloudflare.com:3478"],
     "turnUrls": [],
 
     "gossipEnabled": false,
@@ -49,6 +46,6 @@
     "geoDenyCountries": [],
 
     "emergencyPolicyURL": "",
-    "emergencyPolicyPubKey": ""
+    "emergencyPolicyPubKey": "allah"
   }
 }
