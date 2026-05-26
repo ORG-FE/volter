@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,6 +65,7 @@ import dev.c0redev.volter.ui.mesh.parseMeshStatusJson
 import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 import dev.c0redev.volter.ui.components.StyledTextField
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.PageHeader
 import dev.c0redev.volter.ui.qr.buildQrBitmap
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -164,19 +166,13 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                     .verticalScroll(scroll)
                     .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
         ) {
-            Text(
-                text = stringResource(R.string.mesh_title),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text =
-                    stringResource(
-                        if (connection.connected) R.string.cluster_pool_hint_connected else R.string.cluster_pool_hint_disconnected,
-                    ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp),
+            PageHeader(
+                title = stringResource(R.string.mesh_title),
+                subtitle = stringResource(
+                    if (connection.connected) R.string.cluster_pool_hint_connected else R.string.cluster_pool_hint_disconnected,
+                ),
+                icon = Icons.Outlined.AccountTree,
+                meta = if (connection.connected) stringResource(R.string.home_connected) else stringResource(R.string.home_no),
             )
             Text(
                 text = stringResource(R.string.mesh_profile_label),

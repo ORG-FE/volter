@@ -1,7 +1,15 @@
 package dev.c0redev.volter.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,16 +20,26 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -36,10 +54,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import dev.c0redev.volter.BuildConfig
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.R
@@ -48,6 +68,7 @@ import dev.c0redev.volter.quick.QuickConnectPrefs
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.UpdateUiState
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.PageHeader
 import dev.c0redev.volter.ui.components.StyledTextField
 import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 
@@ -68,6 +89,8 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
     var ipv6Tunnel by remember { mutableStateOf(s.ipv6Tunnel) }
     var dualTun by remember { mutableStateOf(s.dualTun) }
     var transportPref by remember { mutableStateOf(ClientSettings.normalizedTransportPreference(s.transportPreference)) }
+    var splitMode by remember { mutableStateOf(ClientSettings.normalizedSplitTunnelMode(s.splitTunnelMode)) }
+    var splitApps by remember { mutableStateOf(s.splitTunnelApps.toSet()) }
 
     LaunchedEffect(s) {
         mode = s.mode
@@ -76,6 +99,8 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         ipv6Tunnel = s.ipv6Tunnel
         dualTun = s.dualTun
         transportPref = ClientSettings.normalizedTransportPreference(s.transportPreference)
+        splitMode = ClientSettings.normalizedSplitTunnelMode(s.splitTunnelMode)
+        splitApps = s.splitTunnelApps.toSet()
     }
 
     Column(
@@ -86,10 +111,11 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = stringResource(R.string.settings_title),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+        PageHeader(
+            title = stringResource(R.string.settings_title),
+            subtitle = stringResource(R.string.settings_header_subtitle),
+            icon = Icons.Outlined.Settings,
+            meta = mode.uppercase(),
         )
 
         SectionCard {
@@ -263,6 +289,8 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                                     ipv6Tunnel = ipv6Tunnel,
                                     dualTun = dualTun,
                                     transportPreference = transportPref,
+                                    splitTunnelMode = splitMode,
+                                    splitTunnelApps = splitApps.toList().sorted(),
                                 ),
                             )
                         },
@@ -279,6 +307,17 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                 }
             }
         }
+
+        SplitTunnelAppsSection(
+            splitMode = splitMode,
+            selectedPackages = splitApps,
+            tunModeSelected = mode == "tun",
+            onModeChange = { splitMode = it },
+            onClearSelected = { splitApps = emptySet() },
+            onTogglePackage = { pkg ->
+                splitApps = if (pkg in splitApps) splitApps - pkg else splitApps + pkg
+            },
+        )
 
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -384,6 +423,295 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+private data class InstalledAppUi(
+    val label: String,
+    val packageName: String,
+    val icon: Drawable,
+)
+
+private fun loadInstalledApps(context: Context): List<InstalledAppUi> {
+    val pm = context.packageManager
+    val byPackage = linkedMapOf<String, ApplicationInfo>()
+
+    val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    runCatching {
+        pm.queryIntentActivities(launcherIntent, PackageManager.ResolveInfoFlags.of(0))
+    }.getOrDefault(emptyList()).forEach { info ->
+        val app = info.activityInfo?.applicationInfo ?: return@forEach
+        byPackage[app.packageName] = app
+    }
+
+    runCatching {
+        pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+    }.getOrDefault(emptyList()).forEach { app ->
+        byPackage.putIfAbsent(app.packageName, app)
+    }
+
+    return byPackage.values
+        .asSequence()
+        .filter { it.packageName != context.packageName }
+        .filter { it.enabled }
+        .map { app ->
+            InstalledAppUi(
+                label = app.loadLabel(pm).toString().ifBlank { app.packageName },
+                packageName = app.packageName,
+                icon = app.loadIcon(pm),
+            )
+        }
+        .sortedWith(compareBy<InstalledAppUi> { it.label.lowercase() }.thenBy { it.packageName })
+        .toList()
+}
+
+@Composable
+private fun SplitTunnelAppsSection(
+    splitMode: String,
+    selectedPackages: Set<String>,
+    tunModeSelected: Boolean,
+    onModeChange: (String) -> Unit,
+    onClearSelected: () -> Unit,
+    onTogglePackage: (String) -> Unit,
+) {
+    val ctx = LocalContext.current
+    val apps = remember(ctx) { loadInstalledApps(ctx) }
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(apps, query) {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) apps else apps.filter {
+            it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+        }
+    }
+    SectionCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_split_apps_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_split_apps_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_split_selected_fmt, selectedPackages.size),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_split_apps_count_fmt, filtered.size, apps.size),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            SplitModeSelector(splitMode = splitMode, onModeChange = onModeChange)
+            if (!tunModeSelected) {
+                Surface(
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_split_tun_required),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text(stringResource(R.string.settings_split_search)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotBlank()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Outlined.Close, contentDescription = null)
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                ),
+            )
+            Text(
+                text = when (splitMode) {
+                    ClientSettings.SPLIT_BYPASS -> stringResource(R.string.settings_split_bypass_hint)
+                    ClientSettings.SPLIT_ONLY -> stringResource(R.string.settings_split_only_hint)
+                    else -> stringResource(R.string.settings_split_off_hint)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 1.dp,
+            ) {
+                if (filtered.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_split_no_apps),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(390.dp)
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(filtered, key = { it.packageName }) { app ->
+                            AppSplitRow(
+                                app = app,
+                                checked = app.packageName in selectedPackages,
+                                enabled = splitMode != ClientSettings.SPLIT_OFF,
+                                onToggle = { onTogglePackage(app.packageName) },
+                            )
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onClearSelected, enabled = selectedPackages.isNotEmpty()) {
+                    Text(stringResource(R.string.settings_split_clear_selected))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SplitModeSelector(
+    splitMode: String,
+    onModeChange: (String) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        SplitModePill(
+            title = stringResource(R.string.settings_split_off),
+            subtitle = stringResource(R.string.settings_split_off_short),
+            selected = splitMode == ClientSettings.SPLIT_OFF,
+            onClick = { onModeChange(ClientSettings.SPLIT_OFF) },
+            modifier = Modifier.weight(1f),
+        )
+        SplitModePill(
+            title = stringResource(R.string.settings_split_bypass),
+            subtitle = stringResource(R.string.settings_split_bypass_short),
+            selected = splitMode == ClientSettings.SPLIT_BYPASS,
+            onClick = { onModeChange(ClientSettings.SPLIT_BYPASS) },
+            modifier = Modifier.weight(1f),
+        )
+        SplitModePill(
+            title = stringResource(R.string.settings_split_only),
+            subtitle = stringResource(R.string.settings_split_only_short),
+            selected = splitMode == ClientSettings.SPLIT_ONLY,
+            onClick = { onModeChange(ClientSettings.SPLIT_ONLY) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun SplitModePill(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+        color = bg,
+        contentColor = fg,
+        tonalElevation = if (selected) 2.dp else 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(text = title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Text(text = subtitle, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun AppSplitRow(
+    app: InstalledAppUi,
+    checked: Boolean,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onToggle),
+        shape = RoundedCornerShape(18.dp),
+        color = if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+        contentColor = if (checked) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        tonalElevation = if (checked) 2.dp else 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ) {
+                Image(
+                    bitmap = app.icon.toBitmap(width = 56, height = 56).asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .padding(5.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = app.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(text = app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Checkbox(
+                checked = checked,
+                onCheckedChange = { onToggle() },
+                enabled = enabled,
+            )
+        }
     }
 }
 

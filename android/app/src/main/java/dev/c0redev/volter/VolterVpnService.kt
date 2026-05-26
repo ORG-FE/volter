@@ -298,13 +298,31 @@ class VolterVpnService : VpnService() {
         val builder = Builder()
         builder.setSession("volter")
         builder.setMtu(mtu)
-        runCatching { builder.addDisallowedApplication(packageName) }
-            .onSuccess { VolterLog.i("VpnBuilder addDisallowedApplication ok package=$packageName") }
-            .onFailure { e ->
-                if (e !is PackageManager.NameNotFoundException) {
-                    VolterLog.w("VpnBuilder addDisallowedApplication failed: ${e.message}")
-                }
+        val splitApps = settings.splitTunnelApps.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val splitMode = ClientSettings.normalizedSplitTunnelMode(settings.splitTunnelMode)
+        if (splitMode == ClientSettings.SPLIT_ONLY && splitApps.isNotEmpty()) {
+            splitApps.forEach { pkg ->
+                runCatching { builder.addAllowedApplication(pkg) }
+                    .onFailure { e -> if (e !is PackageManager.NameNotFoundException) VolterLog.w("VpnBuilder addAllowedApplication failed pkg=$pkg: ${e.message}") }
             }
+            VolterLog.i("VpnBuilder split only apps=${splitApps.size}")
+        } else if (splitMode == ClientSettings.SPLIT_BYPASS) {
+            splitApps.forEach { pkg ->
+                runCatching { builder.addDisallowedApplication(pkg) }
+                    .onFailure { e -> if (e !is PackageManager.NameNotFoundException) VolterLog.w("VpnBuilder addDisallowedApplication failed pkg=$pkg: ${e.message}") }
+            }
+            VolterLog.i("VpnBuilder split bypass apps=${splitApps.size}")
+        }
+
+        if (splitMode != ClientSettings.SPLIT_ONLY) {
+            runCatching { builder.addDisallowedApplication(packageName) }
+                .onSuccess { VolterLog.i("VpnBuilder addDisallowedApplication ok package=$packageName") }
+                .onFailure { e ->
+                    if (e !is PackageManager.NameNotFoundException) {
+                        VolterLog.w("VpnBuilder addDisallowedApplication failed: ${e.message}")
+                    }
+                }
+        }
 
         builder.addAddress("10.13.37.2", 24)
 

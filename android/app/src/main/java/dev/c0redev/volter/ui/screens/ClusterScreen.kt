@@ -51,6 +51,7 @@ import dev.c0redev.volter.core.CoreBridge
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.PageHeader
 import dev.c0redev.volter.ui.mesh.MeshPeerNodeMiniCard
 import dev.c0redev.volter.ui.mesh.ParsedMeshStatus
 import dev.c0redev.volter.ui.mesh.parseMeshStatusJson
@@ -150,23 +151,17 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
         ) {
             item {
-                Text(
-                    text = stringResource(R.string.nav_cluster),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text =
-                        stringResource(
-                            if (connection.connected) {
-                                R.string.cluster_pool_hint_connected
-                            } else {
-                                R.string.cluster_pool_hint_disconnected
-                            },
-                        ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
+                PageHeader(
+                    title = stringResource(R.string.nav_cluster),
+                    subtitle = stringResource(
+                        if (connection.connected) {
+                            R.string.cluster_pool_hint_connected
+                        } else {
+                            R.string.cluster_pool_hint_disconnected
+                        },
+                    ),
+                    icon = Icons.Outlined.Lan,
+                    meta = selectedRouteMode,
                 )
             }
 

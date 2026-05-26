@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.VerifiedUser
@@ -72,6 +73,7 @@ import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
+import dev.c0redev.volter.ui.components.PageHeader
 import dev.c0redev.volter.ui.components.SectionCard
 
 private data class GuideEntry(
@@ -124,35 +126,22 @@ fun HomeScreen(
                 .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
             verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
         ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = stringResource(R.string.home_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    text = stringResource(R.string.home_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = stringResource(R.string.home_version_fmt, BuildConfig.VERSION_NAME),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!activeProfile.isNullOrBlank()) {
-                    Text(
-                        text = stringResource(R.string.home_last_profile_fmt, activeProfile),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.secondary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-            }
+            PageHeader(
+                title = stringResource(R.string.home_title),
+                subtitle = buildString {
+                    append(stringResource(R.string.home_subtitle))
+                    append(" · ")
+                    append(stringResource(R.string.home_version_fmt, BuildConfig.VERSION_NAME))
+                    if (!activeProfile.isNullOrBlank()) {
+                        append(" · ")
+                        append(stringResource(R.string.home_last_profile_fmt, activeProfile))
+                    }
+                },
+                icon = Icons.Outlined.Home,
+                meta = if (conn.connected) stringResource(R.string.home_connected) else stringResource(R.string.home_no),
+            )
 
-        SectionCard {
+            SectionCard {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),

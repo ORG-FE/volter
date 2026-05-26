@@ -67,6 +67,7 @@
     <string name="protection_qr_image_cd">Protection QR code</string>
     <string name="protection_share_qr_button">Share protection QR</string>
     <string name="protection_sessions_title">Recent sessions</string>
+    <string name="protection_header_subtitle">Anti-DPI presets, route strategy and session diagnostics.</string>
     <string name="protection_sessions_empty">No data</string>
     <string name="mesh_peer_ticket_title">Peer ticket</string>
     <string name="mesh_peer_ticket_peer_id_fmt">PeerId: %1$s</string>
@@ -132,6 +133,7 @@
     <string name="mesh_status_header">Core snapshot (auto ~2s)</string>
     <string name="nav_protection">Protect</string>
     <string name="nav_settings">Settings</string>
+    <string name="settings_header_subtitle">Connection mode, app routing, quick tiles and updates.</string>
 
     <string name="home_orb_on">VPN on</string>
     <string name="home_orb_off">VPN off</string>
@@ -248,8 +250,26 @@
     <string name="quick_slot_3">Tile 3</string>
     <string name="quick_slot_pick">Choose</string>
     <string name="quick_slot_none">None</string>
+    <string name="settings_split_apps_title">Split tunneling</string>
+    <string name="settings_split_apps_subtitle">Choose apps that bypass TUN or only apps that go through TUN.</string>
+    <string name="settings_split_off">Off</string>
+    <string name="settings_split_bypass">Bypass</string>
+    <string name="settings_split_only">Only TUN</string>
+    <string name="settings_split_off_short">All apps</string>
+    <string name="settings_split_bypass_short">Selected out</string>
+    <string name="settings_split_only_short">Selected in</string>
+    <string name="settings_split_off_hint">Split tunneling is disabled. All app traffic uses the VPN rules.</string>
+    <string name="settings_split_bypass_hint">Selected apps bypass TUN. Other apps go through the VPN.</string>
+    <string name="settings_split_only_hint">Only selected apps go through TUN. Other apps stay outside the VPN.</string>
+    <string name="settings_split_search">Search apps</string>
+    <string name="settings_split_selected_fmt">Selected: %1$d</string>
+    <string name="settings_split_apps_count_fmt">Shown %1$d / %2$d</string>
+    <string name="settings_split_tun_required">This list is always editable, but app routing is applied only in TUN mode.</string>
+    <string name="settings_split_clear_selected">Clear selected</string>
+    <string name="settings_split_no_apps">No apps found</string>
 
     <string name="logs_title">Logs</string>
+    <string name="logs_header_subtitle">Filter, copy and watch client events live.</string>
     <string name="logs_empty">No logs yet. Connect from Configs first.</string>
     <string name="logs_search_hint">Search</string>
     <string name="logs_filter_all">All</string>

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +45,8 @@ import dev.c0redev.volter.clientlog.parseLogLine
 import dev.c0redev.volter.clientlog.tagColor
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.PageHeader
+import dev.c0redev.volter.ui.components.EmptyState
 
 private data class LogTagChip(val key: String, @StringRes val labelRes: Int)
 
@@ -92,74 +95,77 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             .padding(padding)
             .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
     ) {
-        Text(
-            text = stringResource(R.string.logs_title),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+        PageHeader(
+            title = stringResource(R.string.logs_title),
+            subtitle = stringResource(R.string.logs_header_subtitle),
+            icon = Icons.AutoMirrored.Outlined.Article,
+            meta = filtered.size.toString(),
         )
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            label = { Text(stringResource(R.string.logs_search_hint)) },
-            singleLine = true,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.logs_pin_bottom),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
-            )
-            Switch(checked = pinBottom, onCheckedChange = { pinBottom = it })
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            LOG_TAG_CHIPS.forEach { chip ->
-                FilterChip(
-                    selected = tagFilter == chip.key,
-                    onClick = { tagFilter = chip.key },
-                    label = { Text(stringResource(chip.labelRes)) },
-                    shape = RoundedCornerShape(VolterSpacing.chipRadius),
+        SectionCard(modifier = Modifier.padding(top = 12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.logs_search_hint)) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
                 )
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = {
-                    val text = filtered.joinToString("\n")
-                    clipboard.setText(AnnotatedString(text))
-                    android.widget.Toast.makeText(context, context.getString(R.string.logs_copied), android.widget.Toast.LENGTH_SHORT).show()
-                },
-                enabled = filtered.isNotEmpty(),
-            ) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.logs_copy_all))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.logs_pin_bottom),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(checked = pinBottom, onCheckedChange = { pinBottom = it })
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    LOG_TAG_CHIPS.forEach { chip ->
+                        FilterChip(
+                            selected = tagFilter == chip.key,
+                            onClick = { tagFilter = chip.key },
+                            label = { Text(stringResource(chip.labelRes)) },
+                            shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = {
+                            val text = filtered.joinToString("\n")
+                            clipboard.setText(AnnotatedString(text))
+                            android.widget.Toast.makeText(context, context.getString(R.string.logs_copied), android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        enabled = filtered.isNotEmpty(),
+                    ) {
+                        Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.logs_copy_all))
+                    }
+                }
             }
         }
 
         when {
-            logs.isEmpty() -> Text(
-                text = stringResource(R.string.logs_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            logs.isEmpty() -> EmptyState(
+                title = stringResource(R.string.logs_title),
+                body = stringResource(R.string.logs_empty),
                 modifier = Modifier.padding(top = 24.dp),
             )
-            filtered.isEmpty() -> Text(
-                text = stringResource(R.string.logs_empty_filtered),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            filtered.isEmpty() -> EmptyState(
+                title = stringResource(R.string.logs_filter_all),
+                body = stringResource(R.string.logs_empty_filtered),
                 modifier = Modifier.padding(top = 24.dp),
             )
             else -> {

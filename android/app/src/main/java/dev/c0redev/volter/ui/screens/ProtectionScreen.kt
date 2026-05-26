@@ -18,6 +18,8 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +39,8 @@ import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.PageHeader
+import dev.c0redev.volter.ui.components.EmptyState
 import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 import dev.c0redev.volter.ui.protection.ProtectionEditor
 import dev.c0redev.volter.ui.qr.buildQrBitmap
@@ -56,10 +60,11 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
     ) {
         item {
-            Text(
-                text = stringResource(R.string.protection_title),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onBackground,
+            PageHeader(
+                title = stringResource(R.string.protection_title),
+                subtitle = stringResource(R.string.protection_header_subtitle),
+                icon = Icons.Outlined.VerifiedUser,
+                meta = if (current == null) stringResource(R.string.home_route_auto) else stringResource(R.string.home_yes),
             )
         }
         item {
@@ -90,17 +95,22 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     )
                     val tail = metrics.takeLast(8).asReversed()
                     if (tail.isEmpty()) {
-                        Text(
-                            stringResource(R.string.protection_sessions_empty),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        EmptyState(
+                            title = stringResource(R.string.protection_sessions_title),
+                            body = stringResource(R.string.protection_sessions_empty),
                         )
                     } else {
                         tail.forEach { r ->
-                            Text(
-                                text = "${r.configName}: hs=${r.handshakeOk}, err=${r.errorType ?: "-"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            SectionCard {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(r.configName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = "hs=${r.handshakeOk}, err=${r.errorType ?: "-"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

@@ -863,10 +863,22 @@ func newSettingsInputs(s config.ClientSettings) []textinput.Model {
 	if s.SystemProxy {
 		sysProxy = "true"
 	}
+	splitEnabled := "false"
+	if s.SplitTunnelEnabled {
+		splitEnabled = "true"
+	}
+	splitMode := s.SplitTunnelMode
+	if splitMode != "bypass" {
+		splitMode = "only"
+	}
 	return []textinput.Model{
 		ti("tun|proxy", mode),
 		ti("127.0.0.1:1080", s.ProxyListen),
 		ti("true|false", sysProxy),
+		ti("true|false", splitEnabled),
+		ti("only|bypass", splitMode),
+		ti("https://example/ru.zone", s.SplitTunnelURL),
+		ti("RU, BY", strings.Join(s.SplitTunnelCountries, ",")),
 	}
 }
 
@@ -880,7 +892,22 @@ func settingsFromInputs(inputs []textinput.Model) config.ClientSettings {
 		listen = "127.0.0.1:1080"
 	}
 	sysProxy := strings.ToLower(strings.TrimSpace(inputs[2].Value())) == "true"
-	return config.ClientSettings{Mode: mode, ProxyListen: listen, SystemProxy: sysProxy}
+	s := config.ClientSettings{Mode: mode, ProxyListen: listen, SystemProxy: sysProxy}
+	if len(inputs) >= 7 {
+		s.SplitTunnelEnabled = strings.ToLower(strings.TrimSpace(inputs[3].Value())) == "true"
+		s.SplitTunnelMode = strings.ToLower(strings.TrimSpace(inputs[4].Value()))
+		if s.SplitTunnelMode != "bypass" {
+			s.SplitTunnelMode = "only"
+		}
+		s.SplitTunnelURL = strings.TrimSpace(inputs[5].Value())
+		for _, c := range strings.Split(inputs[6].Value(), ",") {
+			c = strings.ToUpper(strings.TrimSpace(c))
+			if c != "" {
+				s.SplitTunnelCountries = append(s.SplitTunnelCountries, c)
+			}
+		}
+	}
+	return s
 }
 
 func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions {
@@ -1772,8 +1799,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			if m.settingsEditing && len(m.settingsInputs) == 3 {
-				m.settingsFormFocus = (m.settingsFormFocus + 1) % 3
+			if m.settingsEditing && len(m.settingsInputs) > 0 {
+				m.settingsFormFocus = (m.settingsFormFocus + 1) % len(m.settingsInputs)
 				for i := range m.settingsInputs {
 					if i == m.settingsFormFocus {
 						m.settingsInputs[i].Focus()
@@ -1833,8 +1860,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-			if m.settingsEditing && len(m.settingsInputs) == 3 {
-				m.settingsFormFocus = (m.settingsFormFocus + 2) % 3
+			if m.settingsEditing && len(m.settingsInputs) > 0 {
+				m.settingsFormFocus = (m.settingsFormFocus + len(m.settingsInputs) - 1) % len(m.settingsInputs)
 				for i := range m.settingsInputs {
 					if i == m.settingsFormFocus {
 						m.settingsInputs[i].Focus()
@@ -1898,7 +1925,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tab = tab((int(m.tab) + 3) % tabCount)
 			return m, m.batchTabSwitch()
 		case "enter":
-			if m.settingsEditing && len(m.settingsInputs) == 3 {
+			if m.settingsEditing && len(m.settingsInputs) > 0 {
 				m.clientSettings = settingsFromInputs(m.settingsInputs)
 				_ = config.SaveClientSettings(m.clientSettings)
 				m.settingsEditing = false
@@ -2838,9 +2865,9 @@ func (m *Model) View() string {
 	case tabProtection:
 		content.WriteString(m.protectionView())
 	case tabSettings:
-		if m.settingsEditing && len(m.settingsInputs) == 3 {
+		if m.settingsEditing && len(m.settingsInputs) > 0 {
 			content.WriteString(sectionTitle.Render("Режим подключения") + "\n\n")
-			labels := []string{"Режим (tun|proxy):", "Прокси (addr:port):", "System proxy (Windows):"}
+			labels := []string{"Режим (tun|proxy):", "Прокси (addr:port):", "System proxy (Windows):", "Split tunnel:", "Split mode (only|bypass):", "CIDR URL:", "Страны (RU,BY):"}
 			for i := range m.settingsInputs {
 				content.WriteString(labels[i] + " ")
 				content.WriteString(m.settingsInputs[i].View())
@@ -2879,6 +2906,11 @@ func (m *Model) View() string {
 				content.WriteString(statusStyle.Render("TUN"))
 			}
 			content.WriteString("\n")
+			if m.clientSettings.SplitTunnelEnabled {
+				content.WriteString("Split tunneling: " + statusStyle.Render(m.clientSettings.SplitTunnelMode) + " URL=" + m.clientSettings.SplitTunnelURL + " countries=" + strings.Join(m.clientSettings.SplitTunnelCountries, ",") + "\n")
+			} else {
+				content.WriteString("Split tunneling: выкл\n")
+			}
 			content.WriteString("E - редактировать режим\n\n")
 			content.WriteString("B - тест всех конфигов (ping)\n")
 			content.WriteString("q/Esc - выход\n")

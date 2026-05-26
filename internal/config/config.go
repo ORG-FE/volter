@@ -148,20 +148,20 @@ type ProtectionOptions struct {
 }
 
 type DpiLocalEmbedded struct {
-	SplitAfter   int  `json:"splitAfter,omitempty"`
-	SplitAfter2  int  `json:"splitAfter2,omitempty"`
-	TTLMillis    int  `json:"ttlMillis,omitempty"`
-	TTL2Millis   int  `json:"ttl2Millis,omitempty"`
-	Disorder     bool `json:"disorder,omitempty"`
-	JitterMaxMs  int  `json:"jitterMaxMs,omitempty"`
-	LeadInMs     int  `json:"leadInMs,omitempty"`
-	FakeSNI       bool `json:"fakeSni"`
-	FakeSNIHost  string `json:"fakeSniHost"`
+	SplitAfter    int    `json:"splitAfter,omitempty"`
+	SplitAfter2   int    `json:"splitAfter2,omitempty"`
+	TTLMillis     int    `json:"ttlMillis,omitempty"`
+	TTL2Millis    int    `json:"ttl2Millis,omitempty"`
+	Disorder      bool   `json:"disorder,omitempty"`
+	JitterMaxMs   int    `json:"jitterMaxMs,omitempty"`
+	LeadInMs      int    `json:"leadInMs,omitempty"`
+	FakeSNI       bool   `json:"fakeSni"`
+	FakeSNIHost   string `json:"fakeSniHost"`
 	SplitPosition string `json:"splitPosition"` // "sni", "method", "host", "random"
-	AutoTTL      bool `json:"autoTtl"`
-	TCPSegment   int  `json:"tcpSegment"`
-	OOBData      bool `json:"oobData"`
-	MultiSplit   int  `json:"multiSplit"` 
+	AutoTTL       bool   `json:"autoTtl"`
+	TCPSegment    int    `json:"tcpSegment"`
+	OOBData       bool   `json:"oobData"`
+	MultiSplit    int    `json:"multiSplit"`
 }
 
 func DpiLocalEngineIsExternal(p *ProtectionOptions) bool {
@@ -283,28 +283,28 @@ const (
 
 func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptions {
 	tcpish := strings.EqualFold(strings.TrimSpace(transport), "tcp")
-	
+
 	switch preset {
 	case AntiDpiPresetNone:
 		return &ProtectionOptions{}
-		
+
 	case AntiDpiPresetLight:
 		return &ProtectionOptions{
-			Obfuscation:      "enhanced",
-			JunkCount:        3,
-			JunkMin:          128,
-			JunkMax:          512,
-			JunkStyle:        "tls",
-			FlushPolicy:      "perChunk",
-			PadS4:            32,
-			DpiLocalEngine:   "embedded",
+			Obfuscation:    "enhanced",
+			JunkCount:      3,
+			JunkMin:        128,
+			JunkMax:        512,
+			JunkStyle:      "tls",
+			FlushPolicy:    "perChunk",
+			PadS4:          32,
+			DpiLocalEngine: "embedded",
 			DpiLocalEmbedded: &DpiLocalEmbedded{
 				SplitAfter:  2,
 				TTLMillis:   8,
 				JitterMaxMs: 5,
 			},
 		}
-		
+
 	case AntiDpiPresetModerate:
 		p := &ProtectionOptions{
 			Obfuscation:      "enhanced",
@@ -328,7 +328,7 @@ func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptio
 			p.DpiVolterTransportObfuscate = true
 		}
 		return p
-		
+
 	case AntiDpiPresetAggressive:
 		p := &ProtectionOptions{
 			Obfuscation:         "enhanced",
@@ -365,7 +365,7 @@ func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptio
 			p.MagicSplit = "sni"
 		}
 		return p
-		
+
 	case AntiDpiPresetParanoid:
 		p := &ProtectionOptions{
 			Obfuscation:         "enhanced",
@@ -405,7 +405,7 @@ func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptio
 			p.MagicSplit = "host"
 		}
 		return p
-		
+
 	default:
 		return ApplyAntiDpiPreset(AntiDpiPresetModerate, transport)
 	}
@@ -415,7 +415,7 @@ func MergeAntiDpiTransportTopUpInPlace(prot *ProtectionOptions, transport string
 	if os.Getenv("VOLTER_NO_ANTIDPI_ENRICH") == "1" {
 		return prot
 	}
-	
+
 	if presetEnv := os.Getenv("VOLTER_ANTIDPI_PRESET"); presetEnv != "" {
 		preset := AntiDpiPreset(strings.ToLower(presetEnv))
 		base := ApplyAntiDpiPreset(preset, transport)
@@ -424,7 +424,7 @@ func MergeAntiDpiTransportTopUpInPlace(prot *ProtectionOptions, transport string
 		}
 		return base
 	}
-	
+
 	var base ProtectionOptions
 	if prot != nil {
 		base = *prot
@@ -725,10 +725,14 @@ const (
 )
 
 type ClientSettings struct {
-	Mode        string `json:"mode,omitempty"`
-	SystemProxy bool   `json:"systemProxy,omitempty"`
-	ProxyListen string `json:"proxyListen,omitempty"`
-	LastProfile string `json:"lastProfile,omitempty"`
+	Mode                 string   `json:"mode,omitempty"`
+	SystemProxy          bool     `json:"systemProxy,omitempty"`
+	ProxyListen          string   `json:"proxyListen,omitempty"`
+	LastProfile          string   `json:"lastProfile,omitempty"`
+	SplitTunnelEnabled   bool     `json:"splitTunnelEnabled,omitempty"`
+	SplitTunnelMode      string   `json:"splitTunnelMode,omitempty"`
+	SplitTunnelURL       string   `json:"splitTunnelUrl,omitempty"`
+	SplitTunnelCountries []string `json:"splitTunnelCountries,omitempty"`
 }
 
 func LoadClientSettings() (ClientSettings, error) {
@@ -752,6 +756,12 @@ func LoadClientSettings() (ClientSettings, error) {
 	}
 	if s.ProxyListen == "" {
 		s.ProxyListen = "127.0.0.1:1080"
+	}
+	if s.SplitTunnelMode != "bypass" {
+		s.SplitTunnelMode = "only"
+	}
+	for i := range s.SplitTunnelCountries {
+		s.SplitTunnelCountries[i] = strings.ToUpper(strings.TrimSpace(s.SplitTunnelCountries[i]))
 	}
 	return s, nil
 }

@@ -6,8 +6,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
@@ -432,6 +434,22 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 	probeOK, _, probeCaps, _ := probe.ProbeVolterWithCaps(addrs[0], cfg.Token, probeTimeout)
 	record.ProbeOK = probeOK
 
+	if settings.SplitTunnelEnabled && strings.TrimSpace(settings.SplitTunnelURL) != "" {
+		cidrs, ferr := fetchSplitTunnelCIDRs(settings.SplitTunnelURL, settings.SplitTunnelCountries)
+		if ferr != nil {
+			return nil, ferr
+		}
+		if len(cidrs) > 0 {
+			joined := strings.Join(cidrs, ",")
+			if settings.SplitTunnelMode == "bypass" {
+				cfg.Exclude = appendCSV(cfg.Exclude, joined)
+			} else {
+				cfg.Routes = joined
+			}
+			log.Printf("Split tunnel: mode=%s cidrs=%d url=%s", settings.SplitTunnelMode, len(cidrs), settings.SplitTunnelURL)
+		}
+	}
+
 	routeCIDRs, err := netcfg.ParseCIDRs(cfg.Routes)
 	if err != nil {
 		record.ErrorType = classifyError(err)
@@ -575,4 +593,73 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 		}
 		return nil, fmt.Errorf("таймаут подключения %v (часто после повторного коннекта без корректного shutdown netstack)", connectTimeout)
 	}
+}
+
+func appendCSV(a, b string) string {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	return a + "," + b
+}
+
+func fetchSplitTunnelCIDRs(rawURL string, countries []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("split tunnel url status %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return nil, err
+	}
+	allowed := map[string]bool{}
+	for _, c := range countries {
+		c = strings.ToUpper(strings.TrimSpace(c))
+		if c != "" {
+			allowed[c] = true
+		}
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(strings.Split(line, "#")[0])
+		if line == "" {
+			continue
+		}
+		fields := strings.FieldsFunc(line, func(r rune) bool { return r == ',' || r == ';' || r == '\t' || r == ' ' })
+		if len(fields) == 0 {
+			continue
+		}
+		cidr := ""
+		countryOK := len(allowed) == 0
+		for _, f := range fields {
+			f = strings.TrimSpace(f)
+			if _, _, err := net.ParseCIDR(f); err == nil {
+				cidr = f
+				continue
+			}
+			if allowed[strings.ToUpper(f)] {
+				countryOK = true
+			}
+		}
+		if cidr != "" && countryOK && !seen[cidr] {
+			seen[cidr] = true
+			out = append(out, cidr)
+		}
+	}
+	return out, nil
 }
