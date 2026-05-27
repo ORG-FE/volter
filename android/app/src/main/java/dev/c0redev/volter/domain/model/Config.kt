@@ -3,6 +3,46 @@ package dev.c0redev.volter.domain.model
 import android.util.Base64
 import org.json.JSONObject
 
+data class ManagedClient(
+    val clusterId: String = "",
+    val userId: String = "",
+    val clientId: String = "",
+    val secret: String = "",
+    val salt: String = "",
+    val deviceMode: String = "",
+    val deviceLimit: Int = 0,
+    val created: Long = 0L,
+    val expires: Long = 0L,
+) {
+    fun toJson(): JSONObject {
+        val j = JSONObject()
+        clusterId.takeIf { it.isNotBlank() }?.let { j.put("clusterId", it) }
+        userId.takeIf { it.isNotBlank() }?.let { j.put("userId", it) }
+        clientId.takeIf { it.isNotBlank() }?.let { j.put("clientId", it) }
+        secret.takeIf { it.isNotBlank() }?.let { j.put("secret", it) }
+        salt.takeIf { it.isNotBlank() }?.let { j.put("salt", it) }
+        deviceMode.takeIf { it.isNotBlank() }?.let { j.put("deviceMode", it) }
+        if (deviceLimit > 0) j.put("deviceLimit", deviceLimit)
+        if (created > 0) j.put("created", created)
+        if (expires > 0) j.put("expires", expires)
+        return j
+    }
+
+    companion object {
+        fun fromJson(j: JSONObject): ManagedClient = ManagedClient(
+            clusterId = j.optString("clusterId", ""),
+            userId = j.optString("userId", ""),
+            clientId = j.optString("clientId", ""),
+            secret = j.optString("secret", ""),
+            salt = j.optString("salt", ""),
+            deviceMode = j.optString("deviceMode", ""),
+            deviceLimit = j.optInt("deviceLimit", 0),
+            created = j.optLong("created", 0L),
+            expires = j.optLong("expires", 0L),
+        )
+    }
+}
+
 data class Config(
     val server: String,
     val token: String,
@@ -17,6 +57,7 @@ data class Config(
     val exclude: String? = null,
     val tunCIDR6: String? = null,
     val dualTransport: Boolean? = null,
+    val managed: ManagedClient? = null,
     val protection: ProtectionOptions? = null,
     val mesh: MeshConfig = MeshConfig(),
     val relay: RelayOptions? = null,
@@ -94,6 +135,7 @@ data class Config(
         exclude?.let { j.put("exclude", it) }
         tunCIDR6?.let { j.put("tunCIDR6", it) }
         dualTransport?.let { j.put("dualTransport", it) }
+        managed?.let { j.put("managed", it.toJson()) }
         protection?.let { j.put("protection", it.toJson()) }
         if (mesh != MeshConfig()) j.put("mesh", mesh.toJson())
         relay?.let { j.put("relay", it.toJson()) }
@@ -146,6 +188,7 @@ data class Config(
                     !j.has("dualTransport") || j.isNull("dualTransport") -> null
                     else -> j.optBoolean("dualTransport", true)
                 },
+                managed = j.optJSONObject("managed")?.let { ManagedClient.fromJson(it) },
                 protection = j.optJSONObject("protection")?.let { ProtectionOptions.fromJson(it) },
                 mesh = j.optJSONObject("mesh")?.let { MeshConfig.fromJson(it) } ?: MeshConfig(),
                 relay = j.optJSONObject("relay")?.let { RelayOptions.fromJson(it) },
@@ -192,7 +235,7 @@ data class Config(
             val payload = JSONObject()
             payload.put("v", 1)
             payload.put("n", sanitizeName(name))
-            payload.put("c", cfg.copy(protection = null, mesh = cfg.mesh.publicCopy(), relay = null).toJson())
+            payload.put("c", cfg.copy(managed = null, protection = null, mesh = cfg.mesh.publicCopy(), relay = null).toJson())
             val b = Base64.encodeToString(payload.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             return "volter://$b"
         }
@@ -234,6 +277,36 @@ data class Config(
 
         private fun parseVolterUriConfig(raw: String): Config? {
             val j = decodeVolterUriPayload(raw) ?: return null
+            if (j.optInt("v", 0) == 2 && j.optString("type", "").equals("voultkey", ignoreCase = true)) {
+                val servers = j.optJSONArray("servers") ?: return null
+                var server = ""
+                for (i in 0 until servers.length()) {
+                    val candidate = servers.optString(i, "").trim()
+                    if (isValidServerHostPort(candidate)) {
+                        server = candidate
+                        break
+                    }
+                }
+                val clientId = j.optString("clientId", "").trim()
+                val secret = j.optString("secret", "").trim()
+                val token = j.optString("transportToken", "").trim()
+                if (server.isBlank() || clientId.isBlank() || secret.isBlank() || token.isBlank()) return null
+                return Config(
+                    server = server,
+                    token = token,
+                    managed = ManagedClient(
+                        clusterId = j.optString("clusterId", "").trim(),
+                        userId = j.optString("userId", "").trim(),
+                        clientId = clientId,
+                        secret = secret,
+                        salt = j.optString("salt", "").trim(),
+                        deviceMode = j.optString("deviceMode", "").trim(),
+                        deviceLimit = j.optInt("deviceLimit", 0),
+                        created = j.optLong("created", 0L),
+                        expires = j.optLong("expires", 0L),
+                    ),
+                )
+            }
             val cfgObj = when {
                 j.has("c") && !j.isNull("c") -> j.optJSONObject("c")
                 else -> null
@@ -328,4 +401,3 @@ data class Config(
         }
     }
 }
-

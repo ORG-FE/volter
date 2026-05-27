@@ -9,12 +9,12 @@ import (
 	"syscall"
 )
 
-func Apply(destExe string, downloadURL string) error {
-	destExe, err := filepath.EvalSymlinks(destExe)
+func Apply(destExe string, asset Asset) error {
+	dest, err := filepath.EvalSymlinks(destExe)
 	if err != nil {
-		return err
+		dest = destExe
 	}
-	destAbs, err := filepath.Abs(destExe)
+	destAbs, err := filepath.Abs(dest)
 	if err != nil {
 		return err
 	}
@@ -22,7 +22,7 @@ func Apply(destExe string, downloadURL string) error {
 	base := filepath.Base(destAbs)
 	newPath := filepath.Join(dir, base+".new")
 	_ = os.Remove(newPath)
-	if err := downloadToFile(downloadURL, newPath); err != nil {
+	if err := downloadAssetToFile(asset, newPath); err != nil {
 		return err
 	}
 	batName := fmt.Sprintf("volter-self-update-%d.bat", os.Getpid())
@@ -40,6 +40,7 @@ func Apply(destExe string, downloadURL string) error {
 		_ = os.Remove(batPath)
 		return err
 	}
+	os.Exit(0)
 	return nil
 }
 

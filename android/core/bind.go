@@ -312,6 +312,7 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 		PathManager:       tunnel.NewPathManagerFromRelay(effRelay),
 		Relay:             effRelay,
 		Mesh:              cfg.Mesh,
+		Managed:           cfg.Managed,
 		RouteController:   vpn.NewRouteController(),
 		Ready: func() {
 			s.ready.Store(true)

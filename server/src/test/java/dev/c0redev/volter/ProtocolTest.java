@@ -227,6 +227,17 @@ class ProtocolTest {
     assertEquals("p1", opt.get().peerId());
   }
 
+  @Test
+  void clientOptionsParseManagedAuth() {
+    var opt = Protocol.ClientOptions.parse("{\"managedClientId\":\"cli_1\",\"managedDeviceId\":\"android:abc\",\"managedNonce\":\"n1\",\"managedTsSec\":123,\"managedSig\":\"sig\"}");
+    assertTrue(opt.isPresent());
+    assertEquals("cli_1", opt.get().managedClientId());
+    assertEquals("android:abc", opt.get().managedDeviceId());
+    assertEquals("n1", opt.get().managedNonce());
+    assertEquals(123, opt.get().managedTsSec());
+    assertEquals("sig", opt.get().managedSig());
+  }
+
   static String hmacSig(String token, String peerId, String nonce) {
     try {
       Mac mac = Mac.getInstance("HmacSHA256");

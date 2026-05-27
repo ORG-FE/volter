@@ -1190,9 +1190,14 @@ func configFromConnFormInputs(inputs []textinput.Model) (config.Config, string) 
 	if len(inputs) < 11 {
 		return config.Config{}, "форма конфига сломана"
 	}
-	server, token, ok := config.ParseConnection(strings.TrimSpace(inputs[1].Value()))
+	connRaw := strings.TrimSpace(inputs[1].Value())
+	server, token, ok := config.ParseConnection(connRaw)
 	if !ok {
 		return config.Config{}, "connection: volter://... или host:port:key"
+	}
+	managedCfg := config.Config{}
+	if vk, vok := config.ParseVoultKeyURI(connRaw); vok {
+		managedCfg = config.ConfigFromVoultKey(vk)
 	}
 	tr := strings.ToLower(strings.TrimSpace(inputs[5].Value()))
 	if tr == "auto" {
@@ -1225,6 +1230,9 @@ func configFromConnFormInputs(inputs []textinput.Model) (config.Config, string) 
 		QuicServerName:    strings.TrimSpace(inputs[7].Value()),
 		QuicCertPinSHA256: pin,
 		QuicCaCert:        strings.TrimSpace(inputs[10].Value()),
+	}
+	if managedCfg.Managed != nil {
+		out.Managed = managedCfg.Managed
 	}
 	out.QuicSkipVerify = skipPtr
 	return out, ""
@@ -1273,7 +1281,7 @@ func LogMessage(s string) tea.Msg { return logMsg(s) }
 
 func runApplyUpdate(tag string) tea.Cmd {
 	return func() tea.Msg {
-		url, err := update.AssetDownloadURLForTag(tag)
+		asset, err := update.AssetForTag(tag)
 		if err != nil {
 			return updateApplyMsg{err: err}
 		}
@@ -1281,7 +1289,7 @@ func runApplyUpdate(tag string) tea.Cmd {
 		if err != nil {
 			return updateApplyMsg{err: err}
 		}
-		if err := update.Apply(exe, url); err != nil {
+		if err := update.Apply(exe, asset); err != nil {
 			return updateApplyMsg{err: err}
 		}
 		return updateApplyMsg{err: nil}

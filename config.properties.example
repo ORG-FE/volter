@@ -49,6 +49,23 @@ peerRelayEnabled=true
 # Ожидаемое значение: cluster.httpSecret, иначе равен token сервера.
 # Клиент Go/Android: те же пути и ключ можно задать в JSON protection профиля:
 # clusterMapPath, clusterSessionsPath, clusterClientsPath, clusterHttpKey (см. internal/config ProtectionOptions).
+
+control.panel=false
+control.listen=0.0.0.0
+control.port=8088
+control.db=volter-control.sqlite
+control.public=true
+control.allowRemote=true
+control.doxh.enabled=true
+control.doxh.keyFile=control.doxh
+control.assets.protected=true
+control.ws=true
+control.audit=true
+
+# genericToken.enabled=true
+# genericToken.deprecated=true
+# genericToken.disableAfter=
+
 # Обновления с GitHub (интервал не меньше 15 минут в коде)
 update.enabled=false
 update.repo=ORG-FE/volter

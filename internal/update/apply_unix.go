@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-func Apply(destExe string, downloadURL string) error {
+func Apply(destExe string, asset Asset) error {
 	dest, err := filepath.EvalSymlinks(destExe)
 	if err != nil {
 		dest = destExe
@@ -20,7 +20,7 @@ func Apply(destExe string, downloadURL string) error {
 	}
 	tmp := destAbs + ".new"
 	_ = os.Remove(tmp)
-	if err := downloadToFile(downloadURL, tmp); err != nil {
+	if err := downloadAssetToFile(asset, tmp); err != nil {
 		return err
 	}
 	if err := os.Chmod(tmp, 0755); err != nil {

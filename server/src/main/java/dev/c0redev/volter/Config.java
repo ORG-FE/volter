@@ -66,6 +66,20 @@ final class Config {
   private final String clusterInvitePath;
   private final String clusterPeerHandshakePath;
   private final boolean clusterExitFallbackToDirect;
+  private final boolean controlPanel;
+  private final String controlListen;
+  private final int controlPort;
+  private final String controlDb;
+  private final boolean controlDoxhEnabled;
+  private final String controlDoxhKeyFile;
+  private final boolean controlAssetsProtected;
+  private final boolean controlWs;
+  private final boolean controlAudit;
+  private final boolean controlPublic;
+  private final boolean controlAllowRemote;
+  private final boolean genericTokenEnabled;
+  private final boolean genericTokenDeprecated;
+  private final String genericTokenDisableAfter;
 
   private Config(List<Integer> listenPorts, String token, int udpChannels, String publicHost, boolean debug,
                  boolean updateEnabled, String updateRepo, int updateCheckIntervalMinutes, int updateRestartExitCode,
@@ -77,10 +91,14 @@ final class Config {
                  boolean peerRelayEnabled, boolean quicRetryTokens, int relayMaxPerRemote, int relayMaxTotal, int relayMaxBudgetKbps,
                  String relayIndexFile, String relayIndexPath, String opsHintsPath,
                  String gossipIndexFile, String gossipIndexPath, String dhtFindPath, String dhtRpcListenUdp, String dhtRpcSecret,
-                 String clusterNodeId, int clusterListen, List<String> clusterPeers, int clusterGossipIntervalMs,                  String clusterMapPath,
-                 String clusterSessionsPath, String clusterClientsPath, boolean clusterHttpAuth, String clusterHttpSecret,
-                 String clusterInvitePath, String clusterPeerHandshakePath,
-                 boolean clusterExitFallbackToDirect) {
+                  String clusterNodeId, int clusterListen, List<String> clusterPeers, int clusterGossipIntervalMs,                  String clusterMapPath,
+                  String clusterSessionsPath, String clusterClientsPath, boolean clusterHttpAuth, String clusterHttpSecret,
+                  String clusterInvitePath, String clusterPeerHandshakePath,
+                  boolean clusterExitFallbackToDirect,
+                  boolean controlPanel, String controlListen, int controlPort, String controlDb,
+                  boolean controlDoxhEnabled, String controlDoxhKeyFile, boolean controlAssetsProtected,
+                  boolean controlWs, boolean controlAudit, boolean controlPublic, boolean controlAllowRemote,
+                  boolean genericTokenEnabled, boolean genericTokenDeprecated, String genericTokenDisableAfter) {
     this.listenPorts = listenPorts;
     this.token = token;
     this.udpChannels = udpChannels;
@@ -132,6 +150,20 @@ final class Config {
     this.clusterInvitePath = clusterInvitePath != null && !clusterInvitePath.isBlank() ? clusterInvitePath.trim() : "/volter/cluster-invite";
     this.clusterPeerHandshakePath = clusterPeerHandshakePath != null && !clusterPeerHandshakePath.isBlank() ? clusterPeerHandshakePath.trim() : "/volter/cluster-peer-handshake";
     this.clusterExitFallbackToDirect = clusterExitFallbackToDirect;
+    this.controlPanel = controlPanel;
+    this.controlListen = controlListen != null && !controlListen.isBlank() ? controlListen.trim() : "127.0.0.1";
+    this.controlPort = controlPort;
+    this.controlDb = controlDb != null && !controlDb.isBlank() ? controlDb.trim() : "volter-control.sqlite";
+    this.controlDoxhEnabled = controlDoxhEnabled;
+    this.controlDoxhKeyFile = controlDoxhKeyFile != null ? controlDoxhKeyFile.trim() : "";
+    this.controlAssetsProtected = controlAssetsProtected;
+    this.controlWs = controlWs;
+    this.controlAudit = controlAudit;
+    this.controlPublic = controlPublic;
+    this.controlAllowRemote = controlAllowRemote;
+    this.genericTokenEnabled = genericTokenEnabled;
+    this.genericTokenDeprecated = genericTokenDeprecated;
+    this.genericTokenDisableAfter = genericTokenDisableAfter != null ? genericTokenDisableAfter.trim() : "";
   }
 
   String serverMode() { return serverMode; }
@@ -288,6 +320,21 @@ final class Config {
     return publicHost;
   }
 
+  boolean controlPanel() { return controlPanel; }
+  String controlListen() { return controlListen; }
+  int controlPort() { return controlPort; }
+  String controlDb() { return controlDb; }
+  boolean controlDoxhEnabled() { return controlDoxhEnabled; }
+  String controlDoxhKeyFile() { return controlDoxhKeyFile; }
+  boolean controlAssetsProtected() { return controlAssetsProtected; }
+  boolean controlWs() { return controlWs; }
+  boolean controlAudit() { return controlAudit; }
+  boolean controlPublic() { return controlPublic; }
+  boolean controlAllowRemote() { return controlAllowRemote; }
+  boolean genericTokenEnabled() { return genericTokenEnabled; }
+  boolean genericTokenDeprecated() { return genericTokenDeprecated; }
+  String genericTokenDisableAfter() { return genericTokenDisableAfter; }
+
   static Config load(Path configPath) throws IOException {
     Properties p = new Properties();
     try (InputStream in = Files.newInputStream(configPath)) {
@@ -390,6 +437,31 @@ final class Config {
     }
     boolean clusterExitFallbackToDirect =
         !"false".equalsIgnoreCase(p.getProperty("cluster.exitFallbackToDirect", "true").trim());
+    boolean controlPanel = "true".equalsIgnoreCase(p.getProperty("control.panel", "false").trim());
+    String controlListen = p.getProperty("control.listen", "127.0.0.1").trim();
+    int controlPort = parseInt(p.getProperty("control.port"), 0);
+    String controlDb = p.getProperty("control.db", "volter-control.sqlite").trim();
+    boolean controlDoxhEnabled = !"false".equalsIgnoreCase(p.getProperty("control.doxh.enabled", "true").trim());
+    String controlDoxhKeyFile = p.getProperty("control.doxh.keyFile", "control.doxh").trim();
+    boolean controlAssetsProtected = !"false".equalsIgnoreCase(p.getProperty("control.assets.protected", "true").trim());
+    boolean controlWs = !"false".equalsIgnoreCase(p.getProperty("control.ws", "true").trim());
+    boolean controlAudit = !"false".equalsIgnoreCase(p.getProperty("control.audit", "true").trim());
+    boolean controlPublic = "true".equalsIgnoreCase(p.getProperty("control.public", "false").trim());
+    boolean controlAllowRemote = "true".equalsIgnoreCase(p.getProperty("control.allowRemote", "false").trim());
+    boolean genericTokenEnabled = !"false".equalsIgnoreCase(p.getProperty("genericToken.enabled", "true").trim());
+    boolean genericTokenDeprecated = !"false".equalsIgnoreCase(p.getProperty("genericToken.deprecated", "true").trim());
+    String genericTokenDisableAfter = p.getProperty("genericToken.disableAfter", "").trim();
+    if (controlPanel) {
+      if (controlPort < 1 || controlPort > 65535) throw new IOException("bad control.port");
+      if (!controlAllowRemote && !isLocalListen(controlListen)) {
+        throw new IOException("control.listen must be local unless control.allowRemote=true");
+      }
+      if (controlPublic && !controlAllowRemote) {
+        throw new IOException("control.public=true requires control.allowRemote=true");
+      }
+      if (controlDb.isBlank()) throw new IOException("control.db is empty");
+      if (controlDoxhEnabled && controlDoxhKeyFile.isBlank()) throw new IOException("control.doxh.keyFile is empty");
+    }
     if (serverMode.equals("quic-only") || serverMode.equals("both")) {
       if (quicListenPort < 1 || quicListenPort > 65535) throw new IOException("bad quicListenPort");
       if (quicCertPath == null || quicCertPath.isBlank()) throw new IOException("quicCertPath is required");
@@ -421,7 +493,26 @@ final class Config {
         clusterHttpSecret,
         clusterInvitePath,
         clusterPeerHandshakePath,
-        clusterExitFallbackToDirect);
+        clusterExitFallbackToDirect,
+        controlPanel,
+        controlListen,
+        controlPort,
+        controlDb,
+        controlDoxhEnabled,
+        controlDoxhKeyFile,
+        controlAssetsProtected,
+        controlWs,
+        controlAudit,
+        controlPublic,
+        controlAllowRemote,
+        genericTokenEnabled,
+        genericTokenDeprecated,
+        genericTokenDisableAfter);
+  }
+
+  private static boolean isLocalListen(String listen) {
+    String v = listen == null ? "" : listen.trim().toLowerCase();
+    return v.isEmpty() || v.equals("127.0.0.1") || v.equals("localhost") || v.equals("::1");
   }
 
   private static String firstNonEmpty(String a, String b) {
@@ -554,4 +645,3 @@ final class Config {
     return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
   }
 }
-

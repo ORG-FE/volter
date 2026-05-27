@@ -525,6 +525,7 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 		protection:        config.MergeProbeObfsIntoProtection(protTop, probeCaps),
 		relay:             config.EffectiveRelayOptions(&cfg),
 		mesh:              cfg.Mesh,
+		managed:           cfg.Managed,
 		proxy:             settings.Mode == "proxy",
 		proxyListen:       settings.ProxyListen,
 		systemProxy:       settings.SystemProxy,

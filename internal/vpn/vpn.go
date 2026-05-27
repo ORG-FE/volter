@@ -68,6 +68,7 @@ type Options struct {
 	PathManager       *tunnel.PathManager
 	Relay             *config.RelayOptions
 	Mesh              *config.MeshConfig
+	Managed           *config.ManagedClient
 	RouteController   *RouteController
 
 	WatchdogInterval          time.Duration
@@ -86,6 +87,7 @@ func Run(ctx context.Context, opt Options) error {
 		tunnel.ClearLiveRouteMode()
 	}()
 	opt.Protection = protectionWithMeshPolicy(opt.Protection, opt.Mesh)
+	opt.Protection = protectionWithManagedAuth(opt.Protection, opt.Managed)
 	if opt.Protection != nil {
 		tunnel.SetLiveRouteMode(opt.Protection.RouteMode)
 	} else {

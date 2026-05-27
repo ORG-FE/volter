@@ -53,6 +53,16 @@
       <artifactId>json</artifactId>
       <version>20240303</version>
     </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.46.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.zxing</groupId>
+      <artifactId>core</artifactId>
+      <version>3.5.3</version>
+    </dependency>
   </dependencies>
 
   <build>
@@ -116,4 +126,3 @@
     </plugins>
   </build>
 </project>
-

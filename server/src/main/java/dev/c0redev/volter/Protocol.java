@@ -430,7 +430,53 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
       List<String> relayRouteHops,
       String clusterPreferredServer,
       String tlsProfileId,
-      String ja3TargetHash) {
+      String ja3TargetHash,
+      String managedClientId,
+      String managedDeviceId,
+      String managedNonce,
+      long managedTsSec,
+      String managedSig) {
+    ClientOptions(
+        int padS4,
+        int probeObfsProfileId,
+        int relayHop,
+        int relayMaxHop,
+        int relayBudgetKbps,
+        String peerId,
+        String relayNonce,
+        String relaySig,
+        String sessionId,
+        String resumeToken,
+        String routeId,
+        int hopIndex,
+        List<String> relayRouteHops,
+        String clusterPreferredServer,
+        String tlsProfileId,
+        String ja3TargetHash) {
+      this(
+          padS4,
+          probeObfsProfileId,
+          relayHop,
+          relayMaxHop,
+          relayBudgetKbps,
+          peerId,
+          relayNonce,
+          relaySig,
+          sessionId,
+          resumeToken,
+          routeId,
+          hopIndex,
+          relayRouteHops,
+          clusterPreferredServer,
+          tlsProfileId,
+          ja3TargetHash,
+          "",
+          "",
+          "",
+          0,
+          "");
+    }
+
     static Optional<ClientOptions> parse(String json) {
       try {
         int padS4 = 32;
@@ -554,6 +600,11 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
         }
         String tlsProfileId = "";
         String ja3TargetHash = "";
+        String managedClientId = "";
+        String managedDeviceId = "";
+        String managedNonce = "";
+        long managedTsSec = 0;
+        String managedSig = "";
         if (json.contains("\"tlsProfileId\"")) {
           int i = json.indexOf("\"tlsProfileId\"");
           int start = json.indexOf(":", i) + 1;
@@ -570,6 +621,11 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
         }
         if (tlsProfileId.length() > 128) tlsProfileId = tlsProfileId.substring(0, 128);
         if (ja3TargetHash.length() > 128) ja3TargetHash = ja3TargetHash.substring(0, 128);
+        if (json.contains("\"managedClientId\"")) managedClientId = parseStringField(json, "managedClientId");
+        if (json.contains("\"managedDeviceId\"")) managedDeviceId = parseStringField(json, "managedDeviceId");
+        if (json.contains("\"managedNonce\"")) managedNonce = parseStringField(json, "managedNonce");
+        if (json.contains("\"managedSig\"")) managedSig = parseStringField(json, "managedSig");
+        if (json.contains("\"managedTsSec\"")) managedTsSec = parseLongField(json, "managedTsSec");
         List<String> relayRouteHops = parseStringArray(json, "relayRouteHops");
         return Optional.of(new ClientOptions(
             padS4,
@@ -587,10 +643,41 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
             relayRouteHops,
             clusterPreferredServer,
             tlsProfileId,
-            ja3TargetHash));
+            ja3TargetHash,
+            managedClientId,
+            managedDeviceId,
+            managedNonce,
+            managedTsSec,
+            managedSig));
       } catch (Exception e) {
         return Optional.empty();
       }
+    }
+  }
+
+  private static String parseStringField(String json, String key) {
+    String needle = "\"" + key + "\"";
+    int i = json.indexOf(needle);
+    if (i < 0) return "";
+    int start = json.indexOf(":", i) + 1;
+    int q1 = json.indexOf("\"", start);
+    int q2 = q1 >= 0 ? json.indexOf("\"", q1 + 1) : -1;
+    if (q1 >= 0 && q2 > q1) return json.substring(q1 + 1, q2).trim();
+    return "";
+  }
+
+  private static long parseLongField(String json, String key) {
+    try {
+      String needle = "\"" + key + "\"";
+      int i = json.indexOf(needle);
+      if (i < 0) return 0;
+      int start = json.indexOf(":", i) + 1;
+      int end = json.indexOf(",", start);
+      if (end < 0) end = json.indexOf("}", start);
+      if (end < 0) end = json.length();
+      return Long.parseLong(json.substring(start, end).trim());
+    } catch (Exception e) {
+      return 0;
     }
   }
 

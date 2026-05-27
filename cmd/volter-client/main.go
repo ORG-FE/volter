@@ -57,6 +57,7 @@ type runOpts struct {
 	watchdogMark      *atomic.Bool
 	relay             *config.RelayOptions
 	mesh              *config.MeshConfig
+	managed           *config.ManagedClient
 	ipcSocket         string
 	profileName       string
 }
@@ -128,6 +129,12 @@ func run() error {
 	}
 
 	var profileCfg *config.Config
+	if *key != "" {
+		if vk, ok := config.ParseVoultKeyURI(*key); ok {
+			pc := config.ConfigFromVoultKey(vk)
+			profileCfg = &pc
+		}
+	}
 	var relayOpt *config.RelayOptions
 	if pn := strings.TrimSpace(*profileName); pn != "" {
 		pc, err := config.LoadByName(pn)
@@ -266,6 +273,7 @@ func run() error {
 		protection:        protEff,
 		relay:             relayOpt,
 		mesh:              nil,
+		managed:           nil,
 		proxy:             *proxy,
 		proxyListen:       *proxyListen,
 		systemProxy:       *systemProxy,
@@ -275,6 +283,7 @@ func run() error {
 	}
 	if profileCfg != nil {
 		opts.mesh = profileCfg.Mesh
+		opts.managed = profileCfg.Managed
 	}
 	return runPlatform(context.Background(), addrs, opts, nil)
 }

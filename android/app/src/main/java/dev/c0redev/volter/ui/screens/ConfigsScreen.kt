@@ -648,6 +648,7 @@ private fun ConfigEditorDialog(
                         quicCertPinSHA256 = pin,
                         quicCaCert = ca,
                         quicTraceLog = if (traceLog) true else null,
+                        managed = parsedCfg?.managed,
                         protection = null,
                         mesh = parsedCfg?.mesh ?: dev.c0redev.volter.domain.model.MeshConfig(),
                         relay = parsedCfg?.relay,
@@ -770,4 +771,3 @@ private fun LocalProfileSkeleton() {
         }
     }
 }
-

@@ -3,8 +3,10 @@ package update
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -12,16 +14,41 @@ import (
 )
 
 const (
-	apiLatest = "https://api.github.com/repos/ORG-FE/volter/releases/latest"
-	apiTags   = "https://api.github.com/repos/ORG-FE/volter/releases/tags/"
+	defaultAPIBase = "https://api.github.com"
+	checksumAsset  = "SHA256SUMS"
 )
 
+var Repository = "ORG-FE/volter"
+
 type ghReleaseFull struct {
-	TagName string `json:"tag_name"`
-	Assets  []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
+	TagName string    `json:"tag_name"`
+	Assets  []ghAsset `json:"assets"`
+}
+
+type ghAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+type Asset struct {
+	Name   string
+	URL    string
+	SHA256 string
+}
+
+func apiURL(path string) (string, error) {
+	repo := strings.Trim(strings.TrimSpace(os.Getenv("VOLTER_UPDATE_REPO")), "/")
+	if repo == "" {
+		repo = strings.Trim(strings.TrimSpace(Repository), "/")
+	}
+	if repo == "" || strings.Count(repo, "/") != 1 {
+		return "", fmt.Errorf("bad update repo %q", repo)
+	}
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("VOLTER_UPDATE_API")), "/")
+	if base == "" {
+		base = defaultAPIBase
+	}
+	return base + "/repos/" + repo + path, nil
 }
 
 func getRelease(endpoint string) (*ghReleaseFull, error) {
@@ -31,6 +58,10 @@ func getRelease(endpoint string) (*ghReleaseFull, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "volter-client-updater")
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -47,7 +78,11 @@ func getRelease(endpoint string) (*ghReleaseFull, error) {
 }
 
 func CheckLatest(current string) (latest string, err error) {
-	r, err := getRelease(apiLatest)
+	u, err := apiURL("/releases/latest")
+	if err != nil {
+		return "", err
+	}
+	r, err := getRelease(u)
 	if err != nil {
 		return "", err
 	}
@@ -65,32 +100,56 @@ func CheckLatest(current string) (latest string, err error) {
 }
 
 func AssetDownloadURLForTag(tag string) (string, error) {
-	tag = strings.TrimSpace(tag)
-	if tag == "" {
-		return "", fmt.Errorf("empty tag")
-	}
-	u := apiTags + url.PathEscape(tag)
-	r, err := getRelease(u)
+	a, err := AssetForTag(tag)
 	if err != nil {
 		return "", err
 	}
-	return pickAssetURL(r)
+	return a.URL, nil
+}
+
+func AssetForTag(tag string) (Asset, error) {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return Asset{}, fmt.Errorf("empty tag")
+	}
+	endpoint, err := apiURL("/releases/tags/" + url.PathEscape(tag))
+	if err != nil {
+		return Asset{}, err
+	}
+	r, err := getRelease(endpoint)
+	if err != nil {
+		return Asset{}, err
+	}
+	a, err := pickAsset(r)
+	if err != nil {
+		return Asset{}, err
+	}
+	a.SHA256 = checksumForAsset(r, a.Name)
+	return a, nil
 }
 
 func pickAssetURL(r *ghReleaseFull) (string, error) {
-	want, err := expectedAssetName()
+	a, err := pickAsset(r)
 	if err != nil {
 		return "", err
+	}
+	return a.URL, nil
+}
+
+func pickAsset(r *ghReleaseFull) (Asset, error) {
+	want, err := expectedAssetName()
+	if err != nil {
+		return Asset{}, err
 	}
 	for _, a := range r.Assets {
 		if a.Name == want {
 			if a.BrowserDownloadURL == "" {
-				return "", fmt.Errorf("empty download url for %s", want)
+				return Asset{}, fmt.Errorf("empty download url for %s", want)
 			}
-			return a.BrowserDownloadURL, nil
+			return Asset{Name: a.Name, URL: a.BrowserDownloadURL}, nil
 		}
 	}
-	return "", fmt.Errorf("release has no %s", want)
+	return Asset{}, fmt.Errorf("release has no %s", want)
 }
 
 func expectedAssetName() (string, error) {
@@ -104,6 +163,69 @@ func expectedAssetName() (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported platform %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+}
+
+func checksumForAsset(r *ghReleaseFull, name string) string {
+	for _, a := range r.Assets {
+		if a.Name == name+".sha256" || a.Name == checksumAsset {
+			if sum, err := fetchChecksum(a.BrowserDownloadURL, name); err == nil {
+				return sum
+			}
+		}
+	}
+	return ""
+}
+
+func fetchChecksum(downloadURL, assetName string) (string, error) {
+	if strings.TrimSpace(downloadURL) == "" {
+		return "", fmt.Errorf("empty checksum url")
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("GET", downloadURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "text/plain,*/*")
+	req.Header.Set("User-Agent", "volter-client-updater")
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksum download: %s", resp.Status)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	return parseChecksum(string(b), assetName)
+}
+
+func parseChecksum(text, assetName string) (string, error) {
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 0 || len(fields[0]) != 64 || !isHex(fields[0]) {
+			continue
+		}
+		if len(fields) == 1 || strings.TrimPrefix(fields[len(fields)-1], "*") == assetName {
+			return strings.ToLower(fields[0]), nil
+		}
+	}
+	return "", fmt.Errorf("checksum for %s not found", assetName)
+}
+
+func isHex(s string) bool {
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func Newer(a, b string) bool {

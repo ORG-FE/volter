@@ -30,9 +30,22 @@ type Config struct {
 	Routes        string             `json:"routes,omitempty"`
 	Exclude       string             `json:"exclude,omitempty"`
 	TunCIDR6      string             `json:"tunCIDR6,omitempty"`
+	Managed       *ManagedClient     `json:"managed,omitempty"`
 	Protection    *ProtectionOptions `json:"protection,omitempty"`
 	Mesh          *MeshConfig        `json:"mesh,omitempty"`
 	Relay         *RelayOptions      `json:"relay,omitempty"`
+}
+
+type ManagedClient struct {
+	ClusterID   string `json:"clusterId,omitempty"`
+	UserID      string `json:"userId,omitempty"`
+	ClientID    string `json:"clientId,omitempty"`
+	Secret      string `json:"secret,omitempty"`
+	Salt        string `json:"salt,omitempty"`
+	DeviceMode  string `json:"deviceMode,omitempty"`
+	DeviceLimit int    `json:"deviceLimit,omitempty"`
+	Created     int64  `json:"created,omitempty"`
+	Expires     int64  `json:"expires,omitempty"`
 }
 
 type RelayOptions struct {
@@ -113,6 +126,11 @@ type ProtectionOptions struct {
 	PeerID                      string            `json:"peerId,omitempty"`
 	RelayNonce                  string            `json:"relayNonce,omitempty"`
 	RelaySig                    string            `json:"relaySig,omitempty"`
+	ManagedClientID             string            `json:"managedClientId,omitempty"`
+	ManagedDeviceID             string            `json:"managedDeviceId,omitempty"`
+	ManagedNonce                string            `json:"managedNonce,omitempty"`
+	ManagedTsSec                int64             `json:"managedTsSec,omitempty"`
+	ManagedSig                  string            `json:"managedSig,omitempty"`
 	SessionID                   string            `json:"sessionId,omitempty"`
 	ResumeToken                 string            `json:"resumeToken,omitempty"`
 	RouteID                     string            `json:"routeId,omitempty"`
@@ -623,6 +641,7 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return Config{}, err
 	}
+	SanitizeManagedInPlace(c.Managed)
 	SanitizeProtectionInPlace(c.Protection)
 	MigrateLegacyRelayToMeshInPlace(&c)
 	return c, nil
@@ -674,6 +693,7 @@ func ApplyCloudConnectDefaults(cfg *Config, serverMode string, probeIPv6 bool) {
 }
 
 func Save(name string, c Config) error {
+	SanitizeManagedInPlace(c.Managed)
 	SanitizeProtectionInPlace(c.Protection)
 	MigrateLegacyRelayToMeshInPlace(&c)
 	dir, err := Dir()
@@ -689,6 +709,21 @@ func Save(name string, c Config) error {
 		return err
 	}
 	return os.WriteFile(path, b, 0600)
+}
+
+func SanitizeManagedInPlace(m *ManagedClient) {
+	if m == nil {
+		return
+	}
+	m.ClusterID = strings.TrimSpace(m.ClusterID)
+	m.UserID = strings.TrimSpace(m.UserID)
+	m.ClientID = strings.TrimSpace(m.ClientID)
+	m.Secret = strings.TrimSpace(m.Secret)
+	m.Salt = strings.TrimSpace(m.Salt)
+	m.DeviceMode = strings.TrimSpace(m.DeviceMode)
+	if m.ClientID == "" || m.Secret == "" {
+		*m = ManagedClient{}
+	}
 }
 
 func pathFor(name string) (string, error) {
@@ -873,6 +908,48 @@ func ParseConnection(s string) (server, token string, ok bool) {
 	return "", "", false
 }
 
+type VoultKey struct {
+	Version        int      `json:"v"`
+	Type           string   `json:"type"`
+	ClusterID      string   `json:"clusterId"`
+	UserID         string   `json:"userId"`
+	ClientID       string   `json:"clientId"`
+	Secret         string   `json:"secret"`
+	Salt           string   `json:"salt"`
+	Servers        []string `json:"servers"`
+	DeviceMode     string   `json:"deviceMode"`
+	DeviceLimit    int      `json:"deviceLimit"`
+	Created        int64    `json:"created"`
+	Expires        int64    `json:"expires"`
+	TransportToken string   `json:"transportToken"`
+}
+
+func ParseVoultKeyURI(raw string) (VoultKey, bool) {
+	data, ok := decodeVolterPayload(raw)
+	if !ok {
+		return VoultKey{}, false
+	}
+	var v VoultKey
+	if err := json.Unmarshal(data, &v); err != nil {
+		return VoultKey{}, false
+	}
+	if v.Version != 2 || !strings.EqualFold(strings.TrimSpace(v.Type), "voultkey") {
+		return VoultKey{}, false
+	}
+	v.ClientID = strings.TrimSpace(v.ClientID)
+	v.Secret = strings.TrimSpace(v.Secret)
+	v.TransportToken = strings.TrimSpace(v.TransportToken)
+	if v.ClientID == "" || v.Secret == "" || v.TransportToken == "" || len(v.Servers) == 0 {
+		return VoultKey{}, false
+	}
+	for _, s := range v.Servers {
+		if isValidServerAddress(s) {
+			return v, true
+		}
+	}
+	return VoultKey{}, false
+}
+
 func BuildConnectionURI(server, token string) string {
 	u := volterURI{
 		Server: strings.TrimSpace(server),
@@ -894,16 +971,67 @@ type volterURI struct {
 }
 
 func parseVolterURI(raw string) (server, token string, ok bool) {
+	if vk, ok := ParseVoultKeyURI(raw); ok {
+		for _, s := range vk.Servers {
+			s = strings.TrimSpace(s)
+			if isValidServerAddress(s) {
+				return s, vk.TransportToken, true
+			}
+		}
+	}
+	data, ok := decodeVolterPayload(raw)
+	if !ok {
+		return "", "", false
+	}
+	var u volterURI
+	if err := json.Unmarshal(data, &u); err != nil {
+		return "", "", false
+	}
+	server = strings.TrimSpace(u.Server)
+	token = strings.TrimSpace(u.Token)
+	if server == "" || token == "" || !isValidServerAddress(server) {
+		return "", "", false
+	}
+	return server, token, true
+}
+
+func ConfigFromVoultKey(v VoultKey) Config {
+	server := ""
+	for _, s := range v.Servers {
+		s = strings.TrimSpace(s)
+		if isValidServerAddress(s) {
+			server = s
+			break
+		}
+	}
+	return Config{
+		Server: server,
+		Token:  strings.TrimSpace(v.TransportToken),
+		Managed: &ManagedClient{
+			ClusterID:   strings.TrimSpace(v.ClusterID),
+			UserID:      strings.TrimSpace(v.UserID),
+			ClientID:    strings.TrimSpace(v.ClientID),
+			Secret:      strings.TrimSpace(v.Secret),
+			Salt:        strings.TrimSpace(v.Salt),
+			DeviceMode:  strings.TrimSpace(v.DeviceMode),
+			DeviceLimit: v.DeviceLimit,
+			Created:     v.Created,
+			Expires:     v.Expires,
+		},
+	}
+}
+
+func decodeVolterPayload(raw string) ([]byte, bool) {
 	body := strings.TrimSpace(raw[len("volter://"):])
 	if body == "" {
-		return "", "", false
+		return nil, false
 	}
 	if i := strings.IndexAny(body, "?#"); i >= 0 {
 		body = body[:i]
 	}
 	body = strings.TrimSpace(body)
 	if body == "" {
-		return "", "", false
+		return nil, false
 	}
 	var data []byte
 	var err error
@@ -918,18 +1046,9 @@ func parseVolterURI(raw string) (server, token string, ok bool) {
 		data, err = base64.StdEncoding.DecodeString(body)
 	}
 	if err != nil {
-		return "", "", false
+		return nil, false
 	}
-	var u volterURI
-	if err := json.Unmarshal(data, &u); err != nil {
-		return "", "", false
-	}
-	server = strings.TrimSpace(u.Server)
-	token = strings.TrimSpace(u.Token)
-	if server == "" || token == "" || !isValidServerAddress(server) {
-		return "", "", false
-	}
-	return server, token, true
+	return data, true
 }
 
 func isValidServerAddress(raw string) bool {

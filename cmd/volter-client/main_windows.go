@@ -141,6 +141,7 @@ func runPlatform(ctx context.Context, addrs []string, opts runOpts, onReady func
 			PathManager:       tunnel.NewPathManagerFromRelay(opts.relay),
 			Relay:             opts.relay,
 			Mesh:              opts.mesh,
+			Managed:           opts.managed,
 			RouteController:   vpn.NewRouteController(),
 			Ready:             func() { close(ready) },
 			Protection:        opts.protection,
