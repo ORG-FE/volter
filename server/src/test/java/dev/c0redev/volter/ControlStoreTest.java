@@ -2,6 +2,7 @@ package dev.c0redev.volter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -187,6 +188,76 @@ class ControlStoreTest {
       assertEquals(7, registry.getLong("version"));
       assertEquals("sig", registry.getString("sig"));
       assertEquals("node-1", registry.getJSONObject("payload").getJSONArray("nodes").getJSONObject(0).getString("id"));
+    }
+  }
+
+  @Test
+  void clientTrafficReturnsDataForValidBearer() throws Exception {
+    try (ControlStore store = ControlStore.open(tmp.resolve("cli-traffic.sqlite"))) {
+      String secret = "my-secret";
+      String salt = "my-salt";
+      String secretHash = sha256(salt + ":" + secret);
+      var c = store.createClient("traffic-client", "guest", 0, "", secret, salt, secretHash);
+
+      store.addTraffic(c.id(), 1000, 500);
+
+      JSONObject traffic = store.clientTrafficJson(c.id(), secret);
+      assertEquals(1000, traffic.getLong("rxBytes"));
+      assertEquals(500, traffic.getLong("txBytes"));
+    }
+  }
+
+  @Test
+  void clientTrafficReturnsNullForWrongBearer() throws Exception {
+    try (ControlStore store = ControlStore.open(tmp.resolve("cli-traffic-bad.sqlite"))) {
+      String secret = "my-secret";
+      String salt = "my-salt";
+      String secretHash = sha256(salt + ":" + secret);
+      var c = store.createClient("traffic-client-2", "guest", 0, "", secret, salt, secretHash);
+
+      store.addTraffic(c.id(), 100, 50);
+
+      assertNull(store.clientTrafficJson(c.id(), "wrong-secret"));
+    }
+  }
+
+  @Test
+  void clientTrafficReturnsZerosForClientWithoutTraffic() throws Exception {
+    try (ControlStore store = ControlStore.open(tmp.resolve("cli-traffic-zero.sqlite"))) {
+      String secret = "my-secret";
+      String salt = "my-salt";
+      String secretHash = sha256(salt + ":" + secret);
+      var c = store.createClient("traffic-client-3", "guest", 0, "", secret, salt, secretHash);
+
+      JSONObject traffic = store.clientTrafficJson(c.id(), secret);
+      assertEquals(0, traffic.getLong("rxBytes"));
+      assertEquals(0, traffic.getLong("txBytes"));
+    }
+  }
+
+  @Test
+  void clientTrafficReturnsNullForNonexistentClient() throws Exception {
+    try (ControlStore store = ControlStore.open(tmp.resolve("cli-traffic-nonexist.sqlite"))) {
+      assertNull(store.clientTrafficJson("nonexistent-id", "any-secret"));
+    }
+  }
+
+  @Test
+  void updateClientGroupChangesGroup() throws Exception {
+    try (ControlStore store = ControlStore.open(tmp.resolve("group-change.sqlite"))) {
+      var c = store.createClient("group-client", "user", 0, "", "secret", "salt", sha256("salt:secret"));
+      assertTrue(store.updateClientGroup(c.id(), "volunteer"));
+
+      JSONObject policy = store.effectivePolicyJson(c.id());
+      assertEquals("volunteer", policy.getString("groupId"));
+    }
+  }
+
+  @Test
+  void updateClientGroupRejectsNonexistentGroup() throws Exception {
+    try (ControlStore store = ControlStore.open(tmp.resolve("group-bad.sqlite"))) {
+      var c = store.createClient("bad-group", "user", 0, "", "secret", "salt", sha256("salt:secret"));
+      assertFalse(store.updateClientGroup(c.id(), "nonexistent-group"));
     }
   }
 

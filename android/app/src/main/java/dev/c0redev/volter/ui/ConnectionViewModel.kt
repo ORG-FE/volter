@@ -291,6 +291,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        stopServerTrafficPolling()
         runCatching { appCtx.unregisterReceiver(receiver) }
         pollJob?.cancel()
         super.onCleared()
@@ -931,11 +932,18 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         trafficPollJob?.cancel()
         trafficPollJob = viewModelScope.launch(Dispatchers.IO) {
             VolterLog.i("startServerTrafficPolling url=$controlUrl clientId=$clientId")
+            var errorCount = 0
             while (true) {
                 ensureActive()
                 val traffic = TrafficApiClient.fetch(clientId, secret, controlUrl)
                 if (traffic != null) {
-                    _serverTraffic.value = traffic
+                    _serverTraffic.value = traffic.copy(updatedAt = System.currentTimeMillis())
+                    errorCount = 0
+                } else {
+                    errorCount++
+                    if (errorCount >= 3) {
+                        _serverTraffic.value = null
+                    }
                 }
                 delay(5000L)
             }

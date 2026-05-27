@@ -5,6 +5,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -389,17 +394,86 @@ private fun TrafficRoutingCard(
     val scheme = MaterialTheme.colorScheme
     SectionCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                text = stringResource(R.string.home_traffic_title),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = scheme.onSurface,
-            )
-            Text(
-                text = stringResource(R.string.home_traffic_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.home_traffic_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = scheme.onSurface,
+                )
+                if (serverTraffic != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val pulse = rememberInfiniteTransition(label = "pulse")
+                        val alpha by pulse.animateFloat(
+                            initialValue = 0.3f,
+                            targetValue = 1f,
+                            animationSpec = infiniteRepeatable(tween(800)),
+                            label = "alpha",
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(scheme.primary.copy(alpha = alpha)),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Live",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = scheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+
+            if (serverTraffic != null) {
+                // server-side traffic — large display
+                val rx = serverTraffic.rxBytes
+                val tx = serverTraffic.txBytes
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            scheme.primaryContainer.copy(alpha = 0.15f),
+                            RoundedCornerShape(12.dp),
+                        )
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        TrafficValue(label = "↓ " + stringResource(R.string.home_traffic_rx), bytes = rx)
+                        TrafficValue(label = "↑ " + stringResource(R.string.home_traffic_tx), bytes = tx)
+                    }
+                    // "updated Xs ago"
+                    val updated = serverTraffic.updatedAt
+                    if (updated > 0L) {
+                        val secAgo = (System.currentTimeMillis() - updated) / 1000L
+                        Text(
+                            text = "updated ${secAgo}s ago",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+            }
+
+            if (serverTraffic == null) {
+                Text(
+                    text = stringResource(R.string.home_traffic_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -434,27 +508,29 @@ private fun TrafficRoutingCard(
                     label = stringResource(R.string.home_traffic_last_hs),
                     value = if (last.handshakeOk) stringResource(R.string.home_yes) else stringResource(R.string.home_no),
                 )
-                val rx = if (serverTraffic != null) serverTraffic.rxBytes else last?.rxBytes
-                val tx = if (serverTraffic != null) serverTraffic.txBytes else last?.txBytes
-                if (rx != null && tx != null) {
-                    StatusRow(
-                        label = stringResource(R.string.home_traffic_rx),
-                        value = formatTrafficBytes(rx),
-                    )
-                    StatusRow(
-                        label = stringResource(R.string.home_traffic_tx),
-                        value = formatTrafficBytes(tx),
-                    )
-                } else if (rx != null) {
-                    StatusRow(
-                        label = stringResource(R.string.home_traffic_rx),
-                        value = formatTrafficBytes(rx),
-                    )
-                } else if (tx != null) {
-                    StatusRow(
-                        label = stringResource(R.string.home_traffic_tx),
-                        value = formatTrafficBytes(tx),
-                    )
+                if (serverTraffic == null) {
+                    val rx = last.rxBytes
+                    val tx = last.txBytes
+                    if (rx != null && tx != null) {
+                        StatusRow(
+                            label = stringResource(R.string.home_traffic_rx),
+                            value = formatTrafficBytes(rx),
+                        )
+                        StatusRow(
+                            label = stringResource(R.string.home_traffic_tx),
+                            value = formatTrafficBytes(tx),
+                        )
+                    } else if (rx != null) {
+                        StatusRow(
+                            label = stringResource(R.string.home_traffic_rx),
+                            value = formatTrafficBytes(rx),
+                        )
+                    } else if (tx != null) {
+                        StatusRow(
+                            label = stringResource(R.string.home_traffic_tx),
+                            value = formatTrafficBytes(tx),
+                        )
+                    }
                 }
                 if (!last.trafficCollectError.isNullOrBlank()) {
                     StatusRow(
@@ -756,6 +832,23 @@ private fun ServerPillRow(
             }
         }
         }
+    }
+}
+
+@Composable
+private fun TrafficValue(label: String, bytes: Long) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = formatTrafficBytes(bytes),
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

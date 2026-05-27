@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.EnumMap;
@@ -78,6 +79,10 @@ final class ControlPanelServer implements Closeable {
         if (auth != null) auth.removeSession(sid);
         addExpiredCookie(ex.getResponseHeaders());
         json(ex, 200, new JSONObject().put("ok", true));
+        return;
+      }
+      if (path.startsWith("/api/v1/clients/") && path.endsWith("/traffic") && ex.getRequestMethod().equals("GET")) {
+        handleClientTraffic(ex);
         return;
       }
       boolean logged = isLogged(ex);
@@ -165,6 +170,19 @@ final class ControlPanelServer implements Closeable {
           json(ex, ok ? 200 : 404, new JSONObject().put("ok", ok));
           return;
         }
+      }
+      if (path.startsWith("/api/v1/clients/") && path.endsWith("/group") && ex.getRequestMethod().equals("POST")) {
+        String id = path.substring("/api/v1/clients/".length(), path.length() - "/group".length());
+        JSONObject req = readJson(ex);
+        String groupId = req.optString("groupId", "").trim();
+        if (groupId.isBlank()) {
+          json(ex, 400, new JSONObject().put("ok", false).put("error", "groupId required"));
+          return;
+        }
+        boolean ok = store.updateClientGroup(id, groupId);
+        if (ok) store.audit("client.group", id, groupId);
+        json(ex, ok ? 200 : 404, new JSONObject().put("ok", ok));
+        return;
       }
       if (path.equals("/api/v1/groups") && ex.getRequestMethod().equals("GET")) {
         json(ex, 200, new JSONObject().put("groups", store.listGroupsJson()));
@@ -345,6 +363,32 @@ final class ControlPanelServer implements Closeable {
             .put("enabled", cfg.genericTokenEnabled())
             .put("deprecated", cfg.genericTokenDeprecated())
             .put("disableAfter", cfg.genericTokenDisableAfter()));
+  }
+
+  private void handleClientTraffic(HttpExchange ex) throws IOException {
+    String path = ex.getRequestURI().getPath();
+    String clientId = path.substring("/api/v1/clients/".length(), path.length() - "/traffic".length());
+    String auth = ex.getRequestHeaders().getFirst("Authorization");
+    if (auth == null || !auth.regionMatches(true, 0, "Bearer ", 0, 7)) {
+      text(ex, 401, "unauthorized");
+      return;
+    }
+    String secret = auth.substring(7).trim();
+    if (secret.isBlank()) {
+      text(ex, 401, "unauthorized");
+      return;
+    }
+    try {
+      JSONObject traffic = store.clientTrafficJson(clientId, secret);
+      if (traffic == null) {
+        text(ex, 401, "unauthorized");
+        return;
+      }
+      json(ex, 200, traffic);
+    } catch (SQLException e) {
+      log.warning("client traffic failed: " + e.getMessage());
+      text(ex, 500, "internal error");
+    }
   }
 
   private void handleEventsWs(HttpExchange ex) throws Exception {
