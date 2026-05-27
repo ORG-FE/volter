@@ -44,6 +44,7 @@ type ManagedClient struct {
 	Salt        string `json:"salt,omitempty"`
 	DeviceMode  string `json:"deviceMode,omitempty"`
 	DeviceLimit int    `json:"deviceLimit,omitempty"`
+	ControlURL  string `json:"controlUrl,omitempty"`
 	Created     int64  `json:"created,omitempty"`
 	Expires     int64  `json:"expires,omitempty"`
 }

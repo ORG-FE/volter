@@ -70,6 +70,7 @@ import java.util.Locale
 import dev.c0redev.volter.BuildConfig
 import dev.c0redev.volter.R
 import dev.c0redev.volter.domain.model.ProtectionOptions
+import dev.c0redev.volter.domain.model.ServerTraffic
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
@@ -294,8 +295,11 @@ fun HomeScreen(
                 }
             }
 
+        val serverTraffic by vm.serverTraffic.collectAsState()
+
         TrafficRoutingCard(
             records = metrics.records,
+            serverTraffic = serverTraffic,
             routeMode = activeCfg?.protection?.routeMode?.ifBlank { "auto" } ?: "auto",
             profileName = activeProfile,
             canEditRoute = activeCfg != null && !activeProfile.isNullOrBlank(),
@@ -373,6 +377,7 @@ fun HomeScreen(
 @Composable
 private fun TrafficRoutingCard(
     records: List<SessionRecord>,
+    serverTraffic: ServerTraffic?,
     routeMode: String,
     profileName: String?,
     canEditRoute: Boolean,
@@ -429,8 +434,8 @@ private fun TrafficRoutingCard(
                     label = stringResource(R.string.home_traffic_last_hs),
                     value = if (last.handshakeOk) stringResource(R.string.home_yes) else stringResource(R.string.home_no),
                 )
-                val rx = last.rxBytes
-                val tx = last.txBytes
+                val rx = if (serverTraffic != null) serverTraffic.rxBytes else last?.rxBytes
+                val tx = if (serverTraffic != null) serverTraffic.txBytes else last?.txBytes
                 if (rx != null && tx != null) {
                     StatusRow(
                         label = stringResource(R.string.home_traffic_rx),

@@ -11,6 +11,7 @@ data class ManagedClient(
     val salt: String = "",
     val deviceMode: String = "",
     val deviceLimit: Int = 0,
+    val controlUrl: String = "",
     val created: Long = 0L,
     val expires: Long = 0L,
 ) {
@@ -23,6 +24,7 @@ data class ManagedClient(
         salt.takeIf { it.isNotBlank() }?.let { j.put("salt", it) }
         deviceMode.takeIf { it.isNotBlank() }?.let { j.put("deviceMode", it) }
         if (deviceLimit > 0) j.put("deviceLimit", deviceLimit)
+        controlUrl.takeIf { it.isNotBlank() }?.let { j.put("controlUrl", it) }
         if (created > 0) j.put("created", created)
         if (expires > 0) j.put("expires", expires)
         return j
@@ -37,6 +39,7 @@ data class ManagedClient(
             salt = j.optString("salt", ""),
             deviceMode = j.optString("deviceMode", ""),
             deviceLimit = j.optInt("deviceLimit", 0),
+            controlUrl = j.optString("controlUrl", ""),
             created = j.optLong("created", 0L),
             expires = j.optLong("expires", 0L),
         )
@@ -302,6 +305,7 @@ data class Config(
                         salt = j.optString("salt", "").trim(),
                         deviceMode = j.optString("deviceMode", "").trim(),
                         deviceLimit = j.optInt("deviceLimit", 0),
+                        controlUrl = j.optString("controlUrl", "").trim(),
                         created = j.optLong("created", 0L),
                         expires = j.optLong("expires", 0L),
                     ),

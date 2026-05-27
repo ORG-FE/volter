@@ -239,14 +239,15 @@ final class ControlPanelServer implements Closeable {
   private void handleCreateClient(HttpExchange ex) throws Exception {
     JSONObject req = readJson(ex);
     String name = req.optString("name", "").trim();
-    String groupId = req.optString("groupId", "guest").trim();
+    String groupId = req.optString("groupId", "user").trim();
+    String serverHost = req.optString("serverHost", "").trim();
     long expiresAt = req.optLong("expiresAt", 0L);
     String note = req.optString("note", "");
     String secret = randomSecret(32);
     String salt = randomSecret(16);
     String secretHash = sha256(salt + ":" + secret);
     ControlStore.CreatedClient c = store.createClient(name, groupId, expiresAt, note, secret, salt, secretHash);
-    String uri = voultKey(c);
+    String uri = voultKey(c, serverHost, ex);
     store.audit("client.create", c.id(), remote(ex));
     json(ex, 200, new JSONObject()
         .put("ok", true)
@@ -262,6 +263,7 @@ final class ControlPanelServer implements Closeable {
   private void handleRotateClient(HttpExchange ex, String id) throws Exception {
     JSONObject req = readJson(ex);
     long graceUntil = req.optLong("graceUntil", 0L);
+    String serverHost = req.optString("serverHost", "").trim();
     String secret = randomSecret(32);
     String salt = randomSecret(16);
     String secretHash = sha256(salt + ":" + secret);
@@ -270,7 +272,7 @@ final class ControlPanelServer implements Closeable {
       json(ex, 404, new JSONObject().put("ok", false).put("error", "client not found"));
       return;
     }
-    String uri = voultKey(c);
+    String uri = voultKey(c, serverHost, ex);
     store.audit("client.rotate", id, remote(ex));
     json(ex, 200, new JSONObject().put("ok", true).put("voultkey", uri).put("graceUntil", graceUntil));
   }
@@ -453,11 +455,11 @@ final class ControlPanelServer implements Closeable {
     return out;
   }
 
-  private String voultKey(ControlStore.CreatedClient c) {
+  private String voultKey(ControlStore.CreatedClient c, String requestedHost, HttpExchange ex) {
     JSONArray servers = new JSONArray();
-    String host = cfg.publicHost();
-    if (host == null || host.isBlank()) host = cfg.controlListen();
+    String host = vpnHostForKey(requestedHost, ex);
     for (int port : cfg.listenPorts()) servers.put(hostPort(host, port));
+    String controlUrl = controlUrlForKey(host, ex);
     JSONObject payload = new JSONObject()
         .put("v", 2)
         .put("type", "voultkey")
@@ -467,6 +469,7 @@ final class ControlPanelServer implements Closeable {
         .put("secret", c.secret())
         .put("salt", c.salt())
         .put("transportToken", cfg.token())
+        .put("controlUrl", controlUrl)
         .put("servers", servers)
         .put("deviceMode", "multi")
         .put("deviceLimit", 3)
@@ -474,6 +477,37 @@ final class ControlPanelServer implements Closeable {
         .put("expires", c.expiresAt());
     String b = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toString().getBytes(StandardCharsets.UTF_8));
     return "volter://" + b;
+  }
+
+  private String vpnHostForKey(String requestedHost, HttpExchange ex) {
+    if (cfg.publicHost() != null && !cfg.publicHost().isBlank()) return cfg.publicHost().trim();
+    if (requestedHost != null && !requestedHost.isBlank() && !isLocalWebHost(requestedHost)) return requestedHost.trim();
+    String h = ex.getRequestHeaders().getFirst("Host");
+    h = hostOnly(h);
+    if (h != null && !h.isBlank() && !isLocalWebHost(h)) return h;
+    return cfg.controlListen();
+  }
+
+  private String controlUrlForKey(String host, HttpExchange ex) {
+    String h = host != null && !host.isBlank() ? host : hostOnly(ex.getRequestHeaders().getFirst("Host"));
+    if (h == null || h.isBlank()) h = cfg.controlListen();
+    return "http://" + hostPort(h, cfg.controlPort());
+  }
+
+  private static String hostOnly(String hostHeader) {
+    if (hostHeader == null) return "";
+    String h = hostHeader.trim();
+    if (h.startsWith("[")) {
+      int end = h.indexOf(']');
+      return end > 0 ? h.substring(1, end) : h;
+    }
+    int idx = h.lastIndexOf(':');
+    return idx > 0 ? h.substring(0, idx) : h;
+  }
+
+  private static boolean isLocalWebHost(String h) {
+    String v = h == null ? "" : h.trim().toLowerCase();
+    return v.equals("127.0.0.1") || v.equals("localhost") || v.equals("::1") || v.equals("0.0.0.0");
   }
 
   private static String hostPort(String host, int port) {
