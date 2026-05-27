@@ -21,7 +21,6 @@ import dev.c0redev.volter.VolterLog
 import dev.c0redev.volter.VolterVpnService
 import dev.c0redev.volter.core.CoreBridge
 import dev.c0redev.volter.data.cloud.CloudConfigRepository
-import dev.c0redev.volter.data.cloud.TrafficApiClient
 import dev.c0redev.volter.data.repo.LocalConfigRepository
 import dev.c0redev.volter.data.servergeo.IpWhoLookup
 import dev.c0redev.volter.data.servergeo.ServerGeo
@@ -29,7 +28,6 @@ import dev.c0redev.volter.domain.model.ClientSettings
 import dev.c0redev.volter.domain.model.Config
 import dev.c0redev.volter.domain.model.PeerTicket
 import dev.c0redev.volter.domain.model.AppTrafficEntry
-import dev.c0redev.volter.domain.model.ServerTraffic
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.traffic.TrafficPending
 import dev.c0redev.volter.traffic.VpnTrafficRecorder
@@ -101,7 +99,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
 
     private var coreHandle = -1L
     private var pollJob: Job? = null
-    private var trafficPollJob: Job? = null
     private var cloudRefreshJob: Job? = null
     private val cloudRefreshSeq = AtomicInteger(0)
     private var pollGeneration = 0L
@@ -124,8 +121,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     val logs = _logs
     private val _connection = MutableStateFlow(ConnectionState())
     val connection = _connection
-    private val _serverTraffic = MutableStateFlow<ServerTraffic?>(null)
-    val serverTraffic = _serverTraffic.asStateFlow()
     private val _vpnPermissionIntent = MutableStateFlow<Intent?>(null)
     val vpnPermissionIntent = _vpnPermissionIntent
     private val _clientSettings = MutableStateFlow(localRepo.loadClientSettings())
@@ -260,7 +255,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                     val draft = activeMetric
                     if (draft != null) finalizeActiveMetric(Instant.now(), handshakeOk = draft.handshakeOk, errorType = classifyErr(normalized))
                 }
-                stopServerTrafficPolling()
                 return
             }
             if (handle <= 0) {
@@ -291,7 +285,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
-        stopServerTrafficPolling()
         runCatching { appCtx.unregisterReceiver(receiver) }
         pollJob?.cancel()
         super.onCleared()
@@ -404,10 +397,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             autoFallbackDone = false
             activateMetric()
             startService(effective.toJson().toString(), settings.toJson().toString())
-            val managed = effective.managed
-            if (managed != null && managed.controlUrl.isNotBlank() && managed.clientId.isNotBlank() && managed.secret.isNotBlank()) {
-                startServerTrafficPolling(managed.controlUrl, managed.clientId, managed.secret)
-            }
         }
     }
 
@@ -426,10 +415,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
             autoFallbackDone = false
             activateMetric()
             startService(cfg.toJson().toString(), settings.toJson().toString())
-            val managed = cfg.managed
-            if (managed != null && managed.controlUrl.isNotBlank() && managed.clientId.isNotBlank() && managed.secret.isNotBlank()) {
-                startServerTrafficPolling(managed.controlUrl, managed.clientId, managed.secret)
-            }
         }
     }
 
@@ -781,7 +766,6 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         if (clearConnecting) {
             _connectingProfileName.value = null
         }
-        stopServerTrafficPolling()
         pollJob?.cancel()
         pollJob = null
         ++pollGeneration
@@ -928,31 +912,4 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun startServerTrafficPolling(controlUrl: String, clientId: String, secret: String) {
-        trafficPollJob?.cancel()
-        trafficPollJob = viewModelScope.launch(Dispatchers.IO) {
-            VolterLog.i("startServerTrafficPolling url=$controlUrl clientId=$clientId")
-            var errorCount = 0
-            while (true) {
-                ensureActive()
-                val traffic = TrafficApiClient.fetch(clientId, secret, controlUrl)
-                if (traffic != null) {
-                    _serverTraffic.value = traffic.copy(updatedAt = System.currentTimeMillis())
-                    errorCount = 0
-                } else {
-                    errorCount++
-                    if (errorCount >= 3) {
-                        _serverTraffic.value = null
-                    }
-                }
-                delay(5000L)
-            }
-        }
-    }
-
-    private fun stopServerTrafficPolling() {
-        trafficPollJob?.cancel()
-        trafficPollJob = null
-        _serverTraffic.value = null
-    }
 }

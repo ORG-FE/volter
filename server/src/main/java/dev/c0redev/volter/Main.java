@@ -86,7 +86,6 @@ public final class Main {
     List<ServerSocketChannel> sockets = Collections.synchronizedList(new ArrayList<>());
     final QuicServer[] quicHolder = new QuicServer[1];
     final DhtRpcUdpServer[] dhtRpcHolder = new DhtRpcUdpServer[1];
-    final ControlPanelServer[] controlHolder = new ControlPanelServer[1];
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
       log.info("Shutdown: closing TCP listeners and QUIC (release ports for next start)");
       List<ServerSocketChannel> copy;
@@ -108,11 +107,6 @@ public final class Main {
           dhtRpcHolder[0].close();
         } catch (Exception ignored) {}
       }
-      if (controlHolder[0] != null) {
-        try {
-          controlHolder[0].close();
-        } catch (Exception ignored) {}
-      }
       ClusterRuntime.get().stop();
       tcpPool.shutdown();
       streamPool.shutdown();
@@ -132,9 +126,6 @@ public final class Main {
         quicHolder[0].start();
       }
       dhtRpcHolder[0] = DhtRpcUdpServer.startIfEnabled(cfg);
-      if (cfg.controlPanel()) {
-        controlHolder[0] = ControlPanelServer.start(cfg, base);
-      }
       if (cfg.tcpEnabled()) {
         for (int port : cfg.listenPorts()) {
           ServerSocketChannel ss = ServerSocketChannel.open();
@@ -162,11 +153,6 @@ public final class Main {
       if (dhtRpcHolder[0] != null) {
         try {
           dhtRpcHolder[0].close();
-        } catch (Exception ignored) {}
-      }
-      if (controlHolder[0] != null) {
-        try {
-          controlHolder[0].close();
         } catch (Exception ignored) {}
       }
       ClusterRuntime.get().stop();

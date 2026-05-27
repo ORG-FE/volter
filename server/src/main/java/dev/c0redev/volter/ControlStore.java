@@ -2,10 +2,8 @@ package dev.c0redev.volter;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -287,20 +285,6 @@ final class ControlStore implements Closeable {
     }
   }
 
-  boolean updateClientGroup(String clientId, String groupId) throws SQLException {
-    try (var check = db.prepareStatement("select 1 from client_groups where id=?")) {
-      check.setString(1, groupId);
-      try (ResultSet rs = check.executeQuery()) {
-        if (!rs.next()) return false;
-      }
-    }
-    try (var ps = db.prepareStatement("update clients set group_id=? where id=?")) {
-      ps.setString(1, groupId);
-      ps.setString(2, clientId);
-      return ps.executeUpdate() > 0;
-    }
-  }
-
   boolean updateDevicePolicy(String clientId, String mode, int limit) throws SQLException {
     if (mode == null || mode.isBlank()) mode = "multi";
     mode = mode.trim().toLowerCase();
@@ -366,33 +350,6 @@ final class ControlStore implements Closeable {
     }
     out.put("clients", clients);
     return out;
-  }
-
-  JSONObject clientTrafficJson(String clientId, String bearerSecret) throws SQLException {
-    try (var ps = db.prepareStatement("select cc.salt,cc.secret_hash from client_credentials cc where cc.client_id=?")) {
-      ps.setString(1, clientId);
-      try (ResultSet rs = ps.executeQuery()) {
-        if (!rs.next()) return null;
-        String salt = rs.getString("salt");
-        String storedHash = rs.getString("secret_hash");
-        if (salt == null || storedHash == null || storedHash.isBlank()) return null;
-        String computedHash = sha256(salt + ":" + bearerSecret);
-        if (!MessageDigest.isEqual(computedHash.getBytes(StandardCharsets.UTF_8), storedHash.getBytes(StandardCharsets.UTF_8))) {
-          return null;
-        }
-      }
-    }
-    try (var ps = db.prepareStatement("select coalesce(rx_bytes,0) rx,coalesce(tx_bytes,0) tx from traffic_total where client_id=?")) {
-      ps.setString(1, clientId);
-      try (ResultSet rs = ps.executeQuery()) {
-        if (rs.next()) {
-          return new JSONObject()
-              .put("rxBytes", rs.getLong("rx"))
-              .put("txBytes", rs.getLong("tx"));
-        }
-      }
-    }
-    return new JSONObject().put("rxBytes", 0L).put("txBytes", 0L);
   }
 
   void addTraffic(String clientId, long rxBytes, long txBytes) throws SQLException {
