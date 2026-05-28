@@ -6,8 +6,7 @@ if [ -f /app/config.properties ]; then
 fi
 
 if [ -z "$TOKEN" ] && [ -z "$CONNECTION_KEY" ]; then
-  echo "ERROR: TOKEN or CONNECTION_KEY must be set"
-  exit 1
+  echo "TOKEN not set - volter will auto-generate one (see logs)"
 fi
 
 LISTEN_PORTS="${LISTEN_PORTS:-25565}"
