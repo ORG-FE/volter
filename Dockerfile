@@ -4,8 +4,8 @@ COPY server/pom.xml .
 COPY server/src ./src
 RUN mvn package -DskipTests -q
 
-FROM eclipse-temurin:17-jre-alpine
-RUN apk add --no-cache ca-certificates tzdata
+FROM eclipse-temurin:17-jre
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /build/target/server.jar .
 COPY docker/docker-entrypoint.sh /usr/local/bin/
