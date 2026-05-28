@@ -96,7 +96,7 @@ final class QuicServer implements AutoCloseable {
     long streamWin = Math.min(16_000_000L, 1_200_000L + (long) maxBi * 80_000L);
     long connWin = Math.min(120_000_000L, streamWin * maxBi);
     long idleMs = cfg.quicIdleTimeoutMs();
-    if (idleMs <= 0) idleMs = TimeUnit.HOURS.toMillis(24);
+    if (idleMs <= 0) idleMs = TimeUnit.MINUTES.toMillis(15);
     ChannelHandler codec = new QuicServerCodecBuilder()
         .sslContext(sslContext)
         .maxIdleTimeout(idleMs, TimeUnit.MILLISECONDS)

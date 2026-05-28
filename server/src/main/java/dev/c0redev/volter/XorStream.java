@@ -11,8 +11,8 @@ import java.security.NoSuchAlgorithmException;
 final class XorStream {
 
     private final byte[] key;
-    private int rPos;
-    private int wPos;
+    private volatile int rPos;
+    private volatile int wPos;
 
     XorStream(byte[] key) {
         this.key = key;
@@ -24,7 +24,7 @@ final class XorStream {
             public int read() throws IOException {
                 int b = in.read();
                 if (b == -1) return -1;
-                int k = key[rPos % key.length] & 0xff;
+                int k = key[Math.floorMod(rPos, key.length)] & 0xff;
                 rPos++;
                 return (b ^ k) & 0xff;
             }
@@ -34,7 +34,7 @@ final class XorStream {
                 int n = in.read(b, off, len);
                 if (n <= 0) return n;
                 for (int i = 0; i < n; i++) {
-                    b[off + i] ^= key[rPos % key.length];
+                    b[off + i] ^= key[Math.floorMod(rPos, key.length)];
                     rPos++;
                 }
                 return n;
@@ -46,7 +46,7 @@ final class XorStream {
         return new FilterOutputStream(out) {
             @Override
             public void write(int b) throws IOException {
-                out.write((b ^ (key[wPos % key.length] & 0xff)) & 0xff);
+                out.write((b ^ (key[Math.floorMod(wPos, key.length)] & 0xff)) & 0xff);
                 wPos++;
             }
 
@@ -55,7 +55,7 @@ final class XorStream {
                 if (len <= 0) return;
                 byte[] encoded = new byte[len];
                 for (int i = 0; i < len; i++) {
-                    encoded[i] = (byte) (b[off + i] ^ (key[wPos % key.length] & 0xff));
+                    encoded[i] = (byte) (b[off + i] ^ (key[Math.floorMod(wPos, key.length)] & 0xff));
                     wPos++;
                 }
                 out.write(encoded, 0, len);
@@ -67,7 +67,7 @@ final class XorStream {
         if (len <= 0) return;
         int limit = off + len;
         for (int i = off; i < limit; i++) {
-            b[i] ^= key[rPos % key.length];
+            b[i] ^= key[Math.floorMod(rPos, key.length)];
             rPos++;
         }
     }
@@ -76,7 +76,7 @@ final class XorStream {
         if (len <= 0) return;
         int limit = off + len;
         for (int i = off; i < limit; i++) {
-            b[i] ^= key[wPos % key.length];
+            b[i] ^= key[Math.floorMod(wPos, key.length)];
             wPos++;
         }
     }

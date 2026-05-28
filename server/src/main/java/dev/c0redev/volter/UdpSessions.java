@@ -16,6 +16,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.logging.Logger;
@@ -33,7 +34,7 @@ final class UdpSessions implements AutoCloseable {
     private static final int WRITE_TIMEOUT_MS = 2_000;
     private static final long SESSION_IDLE_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(20);
     private static final int MAX_UDP_SESSIONS = 2048;
-    private static final int UDP_SOCKET_BUF = 64 * 1024;
+    private static final int UDP_SOCKET_BUF = 4 * 1024 * 1024;
     private static final int EVICT_BATCH = 64;
     private static final int HIGH_WATER_MARK = 512;
 
@@ -133,7 +134,7 @@ final class UdpSessions implements AutoCloseable {
                                 buf.get(payload);
                                 s.touch();
                                 if (s.writer != null) {
-                                    s.writer.send(
+                                    boolean queued = s.writer.send(
                                         new Protocol.UdpFrame(
                                             s.key.addrType,
                                             s.key.srcPort,
@@ -142,6 +143,10 @@ final class UdpSessions implements AutoCloseable {
                                             payload
                                         )
                                     );
+                                    if (!queued) {
+                                        closeSession(s.key, s);
+                                        break;
+                                    }
                                 }
                             }
                         } catch (IOException e) {
@@ -283,12 +288,16 @@ public static final class UdpChannelWriter implements AutoCloseable {
     final int id;
     private final OutputStream out;
     private final Protocol.ClientOptions opts;
-    // bounded queue to limit memory per writer (default 1024)
-    private final LinkedBlockingQueue<Protocol.UdpFrame> q =
-        new LinkedBlockingQueue<>(1024);
+    private static final int MAX_QUEUE_FRAMES = 2048;
+    private static final long MAX_QUEUE_BYTES = 8L * 1024 * 1024;
+    private static final long ENQUEUE_TIMEOUT_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
+    private final LinkedBlockingQueue<QueuedFrame> q =
+        new LinkedBlockingQueue<>(MAX_QUEUE_FRAMES);
+    private final AtomicLong queuedBytes = new AtomicLong();
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private static final int WRITER_POOL_SIZE = Math.max(32, Runtime.getRuntime().availableProcessors() * 2);
     private static final java.util.concurrent.ExecutorService writerPool =
-        java.util.concurrent.Executors.newFixedThreadPool(32, r -> {
+        java.util.concurrent.Executors.newFixedThreadPool(WRITER_POOL_SIZE, r -> {
             Thread t = new Thread(r, "udp-writer");
             t.setDaemon(true);
             return t;
@@ -311,16 +320,71 @@ public static final class UdpChannelWriter implements AutoCloseable {
     }
 
 
-        void send(Protocol.UdpFrame f) {
-            if (closed.get()) return;
-            q.offer(f);
+        private static final Logger writerLog = Log.logger(UdpChannelWriter.class);
+
+        boolean send(Protocol.UdpFrame f) {
+            if (closed.get()) return false;
+            long frameBytes = queuedBytes(f);
+            if (!reserveBytes(frameBytes)) {
+                writerLog.warning("udp writer id=" + id + " queue bytes full (" + queuedBytes.get() + "/" + MAX_QUEUE_BYTES + "), closing writer");
+                close();
+                return false;
+            }
+            QueuedFrame item = new QueuedFrame(f, frameBytes);
+            boolean queued = false;
+            try {
+                queued = q.offer(item, ENQUEUE_TIMEOUT_NANOS, TimeUnit.NANOSECONDS);
+                if (!queued) {
+                    writerLog.warning("udp writer id=" + id + " queue frames full (" + q.size() + "/" + MAX_QUEUE_FRAMES + "), closing writer");
+                    close();
+                }
+                return queued;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                close();
+                return false;
+            } finally {
+                if (!queued) {
+                    releaseBytes(frameBytes);
+                }
+            }
+        }
+
+        private boolean reserveBytes(long frameBytes) {
+            long deadline = System.nanoTime() + ENQUEUE_TIMEOUT_NANOS;
+            while (!closed.get()) {
+                long current = queuedBytes.get();
+                if (current + frameBytes <= MAX_QUEUE_BYTES) {
+                    if (queuedBytes.compareAndSet(current, current + frameBytes)) return true;
+                    continue;
+                }
+                if (System.nanoTime() >= deadline) return false;
+                try {
+                    TimeUnit.MILLISECONDS.sleep(1);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        private static long queuedBytes(Protocol.UdpFrame f) {
+            int payload = f != null && f.payload() != null ? f.payload().length : 0;
+            return payload + 64L;
+        }
+
+        private void releaseBytes(long frameBytes) {
+            queuedBytes.updateAndGet(current -> Math.max(0L, current - frameBytes));
         }
 
         private void loop() {
             while (!closed.get()) {
                 try {
-                    Protocol.UdpFrame f = q.poll(1, TimeUnit.SECONDS);
-                    if (f == null) continue;
+                    QueuedFrame item = q.poll(1, TimeUnit.SECONDS);
+                    if (item == null) continue;
+                    releaseBytes(item.bytes());
+                    Protocol.UdpFrame f = item.frame();
                     synchronized (out) {
                         int pad = opts != null ? opts.padS4() : 0;
                         int maxPad =
@@ -329,9 +393,16 @@ public static final class UdpChannelWriter implements AutoCloseable {
                         Protocol.writeUdpFrame(out, f, maxPad);
                         out.flush();
                     }
-                } catch (InterruptedException ignored) {
-                } catch (IOException ignored) {
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                     closed.set(true);
+                } catch (IOException e) {
+                    closed.set(true);
+                } finally {
+                    if (closed.get()) {
+                        q.clear();
+                        queuedBytes.set(0);
+                    }
                 }
             }
         }
@@ -361,11 +432,14 @@ public static final class UdpChannelWriter implements AutoCloseable {
     public void close() {
         closed.set(true);
         q.clear();
+        queuedBytes.set(0);
         if (future != null) future.cancel(true);
     }
     static void shutdownPool() {
         writerPool.shutdownNow();
     }
+
+    private record QueuedFrame(Protocol.UdpFrame frame, long bytes) {}
     }
 
     private void closeSession(Key key, Session s) {

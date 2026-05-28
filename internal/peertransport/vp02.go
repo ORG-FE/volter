@@ -116,7 +116,6 @@ func (a *Assembler) Feed(pkt []byte) ([]byte, bool) {
 		return nil, false
 	}
 	if len(a.parts[seq]) != 0 {
-		a.reset()
 		return nil, false
 	}
 	a.parts[seq] = append([]byte(nil), payload...)

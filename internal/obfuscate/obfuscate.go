@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"net"
 	"sync"
+	"sync/atomic"
 )
 
 func keyFromToken(token string) []byte {
@@ -14,8 +15,8 @@ func keyFromToken(token string) []byte {
 type xorConn struct {
 	net.Conn
 	key  []byte
-	rPos int
-	wPos int
+	rPos atomic.Int64
+	wPos atomic.Int64
 }
 
 func (c *xorConn) Read(p []byte) (n int, err error) {
@@ -38,24 +39,28 @@ func (c *xorConn) Write(p []byte) (n int, err error) {
 	b := (*buf)[:need]
 	copy(b, p)
 	xorBytes(b, c.key, &c.wPos)
-	return c.Conn.Write(b)
+	n, err = c.Conn.Write(b)
+	if n < need {
+		c.wPos.Add(-int64(need - n))
+	}
+	return n, err
 }
 
-func xorBytes(b, key []byte, pos *int) {
+func xorBytes(b, key []byte, pos *atomic.Int64) {
 	kl := len(key)
-	p0 := *pos
+	p0 := int(pos.Load())
 	if kl == 32 {
 		for i := range b {
 			b[i] ^= key[p0&31]
 			p0++
 		}
-	} else {
+	} else if kl > 0 {
 		for i := range b {
 			b[i] ^= key[p0%kl]
 			p0++
 		}
 	}
-	*pos = p0
+	pos.Store(int64(p0))
 }
 
 func WrapConn(conn net.Conn, token string) net.Conn {

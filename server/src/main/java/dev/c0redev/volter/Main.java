@@ -29,6 +29,8 @@ public final class Main {
   private static Logger log;
 
   private static final Object RUN_LOCK = new Object();
+  private static final AtomicInteger ACCEPT_THREAD_SEQ = new AtomicInteger();
+  private static final AtomicInteger HANDSHAKE_THREAD_SEQ = new AtomicInteger();
   private static final AtomicInteger SESSION_THREAD_SEQ = new AtomicInteger();
 
   public static void main(String[] args) throws Exception {
@@ -66,10 +68,30 @@ public final class Main {
 
     int reactorThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
     int sessionMax = Math.max(64, reactorThreads * 32);
+    int acceptThreads = Math.max(1, cfg.listenPorts().size());
+    int handshakeThreads = Math.max(16, reactorThreads * 2);
+    int handshakeQueue = Math.max(256, sessionMax * 2);
     log.info("TCP reactor pool: " + reactorThreads + " threads");
+    log.info("Accept pool: threads=" + acceptThreads);
+    log.info("Handshake pool: threads=" + handshakeThreads + " queue=" + handshakeQueue);
     log.info("Session pool: core=" + Math.max(16, reactorThreads * 4) + " max=" + sessionMax);
-    ExecutorService acceptPool = Executors.newCachedThreadPool();
-    ExecutorService handshakePool = Executors.newFixedThreadPool(Math.max(16, reactorThreads * 2));
+    ExecutorService acceptPool = Executors.newFixedThreadPool(acceptThreads, r -> {
+      Thread t = new Thread(r, "volter-accept-" + ACCEPT_THREAD_SEQ.incrementAndGet());
+      t.setDaemon(true);
+      return t;
+    });
+    ExecutorService handshakePool = new ThreadPoolExecutor(
+        handshakeThreads,
+        handshakeThreads,
+        0L,
+        TimeUnit.MILLISECONDS,
+        new ArrayBlockingQueue<>(handshakeQueue),
+        r -> {
+          Thread t = new Thread(r, "volter-handshake-" + HANDSHAKE_THREAD_SEQ.incrementAndGet());
+          t.setDaemon(true);
+          return t;
+        },
+        new ThreadPoolExecutor.CallerRunsPolicy());
     ExecutorService streamPool = new ThreadPoolExecutor(
         Math.max(16, reactorThreads * 4),
         sessionMax,
@@ -81,7 +103,7 @@ public final class Main {
           t.setDaemon(true);
           return t;
         },
-        new ThreadPoolExecutor.AbortPolicy());
+        new ThreadPoolExecutor.CallerRunsPolicy());
     TcpReactorPool tcpPool = new TcpReactorPool(reactorThreads);
     List<ServerSocketChannel> sockets = Collections.synchronizedList(new ArrayList<>());
     final QuicServer[] quicHolder = new QuicServer[1];
@@ -193,7 +215,16 @@ public final class Main {
         SocketChannel s = ss.accept();
         s.setOption(StandardSocketOptions.TCP_NODELAY, true);
         s.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
-        handshakePool.submit(new ConnectionHandler(s.socket(), cfg, udp, tcpPool, streamPool));
+        try {
+          handshakePool.execute(new ConnectionHandler(s.socket(), cfg, udp, tcpPool, streamPool));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+          String remote = String.valueOf(s.getRemoteAddress());
+          try {
+            s.close();
+          } catch (IOException ignored) {}
+          if (!ss.isOpen()) break;
+          log.warning("handshake pool rejected connection from " + remote);
+        }
       } catch (ClosedChannelException e) {
         break;
       } catch (IOException e) {

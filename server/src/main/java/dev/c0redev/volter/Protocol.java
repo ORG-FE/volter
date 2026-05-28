@@ -3,6 +3,7 @@ package dev.c0redev.volter;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
@@ -206,6 +207,7 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
     byte[] b = new byte[n];
     int off = 0;
     while (off < n) {
+      if (Thread.interrupted()) throw new InterruptedIOException("interrupted");
       int r = in.read(b, off, n - off);
       if (r == -1) throw new EOFException();
       off += r;
@@ -214,6 +216,7 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
   }
 
   static int readU8(InputStream in) throws IOException {
+    if (Thread.interrupted()) throw new InterruptedIOException("interrupted");
     int v = in.read();
     if (v == -1) throw new EOFException();
     return v;
