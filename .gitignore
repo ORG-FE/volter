@@ -11,6 +11,7 @@ dist/
 build/
 
 config.properties
+.env
 
 rsrc.syso
 
