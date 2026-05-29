@@ -1,0 +1,79 @@
+services:
+  warp:
+    image: caomingjun/warp
+    container_name: volter-warp
+    restart: unless-stopped
+    user: root
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - MKNOD
+      - AUDIT_WRITE
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.all.accept_ra=2
+    environment:
+      WARP_SLEEP: ${WARP_SLEEP:-5}
+      WARP_LICENSE_KEY: ${WARP_LICENSE_KEY:-}
+      WARP_GOST_ARGS: ${WARP_GOST_ARGS:--L socks5://:1080}
+    volumes:
+      - warp-data:/var/lib/cloudflare-warp
+      - ./docker/warp-entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["bash", "/entrypoint.sh"]
+    networks:
+      warp-net:
+        ipv4_address: ${WARP_IP:-172.31.255.10}
+
+  volter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: volter-server
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      - warp
+    environment:
+      WARP_GW: ${WARP_IP:-172.31.255.10}
+      WARP_SOCKS_PORT: ${WARP_SOCKS_PORT:-1080}
+      TOKEN: ${TOKEN:-}
+      CONNECTION_KEY: ${CONNECTION_KEY:-}
+      PUBLIC_HOST: ${PUBLIC_HOST:-auto}
+      PUBLIC_HOST_FALLBACK: ${PUBLIC_HOST_FALLBACK:-}
+      VOLTER_INTERNAL_PORT: ${VOLTER_INTERNAL_PORT:-25565}
+      LISTEN_PORTS: ${VOLTER_INTERNAL_PORT:-25565}
+      SERVER_MODE: ${SERVER_MODE:-both}
+      QUIC_LISTEN_PORT: ${VOLTER_QUIC_PORT:-4433}
+      DEBUG: ${DEBUG:-false}
+      CONTROL_PANEL: ${CONTROL_PANEL:-false}
+      CONTROL_PORT: ${CONTROL_PORT:-8088}
+      VOLTER_REGENERATE_CONFIG: ${VOLTER_REGENERATE_CONFIG:-true}
+    ports:
+      - "${VOLTER_PUBLIC_PORT:-443}:${VOLTER_INTERNAL_PORT:-25565}/tcp"
+      - "${VOLTER_LEGACY_PORT:-25565}:${VOLTER_INTERNAL_PORT:-25565}/tcp"
+      - "${VOLTER_QUIC_PORT:-4433}:${VOLTER_QUIC_PORT:-4433}/udp"
+      - "${CONTROL_PORT:-8088}:${CONTROL_PORT:-8088}/tcp"
+    volumes:
+      - volter-certs:/app/certs
+      - volter-data:/app/data
+    networks:
+      warp-net:
+        ipv4_address: ${VOLTER_IP:-172.31.255.2}
+
+networks:
+  warp-net:
+    name: ${WARP_NETWORK:-volter-warp-net}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${WARP_SUBNET:-172.31.255.0/24}
+
+volumes:
+  warp-data:
+  volter-certs:
+  volter-data:
