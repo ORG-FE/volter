@@ -475,13 +475,10 @@ func MergeAntiDpiTransportTopUpInPlace(prot *ProtectionOptions, transport string
 		base.JunkStyle = "tls"
 	}
 	if strings.TrimSpace(base.FlushPolicy) == "" {
-		base.FlushPolicy = "perChunk"
+		base.FlushPolicy = "once"
 	}
 	if tcpish {
 		base.DpiVolterTransportObfuscate = true
-		if base.FlushJitterMaxMs <= 0 {
-			base.FlushJitterMaxMs = 18
-		}
 		if !base.PreambleRotate && strings.TrimSpace(base.PreambleProfile) == "" {
 			base.PreambleRotate = true
 		}

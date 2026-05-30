@@ -36,24 +36,30 @@ func GetDefaultRoute() (DefaultRoute, error) {
 func AddBypass(serverIP net.IP, dr DefaultRoute) error {
 	ip := serverIP.String()
 	if serverIP.To4() != nil {
+		// IPv4 — обычный ip route, gateway совпадает по семейству.
 		ip += "/32"
-	} else {
-		ip += "/128"
+		if dr.Gateway != "" {
+			return run("ip", "route", "replace", ip, "via", dr.Gateway, "dev", dr.Dev)
+		}
+		return run("ip", "route", "replace", ip, "dev", dr.Dev)
 	}
-	if dr.Gateway != "" {
-		return run("ip", "route", "replace", ip, "via", dr.Gateway, "dev", dr.Dev)
+	// IPv6 — нужен ip -6 route, gateway обязан быть IPv6.
+	ip += "/128"
+	if dr.Gateway != "" && net.ParseIP(dr.Gateway).To4() == nil {
+		return run("ip", "-6", "route", "replace", ip, "via", dr.Gateway, "dev", dr.Dev)
 	}
-	return run("ip", "route", "replace", ip, "dev", dr.Dev)
+	return run("ip", "-6", "route", "replace", ip, "dev", dr.Dev)
 }
 
 func DelBypass(serverIP net.IP) {
 	ip := serverIP.String()
 	if serverIP.To4() != nil {
 		ip += "/32"
+		_ = execIgnore("ip", "route", "del", ip)
 	} else {
 		ip += "/128"
+		_ = execIgnore("ip", "-6", "route", "del", ip)
 	}
-	_ = execIgnore("ip", "route", "del", ip)
 }
 
 func AddDefaultViaTun(tun string, metric int) error {

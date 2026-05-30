@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/x509"
 	"fmt"
-	"math/rand"
 	"net"
 	"strings"
 	"syscall"
@@ -36,9 +35,6 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 		targetIP.String(), targetPort, serverAddrs, start, needHopAck(prot))
 	for round := 0; round < 3; round++ {
 		for i := 0; i < len(serverAddrs); i++ {
-			if round == 0 && i == 0 {
-				time.Sleep(time.Duration(rand.Int63n(56)) * time.Millisecond)
-			}
 			addr := serverAddrs[(start+i)%len(serverAddrs)]
 			clientlog.Trace("Dial attempt round=%d i=%d addr=%s", round, i, addr)
 			c, err := dialServer(addr, token)

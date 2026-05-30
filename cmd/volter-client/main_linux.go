@@ -460,11 +460,12 @@ func deriveIPv6Gateway(cidr string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ip = ip.Mask(ipNet.Mask)
-	b := ip.To16()
-	if b == nil {
-		return "", fmt.Errorf("not ipv6: %s", cidr)
+	if ip.To4() != nil {
+		return "", fmt.Errorf("not an IPv6 address: %s", cidr)
 	}
+	ip = ip.Mask(ipNet.Mask)
+	b := make(net.IP, len(ip))
+	copy(b, ip)
 	b[15] = 1
-	return net.IP(b).String(), nil
+	return b.String(), nil
 }
