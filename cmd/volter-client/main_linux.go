@@ -171,7 +171,6 @@ const embeddedPolicy = `<?xml version="1.0" encoding="UTF-8"?>
     <message>Authentication is required to run Volter VPN with network privileges.</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
-      <!-- Держим авторизацию в активной локальной сессии (меньше повторных запросов пароля для того же действия). -->
       <allow_inactive>auth_admin_keep</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
