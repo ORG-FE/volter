@@ -620,6 +620,7 @@ private fun ConfigEditorDialog(
                     val cfg = Config(
                         server = server,
                         token = token,
+                        dexoteServerPub = parsedCfg?.dexoteServerPub,
                         routes = routesOut,
                         exclude = excludeOut,
                         tunCIDR6 = tun6Out,

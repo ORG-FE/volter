@@ -1236,6 +1236,10 @@ func configFromConnFormInputs(inputs []textinput.Model) (config.Config, string) 
 	if !ok {
 		return config.Config{}, "connection: volter://... или host:port:key"
 	}
+	dexotePub := ""
+	if cc, ccok := config.ParseConnectionConfig(connRaw); ccok {
+		dexotePub = cc.DexoteServerPub
+	}
 	managedCfg := config.Config{}
 	if vk, vok := config.ParseVoultKeyURI(connRaw); vok {
 		managedCfg = config.ConfigFromVoultKey(vk)
@@ -1263,6 +1267,7 @@ func configFromConnFormInputs(inputs []textinput.Model) (config.Config, string) 
 	out := config.Config{
 		Server:            server,
 		Token:             token,
+		DexoteServerPub:   dexotePub,
 		Routes:            strings.TrimSpace(inputs[2].Value()),
 		Exclude:           strings.TrimSpace(inputs[3].Value()),
 		TunCIDR6:          strings.TrimSpace(inputs[4].Value()),
@@ -1710,7 +1715,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editing = true
 					m.editingName = m.cloudNames[idx]
 					cfg := m.cloudCfgs[idx]
-					m.editInputs = newInputsWithValues(m.cloudNames[idx], config.BuildConnectionURI(cfg.Server, cfg.Token), cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
+					m.editInputs = newInputsWithValues(m.cloudNames[idx], config.BuildConnectionURI(cfg.Server, cfg.Token, cfg.DexoteServerPub), cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
 						cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyFormField(), cfg.QuicCertPinSHA256, cfg.QuicCaCert)
 					m.editFocus = 0
 					m.editInputs[0].Focus()
@@ -1755,7 +1760,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editing = true
 					m.editingName = m.names[idx]
 					cfg := m.cfgs[idx]
-					m.editInputs = newInputsWithValues(m.names[idx], config.BuildConnectionURI(cfg.Server, cfg.Token), cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
+					m.editInputs = newInputsWithValues(m.names[idx], config.BuildConnectionURI(cfg.Server, cfg.Token, cfg.DexoteServerPub), cfg.Routes, cfg.Exclude, cfg.TunCIDR6,
 						cfg.Transport, cfg.QuicServer, cfg.QuicServerName, cfg.QuicSkipVerifyFormField(), cfg.QuicCertPinSHA256, cfg.QuicCaCert)
 					m.editFocus = 0
 					m.editInputs[0].Focus()
