@@ -116,7 +116,6 @@ fun HomeScreen(
 
     val homeScroll = rememberScrollState()
 
-    // uptime тикает раз в секунду пока подключены
     var nowTick by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(conn.connected, conn.connectedAt) {
         while (conn.connected && conn.connectedAt != null) {
@@ -423,7 +422,6 @@ private fun SessionStatsCard(records: List<SessionRecord>) {
         avgDurSec >= 60 -> "${avgDurSec / 60}m ${avgDurSec % 60}s"
         else -> "${avgDurSec}s"
     }
-    // ряд для sparkline: суммарный трафик (rx+tx) по последним сессиям
     val series = records.takeLast(24).map { ((it.rxBytes ?: 0L) + (it.txBytes ?: 0L)).toFloat() }
 
     SectionCard(title = stringResource(R.string.home_metrics_title)) {
