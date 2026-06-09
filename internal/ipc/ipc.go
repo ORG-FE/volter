@@ -134,11 +134,11 @@ func (s *Server) Start() {
 		if err != nil {
 			return
 		}
-		
+
 		s.mu.Lock()
 		s.clients[conn] = true
 		s.mu.Unlock()
-		
+
 		go s.handleConnection(conn)
 	}
 }
@@ -178,20 +178,20 @@ func (s *Server) handleConnection(conn net.Conn) {
 func (s *Server) Broadcast(msg Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	msg.Timestamp = time.Now().Unix()
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
-	
+
 	lenBuf := make([]byte, 4)
 	len := uint32(len(data))
 	lenBuf[0] = byte(len >> 24)
 	lenBuf[1] = byte(len >> 16)
 	lenBuf[2] = byte(len >> 8)
 	lenBuf[3] = byte(len)
-	
+
 	for conn := range s.clients {
 		if _, err := conn.Write(lenBuf); err != nil {
 			delete(s.clients, conn)
@@ -204,18 +204,18 @@ func (s *Server) Broadcast(msg Message) error {
 			continue
 		}
 	}
-	
+
 	return nil
 }
 
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	for conn := range s.clients {
 		conn.Close()
 	}
-	
+
 	return s.listener.Close()
 }
 

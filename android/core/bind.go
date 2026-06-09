@@ -299,6 +299,7 @@ func StartTun(tunFd int, mtu int, cfgJSON string, configDir string) string {
 		TunFD:             tunFd,
 		MTU:               mtu,
 		Token:             cfg.Token,
+		DexoteServerPub:   cfg.DexoteServerPub,
 		ServerAddrs:       addrs,
 		Protection:        config.MergeProbeObfsIntoProtection(protTop, probeCaps),
 		Transport:         cfg.Transport,

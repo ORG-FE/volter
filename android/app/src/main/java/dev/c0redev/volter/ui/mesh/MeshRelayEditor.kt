@@ -12,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
 import dev.c0redev.volter.theme.VolterSpacing
@@ -30,13 +29,8 @@ fun MeshRelayEditor(
     fun linesList(s: String) = s.lines().map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
-        SectionCard {
+        SectionCard(title = stringResource(R.string.mesh_section_ice)) {
             Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
-                Text(
-                    stringResource(R.string.mesh_section_ice),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 StyledTextField(
                     value = relay.stunServers?.joinToString(", ") ?: "",
                     onValueChange = { onRelayChange(relay.copy(stunServers = strList(it))) },
@@ -53,13 +47,8 @@ fun MeshRelayEditor(
             }
         }
 
-        SectionCard {
+        SectionCard(title = stringResource(R.string.mesh_section_discovery)) {
             Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
-                Text(
-                    stringResource(R.string.mesh_section_discovery),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 StyledTextField(
                     value = relay.discoveryURL ?: "",
                     onValueChange = { onRelayChange(relay.copy(discoveryURL = it.ifBlank { null })) },
@@ -81,13 +70,8 @@ fun MeshRelayEditor(
             }
         }
 
-        SectionCard {
+        SectionCard(title = stringResource(R.string.mesh_section_dht)) {
             Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
-                Text(
-                    stringResource(R.string.mesh_section_dht),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 StyledTextField(
                     value = relay.dhtRpcSeedPeers?.joinToString(", ") ?: "",
                     onValueChange = { onRelayChange(relay.copy(dhtRpcSeedPeers = strList(it))) },
@@ -143,13 +127,8 @@ fun MeshRelayEditor(
             }
         }
 
-        SectionCard {
+        SectionCard(title = stringResource(R.string.mesh_section_peer_udp)) {
             Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
-                Text(
-                    stringResource(R.string.mesh_section_peer_udp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 StyledTextField(
                     value = relay.peerId ?: "",
                     onValueChange = { onRelayChange(relay.copy(peerId = it.ifBlank { null })) },
@@ -177,13 +156,8 @@ fun MeshRelayEditor(
             }
         }
 
-        SectionCard {
+        SectionCard(title = stringResource(R.string.mesh_section_emergency_stake)) {
             Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
-                Text(
-                    stringResource(R.string.mesh_section_emergency_stake),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 StyledTextField(
                     value = relay.emergencyPolicyURL ?: "",
                     onValueChange = { onRelayChange(relay.copy(emergencyPolicyURL = it.ifBlank { null })) },
@@ -241,13 +215,8 @@ fun MeshRelayEditor(
             }
         }
 
-        SectionCard {
+        SectionCard(title = stringResource(R.string.mesh_section_gossip)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    stringResource(R.string.mesh_section_gossip),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 StyledTextField(
                     value = relay.gossipPeers?.joinToString(", ") ?: "",
                     onValueChange = { onRelayChange(relay.copy(gossipPeers = strList(it))) },
@@ -271,13 +240,8 @@ fun MeshRelayEditor(
             }
         }
 
-        SectionCard {
+        SectionCard(title = stringResource(R.string.mesh_section_flags)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    stringResource(R.string.mesh_section_flags),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 toggle(stringResource(R.string.mesh_flag_gossip), relay.gossipEnabled == true) {
                     onRelayChange(relay.copy(gossipEnabled = it))
                 }

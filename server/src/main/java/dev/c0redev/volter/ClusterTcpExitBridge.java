@@ -56,11 +56,13 @@ final class ClusterTcpExitBridge {
       Config cfg,
       Protocol.TcpConnect c,
       InputStream clientIn,
-      OutputStream clientXorOut,
+      OutputStream clientOut,
       Optional<Protocol.ClientOptions> copts,
-      Socket clientSocket)
+      Socket clientSocket,
+      byte[] upstreamPub,
+      long slot)
       throws IOException {
-    if (cfg == null || c == null || clientIn == null || clientXorOut == null) {
+    if (cfg == null || c == null || clientIn == null || clientOut == null) {
       return false;
     }
     if (copts.isEmpty()) {
@@ -106,15 +108,14 @@ final class ClusterTcpExitBridge {
       }
       return false;
     }
-    XorStream xor = new XorStream(XorStream.keyFromToken(cfg.token()));
-    OutputStream upXorOut = xor.wrapOutput(upstream.getOutputStream());
-    InputStream upXorIn = xor.wrapInput(upstream.getInputStream());
+    DexoteUpstream.Streams up;
     try {
-      Protocol.writeVolterClientHandshake(upXorOut, Protocol.ROLE_TCP, cfg.token(), null);
-      Protocol.writeTcpConnectFrame(upXorOut, c);
-      log.info("cluster exit handshake sent to " + exitAddr);
+      up = DexoteUpstream.dial(upstream, upstreamPub, slot, Protocol.ROLE_TCP, cfg.token(), null, timeoutMs);
+      DexoteUpstream.writeTcpConnect(up.out, c);
+      log.info("cluster exit dexote handshake sent to " + exitAddr);
     } catch (IOException e) {
-      log.warning("cluster exit handshake to " + exitAddr + " failed: " + e.getMessage());
+
+      log.warning("cluster exit dexote handshake to " + exitAddr + " failed (wrong cluster dexote.key?): " + e.getMessage());
       try {
         upstream.close();
       } catch (IOException ignored) {
@@ -124,14 +125,15 @@ final class ClusterTcpExitBridge {
       }
       return false;
     }
+    OutputStream upOut = up.out;
+    InputStream upIn = up.in;
     log.info("cluster tcp exit bridge active -> " + exitAddr + " dst=" + c.ip().getHostAddress() + ":" + c.port());
-    // Run pumps asynchronously on RelayCopyPool and chain cleanup after both complete.
-    // Does NOT block the calling streamPool thread — prevents thread pool exhaustion.
+
     CompletableFuture<Void> upFuture = CompletableFuture.runAsync(
-        () -> RelayCopy.pump(clientIn, upXorOut, clientSocket, upstream, true, readTimeoutMs),
+        () -> RelayCopy.pump(clientIn, upOut, clientSocket, upstream, true, readTimeoutMs),
         RelayCopyPool.executor());
     CompletableFuture<Void> downFuture = CompletableFuture.runAsync(
-        () -> RelayCopy.pump(upXorIn, clientXorOut, upstream, clientSocket, true, readTimeoutMs),
+        () -> RelayCopy.pump(upIn, clientOut, upstream, clientSocket, true, readTimeoutMs),
         RelayCopyPool.executor());
     CompletableFuture.allOf(upFuture, downFuture).whenComplete((unused, ex) -> {
       if (ex != null) {

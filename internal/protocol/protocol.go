@@ -798,11 +798,24 @@ func WriteUDPFrameWithPad(w *bufio.Writer, f UDPFrame, maxPadVal int) error {
 	if maxPadVal <= 0 || maxPadVal > 64 {
 		maxPadVal = maxPad
 	}
+	return writeUDPFrameInternal(w, f, randPadLenN(maxPadVal))
+}
+
+func WriteUDPFrameExactPad(w *bufio.Writer, f UDPFrame, padLen int) error {
+	if padLen < 0 {
+		padLen = 0
+	}
+	if padLen > 64 {
+		padLen = 64
+	}
+	return writeUDPFrameInternal(w, f, padLen)
+}
+
+func writeUDPFrameInternal(w *bufio.Writer, f UDPFrame, padLen int) error {
 	at, ipb, err := normalizeIP(f.DstIP)
 	if err != nil {
 		return err
 	}
-	padLen := randPadLenN(maxPadVal)
 	ipLen := len(ipb)
 	flen := 1 + 1 + 2 + ipLen + 2 + len(f.Payload) + padLen + 1
 	if err := writeU32(w, uint32(flen)); err != nil {

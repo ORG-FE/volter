@@ -4,9 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,21 +15,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.c0redev.volter.R
+import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.Tag
+import dev.c0redev.volter.ui.components.TagKind
 
 @Composable
 fun MeshPeerNodeMiniCard(node: MeshPeerNodeUi, modifier: Modifier = Modifier) {
-    val accent =
+    val kind =
         when (node.status) {
-            "ok" -> MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-            "idle" -> MaterialTheme.colorScheme.outline
-            else -> MaterialTheme.colorScheme.tertiary
+            "ok" -> TagKind.GOOD
+            "idle" -> TagKind.NEUTRAL
+            else -> TagKind.WARN
         }
-    OutlinedCard(modifier = modifier) {
+    SectionCard(modifier = modifier) {
         Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(
@@ -47,12 +45,7 @@ fun MeshPeerNodeMiniCard(node: MeshPeerNodeUi, modifier: Modifier = Modifier) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                Text(
-                    text = node.status,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accent,
-                    fontWeight = FontWeight.Medium,
-                )
+                Tag(text = node.status, kind = kind)
             }
             Text(
                 text = stringResource(R.string.mesh_node_role_fmt, node.role),

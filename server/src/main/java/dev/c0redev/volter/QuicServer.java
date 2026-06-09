@@ -27,6 +27,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -38,7 +39,6 @@ import java.util.logging.Logger;
 
 final class QuicServer implements AutoCloseable {
   private static final Logger log = Log.logger(QuicServer.class);
-  private static final String PROBE_HANDSHAKE_TOKEN = "probe-bad-token";
 
   private static volatile byte[] advertisedQuicLeafPin;
 
@@ -49,20 +49,25 @@ final class QuicServer implements AutoCloseable {
   private final Config cfg;
   private final UdpSessions udp;
   private final ExecutorService streamPool;
+  private final DexoteServerKey dexoteKey;
+  private final Dexote.ReplayCache replayCache;
   private final AtomicInteger handshakes = new AtomicInteger();
   private final ScheduledExecutorService handshakeTimers =
       Executors.newSingleThreadScheduledExecutor();
-  
+
   private final NioEventLoopGroup group = new NioEventLoopGroup(0);
   private Channel channel;
-  
+
   private final QuicParentHandler quicParentHandler = new QuicParentHandler();
   private final QuicStreamChannelInit quicStreamChannelInit = new QuicStreamChannelInit();
 
-  QuicServer(Config cfg, UdpSessions udp, ExecutorService streamPool) {
+  QuicServer(Config cfg, UdpSessions udp, ExecutorService streamPool,
+      DexoteServerKey dexoteKey, Dexote.ReplayCache replayCache) {
     this.cfg = cfg;
     this.udp = udp;
     this.streamPool = streamPool;
+    this.dexoteKey = dexoteKey;
+    this.replayCache = replayCache;
   }
 
   void start() throws Exception {
@@ -90,7 +95,7 @@ final class QuicServer implements AutoCloseable {
     QuicSslContext sslContext = sslBuilder.applicationProtocols(cfg.quicAlpn()).build();
     int maxBi = Math.max(4, cfg.quicMaxStreams());
     if (cfg.quicMaxStreams() <= 0) {
-      
+
       maxBi = 4096;
     }
     long streamWin = Math.min(16_000_000L, 1_200_000L + (long) maxBi * 80_000L);
@@ -147,7 +152,6 @@ final class QuicServer implements AutoCloseable {
     } catch (Exception ignored) {}
   }
 
-  
   @Sharable
   private final class QuicParentHandler extends ChannelInboundHandlerAdapter {
     @Override
@@ -279,39 +283,50 @@ final class QuicServer implements AutoCloseable {
           boolean keepStreamOpen = false;
           boolean released = false;
           try {
-            InputStream in = io.input();
-            OutputStream out = io.output(bytes -> stream.writeAndFlush(Unpooled.wrappedBuffer(bytes)));
+            InputStream rawIn = io.input();
+            OutputStream rawOut = io.output(bytes -> stream.writeAndFlush(Unpooled.wrappedBuffer(bytes)));
             log.info("QUIC (UDP) stream from " + stream.remoteAddress());
-            Protocol.HandshakeResult hr = Protocol.readHandshake(in);
-            Protocol.Handshake hs = hr.handshake();
-            if (cfg.quicTraceLog()) {
-              log.info("[quic-trace] volter handshake read role=" + hs.role() + " ch=" + hs.channelId());
-            }
-            if (!MessageDigest.isEqual(cfg.token().getBytes(StandardCharsets.UTF_8), hs.token().getBytes(StandardCharsets.UTF_8))) {
-              if (!PROBE_HANDSHAKE_TOKEN.equals(hs.token())) {
-                if (cfg.quicTraceLog()) {
-                  log.info("[quic-trace] non-volter quic stream, no caps response");
-                }
-                return;
+
+            long now = System.currentTimeMillis() / 1000L;
+            long[] slots = Dexote.candidateSlots(now, 0);
+            byte[] capsBytes = Caps.build(cfg);
+            Dexote.Accepted acc = Dexote.accept(
+                rawIn, rawOut, dexoteKey.scalar(), dexoteKey.pub(), slots, capsBytes, replayCache);
+            if (acc == null) {
+              if (cfg.quicTraceLog()) {
+                log.info("[quic-trace] dexote handshake rejected, no response");
               }
-              int legacyIpv6 = Ipv6Detect.hasIPv6() ? 1 : 0;
-              int transportMask = 0;
-              if (cfg.tcpEnabled()) transportMask |= Protocol.TRANSPORT_TCP;
-              if (cfg.quicEnabled()) transportMask |= Protocol.TRANSPORT_QUIC;
-              int featureBits = legacyIpv6 == 1 ? Protocol.FEAT_IPV6 : 0;
-              featureBits |= Protocol.FEAT_POLY_HANDSHAKE;
-              int obfsProfileId = Protocol.pickObfsProfileId();
-              int tcpPortHint = cfg.listenPorts().isEmpty() ? 0 : cfg.listenPorts().get(0);
-              Protocol.writeServerHelloCaps(out, new Protocol.ServerHelloCaps(
-                  Protocol.CAPS_VERSION, legacyIpv6, transportMask, featureBits,
-                  cfg.quicEnabled() ? cfg.quicListenPort() : 0, tcpPortHint, obfsProfileId, new byte[0],
-                  QuicServer.getAdvertisedQuicLeafPin(), 2, 2, 1));
               return;
             }
+            if (!MessageDigest.isEqual(cfg.token().getBytes(StandardCharsets.UTF_8),
+                acc.hello.token.getBytes(StandardCharsets.UTF_8))) {
+
+              return;
+            }
+
+            long slot = acc.slot;
+            byte[] optsJson = acc.hello.opts == null ? new byte[0] : acc.hello.opts;
+            String optsStr = new String(optsJson, StandardCharsets.UTF_8);
+            Optional<Protocol.ClientOptions> copts =
+                optsStr.isEmpty() ? Optional.empty() : Protocol.ClientOptions.parse(optsStr);
+            int channelId = -1;
+            if (acc.hello.role == Protocol.ROLE_UDP && optsJson.length >= 1) {
+              channelId = optsJson[0] & 0xff;
+            }
+            Protocol.Handshake hs = new Protocol.Handshake(acc.hello.role, channelId, acc.hello.token);
+            Protocol.HandshakeResult hr = new Protocol.HandshakeResult(hs, copts);
+            if (cfg.quicTraceLog()) {
+              log.info("[quic-trace] dexote handshake ok role=" + hs.role() + " ch=" + hs.channelId());
+            }
+
+            AeadStream aead = new AeadStream(acc.keys, new Poly(acc.keys.secret, slot, "tx"));
+            InputStream in = aead.wrapInput(rawIn);
+            OutputStream out = aead.wrapOutput(rawOut);
+
             if (hs.role() == Protocol.ROLE_UDP) {
               keepStreamOpen = true;
             }
-           
+
             if (countHandshake && !released) {
               handshakes.decrementAndGet();
               released = true;
@@ -322,8 +337,10 @@ final class QuicServer implements AutoCloseable {
                 hr,
                 in,
                 out,
-                (connect, rest, copts) -> {
-                  if (ClusterTcpExitBridge.maybeBridge(cfg, connect, rest, out, copts, null)) {
+                (connect, rest, copts2) -> {
+                  byte[] upPub = DexoteUpstream.upstreamPub();
+                  long upSlot = Dexote.effectiveSlot(System.currentTimeMillis() / 1000L, 0);
+                  if (ClusterTcpExitBridge.maybeBridge(cfg, connect, rest, out, copts2, null, upPub, upSlot)) {
                     return;
                   }
                   QuicTcpRelay.run(connect, rest, out, cfg.quicTcpConnectTimeoutMs());

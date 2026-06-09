@@ -1,14 +1,12 @@
 package dev.c0redev.volter.ui.components
 
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import dev.c0redev.volter.theme.VolterSpacing
 
 @Composable
 fun StyledTextField(
@@ -19,6 +17,7 @@ fun StyledTextField(
     enabled: Boolean = true,
     singleLine: Boolean = false,
 ) {
+    val scheme = MaterialTheme.colorScheme
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -26,11 +25,14 @@ fun StyledTextField(
         modifier = modifier,
         enabled = enabled,
         singleLine = singleLine,
-        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+        shape = RectangleShape,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
-            disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            focusedContainerColor = scheme.background,
+            unfocusedContainerColor = scheme.background,
+            disabledContainerColor = scheme.background,
+            focusedBorderColor = scheme.primary,
+            unfocusedBorderColor = scheme.outline,
+            disabledBorderColor = scheme.outlineVariant,
         ),
     )
 }

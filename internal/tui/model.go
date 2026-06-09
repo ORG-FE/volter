@@ -39,7 +39,7 @@ const (
 	pingRed                  = "1"
 	probeTimeout             = 5 * time.Second
 	tabCount                 = 8
-	protectionFormFieldCount = 31
+	protectionFormFieldCount = 35
 )
 
 type tab int
@@ -845,6 +845,10 @@ func newProtectionInputs(opts config.ProtectionOptions) []textinput.Model {
 		ti("tcpSegment 0=off", strconv.Itoa(mergedEmb.TCPSegment)),
 		ti("oobData true|false", strconv.FormatBool(mergedEmb.OOBData)),
 		ti("multiSplit 0-10", strconv.Itoa(mergedEmb.MultiSplit)),
+		ti("shaperEnabled true|false", strconv.FormatBool(opts.ShaperEnabled)),
+		ti("shaperProfile web|video|game|bulk", strings.TrimSpace(opts.ShaperProfile)),
+		ti("shaperMaxOverheadPct 0=def", strconv.Itoa(opts.ShaperMaxOverheadPct)),
+		ti("shaperMaxDelayMs 0=def", strconv.Itoa(opts.ShaperMaxDelayMs)),
 	}
 }
 
@@ -972,6 +976,10 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 	oobData := false
 	multiSplit := 0
 	presetLine := ""
+	shaperEnabled := false
+	shaperProfile := ""
+	shaperMaxOverheadPct := 0
+	shaperMaxDelayMs := 0
 	if len(inputs) >= protectionFormFieldCount {
 		standalone = strings.ToLower(strings.TrimSpace(inputs[14].Value())) == "true"
 		if strings.ToLower(strings.TrimSpace(inputs[15].Value())) == "external" {
@@ -1010,6 +1018,23 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 		if len(inputs) > 30 {
 			multiSplit = clamp(atoi(inputs[30].Value()), 0, 10)
 		}
+		if len(inputs) > 31 {
+			shaperEnabled = strings.ToLower(strings.TrimSpace(inputs[31].Value())) == "true"
+		}
+		if len(inputs) > 32 {
+			shaperProfile = strings.ToLower(strings.TrimSpace(inputs[32].Value()))
+			switch shaperProfile {
+			case "web", "video", "game", "bulk":
+			default:
+				shaperProfile = ""
+			}
+		}
+		if len(inputs) > 33 {
+			shaperMaxOverheadPct = clamp(atoi(inputs[33].Value()), 0, 1000)
+		}
+		if len(inputs) > 34 {
+			shaperMaxDelayMs = clamp(atoi(inputs[34].Value()), 0, 5000)
+		}
 	}
 	curEmb := config.DpiLocalEmbedded{
 		SplitAfter: splitA, TTLMillis: ttl, Disorder: disorder,
@@ -1019,24 +1044,28 @@ func protectionOptsFromInputs(inputs []textinput.Model) config.ProtectionOptions
 	}
 	embPtr := &curEmb
 	return config.ProtectionOptions{
-		Obfuscation:       obf,
-		JunkCount:         clamp(atoi(inputs[1].Value()), 0, 12),
-		JunkMin:           clamp(atoi(inputs[2].Value()), 64, 1024),
-		JunkMax:           clamp(atoi(inputs[3].Value()), 64, 1024),
-		PadS1:             clamp(atoi(inputs[4].Value()), 0, 64),
-		PadS2:             clamp(atoi(inputs[5].Value()), 0, 64),
-		PadS3:             clamp(atoi(inputs[6].Value()), 0, 64),
-		PadS4:             clamp(atoi(inputs[7].Value()), 0, 64),
-		PreCheck:          strings.ToLower(strings.TrimSpace(inputs[8].Value())) == "true",
-		MagicSplit:        magicSplit,
-		JunkStyle:         junkStyle,
-		FlushPolicy:       flushPolicy,
-		PreambleProfile:   preambleProfile,
-		PreambleRotate:    preambleRotate,
-		StandaloneDpiOnly: standalone,
-		DpiLocalEngine:    dpiEngineStr,
-		DpiLocalEmbedded:  embPtr,
-		DpiLocalPreset:    presetLine,
+		Obfuscation:          obf,
+		JunkCount:            clamp(atoi(inputs[1].Value()), 0, 12),
+		JunkMin:              clamp(atoi(inputs[2].Value()), 64, 1024),
+		JunkMax:              clamp(atoi(inputs[3].Value()), 64, 1024),
+		PadS1:                clamp(atoi(inputs[4].Value()), 0, 64),
+		PadS2:                clamp(atoi(inputs[5].Value()), 0, 64),
+		PadS3:                clamp(atoi(inputs[6].Value()), 0, 64),
+		PadS4:                clamp(atoi(inputs[7].Value()), 0, 64),
+		PreCheck:             strings.ToLower(strings.TrimSpace(inputs[8].Value())) == "true",
+		MagicSplit:           magicSplit,
+		JunkStyle:            junkStyle,
+		FlushPolicy:          flushPolicy,
+		PreambleProfile:      preambleProfile,
+		PreambleRotate:       preambleRotate,
+		StandaloneDpiOnly:    standalone,
+		DpiLocalEngine:       dpiEngineStr,
+		DpiLocalEmbedded:     embPtr,
+		DpiLocalPreset:       presetLine,
+		ShaperEnabled:        shaperEnabled,
+		ShaperProfile:        shaperProfile,
+		ShaperMaxOverheadPct: shaperMaxOverheadPct,
+		ShaperMaxDelayMs:     shaperMaxDelayMs,
 	}
 }
 
@@ -1061,38 +1090,50 @@ func applyProtectionPresetToInputs(inputs []textinput.Model, preset config.Prote
 	set(11, orEmpty(preset.FlushPolicy, "once"))
 	set(12, preset.PreambleProfile)
 	set(13, strconv.FormatBool(preset.PreambleRotate))
+	if len(inputs) > 34 {
+		set(31, strconv.FormatBool(preset.ShaperEnabled))
+		set(32, preset.ShaperProfile)
+		set(33, strconv.Itoa(preset.ShaperMaxOverheadPct))
+		set(34, strconv.Itoa(preset.ShaperMaxDelayMs))
+	}
 	return inputs
 }
 
 func protectionPresetBalanced() config.ProtectionOptions {
 	return config.ProtectionOptions{
-		Obfuscation: "default",
-		JunkCount:   4,
-		JunkMin:     64,
-		JunkMax:     512,
-		PadS1:       4,
-		PadS2:       4,
-		PadS3:       4,
-		PadS4:       24,
-		JunkStyle:   "random",
-		FlushPolicy: "once",
+		Obfuscation:   "default",
+		JunkCount:     4,
+		JunkMin:       64,
+		JunkMax:       512,
+		PadS1:         4,
+		PadS2:         4,
+		PadS3:         4,
+		PadS4:         24,
+		JunkStyle:     "random",
+		FlushPolicy:   "once",
+		ShaperEnabled: true,
+		ShaperProfile: "web",
 	}
 }
 
 func protectionPresetStrict() config.ProtectionOptions {
 	return config.ProtectionOptions{
-		Obfuscation:     "enhanced",
-		JunkCount:       8,
-		JunkMin:         128,
-		JunkMax:         896,
-		PadS1:           12,
-		PadS2:           12,
-		PadS3:           12,
-		PadS4:           48,
-		JunkStyle:       "tls",
-		FlushPolicy:     "once",
-		PreambleProfile: "rotate",
-		PreambleRotate:  true,
+		Obfuscation:          "enhanced",
+		JunkCount:            8,
+		JunkMin:              128,
+		JunkMax:              896,
+		PadS1:                12,
+		PadS2:                12,
+		PadS3:                12,
+		PadS4:                48,
+		JunkStyle:            "tls",
+		FlushPolicy:          "once",
+		PreambleProfile:      "rotate",
+		PreambleRotate:       true,
+		ShaperEnabled:        true,
+		ShaperProfile:        "web",
+		ShaperMaxOverheadPct: 80,
+		ShaperMaxDelayMs:     40,
 	}
 }
 
@@ -2502,6 +2543,7 @@ func (m *Model) protectionView() string {
 			"obfuscation", "junkCount", "junkMin", "junkMax", "padS1", "padS2", "padS3", "padS4", "preCheck", "magicSplit", "junkStyle", "flushPolicy", "preambleProfile", "preambleRotate",
 			"standaloneDpiOnly", "dpiLocalEngine", "splitAfter", "ttlMillis", "disorder", "splitAfter2", "ttl2Millis", "jitterMaxMs", "leadInMs", "dpiLocalPreset",
 			"fakeSni", "fakeSniHost", "splitPosition", "autoTtl", "tcpSegment", "oobData", "multiSplit",
+			"shaperEnabled", "shaperProfile", "shaperMaxOverheadPct", "shaperMaxDelayMs",
 		}
 		for i := range m.protectionInputs {
 			b.WriteString("  ")

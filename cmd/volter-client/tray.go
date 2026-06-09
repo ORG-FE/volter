@@ -1,8 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,7 +62,7 @@ func trayOnReady() {
 		trayMu.Unlock()
 		go trayStateSyncLoop()
 	}
-	
+
 	if runtime.GOOS == "linux" {
 		socketPath := ipc.GetSocketPath()
 		server, err := ipc.NewServer(socketPath, trayHandleIPCMessage)
@@ -73,7 +73,7 @@ func trayOnReady() {
 			go ipcServer.Start()
 		}
 	}
-	
+
 	trayRefreshMenu()
 }
 
@@ -356,7 +356,7 @@ func trayLaunchTUI(autoConnect string) {
 		if autoConnect != "" {
 			args = append(args, "-auto-connect="+autoConnect)
 		}
-		// cmd /C start "" <exe> <args...>
+
 		_ = exec.Command("cmd", append([]string{"/C", "start", ""}, args...)...).Start()
 		return
 	}

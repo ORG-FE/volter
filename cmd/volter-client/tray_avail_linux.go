@@ -6,7 +6,6 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-
 func statusNotifierWatcherAvailable() bool {
 	conn, err := dbus.SessionBus()
 	if err != nil {

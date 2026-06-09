@@ -37,6 +37,10 @@ public final class Main {
     Path base = jarDir();
     Path cfgPath = base.resolve("config.properties");
     Config cfg = Config.load(cfgPath);
+    DexoteServerKey dexoteKey = DexoteServerKey.loadOrCreate(base.resolve("dexote.key"));
+    Dexote.ReplayCache replayCache = new MemReplayCache();
+
+    DexoteUpstream.setNodeDexotePub(dexoteKey.pub());
     Log.setDebug(cfg.debug());
     Log.setQuicTrace(cfg.quicTraceLog());
     log = Log.logger(Main.class);
@@ -60,9 +64,10 @@ public final class Main {
       }
     }
     String host = resolvePublicHost(cfg);
+    log.info("Dexote server pubkey: " + dexoteKey.pubBase64());
     if (host != null && !host.isBlank()) {
       for (int port : cfg.listenPorts()) {
-        log.info("Connection key: " + buildConnectionKey(hostPort(host, port), cfg.token()));
+        log.info("Connection key: " + buildConnectionKey(hostPort(host, port), cfg.token(), dexoteKey.pubBase64()));
       }
     }
 
@@ -104,7 +109,6 @@ public final class Main {
           return t;
         },
         new ThreadPoolExecutor.CallerRunsPolicy());
-    TcpReactorPool tcpPool = new TcpReactorPool(reactorThreads);
     List<ServerSocketChannel> sockets = Collections.synchronizedList(new ArrayList<>());
     final QuicServer[] quicHolder = new QuicServer[1];
     final DhtRpcUdpServer[] dhtRpcHolder = new DhtRpcUdpServer[1];
@@ -130,7 +134,6 @@ public final class Main {
         } catch (Exception ignored) {}
       }
       ClusterRuntime.get().stop();
-      tcpPool.shutdown();
       streamPool.shutdown();
       handshakePool.shutdown();
       acceptPool.shutdown();
@@ -144,7 +147,7 @@ public final class Main {
 
     try (UdpSessions udp = new UdpSessions(cfg.udpChannels())) {
       if (cfg.quicEnabled()) {
-        quicHolder[0] = new QuicServer(cfg, udp, streamPool);
+        quicHolder[0] = new QuicServer(cfg, udp, streamPool, dexoteKey, replayCache);
         quicHolder[0].start();
       }
       dhtRpcHolder[0] = DhtRpcUdpServer.startIfEnabled(cfg);
@@ -154,7 +157,7 @@ public final class Main {
           ss.setOption(StandardSocketOptions.SO_REUSEADDR, true);
           ss.bind(new InetSocketAddress(port));
           sockets.add(ss);
-          acceptPool.submit(() -> acceptLoop(ss, cfg, udp, handshakePool, streamPool, tcpPool));
+          acceptPool.submit(() -> acceptLoop(ss, cfg, udp, handshakePool, streamPool, dexoteKey, replayCache));
         }
       }
 
@@ -178,7 +181,6 @@ public final class Main {
         } catch (Exception ignored) {}
       }
       ClusterRuntime.get().stop();
-      tcpPool.shutdown();
       streamPool.shutdown();
       handshakePool.shutdown();
       acceptPool.shutdown();
@@ -208,7 +210,8 @@ public final class Main {
     UdpSessions udp,
     ExecutorService handshakePool,
     ExecutorService streamPool,
-    TcpReactorPool tcpPool
+    DexoteServerKey dexoteKey,
+    Dexote.ReplayCache replayCache
   ) {
     while (ss.isOpen()) {
       try {
@@ -216,7 +219,7 @@ public final class Main {
         s.setOption(StandardSocketOptions.TCP_NODELAY, true);
         s.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
         try {
-          handshakePool.execute(new ConnectionHandler(s.socket(), cfg, udp, tcpPool, streamPool));
+          handshakePool.execute(new ConnectionHandler(s.socket(), cfg, udp, streamPool, dexoteKey, replayCache));
         } catch (java.util.concurrent.RejectedExecutionException e) {
           String remote = String.valueOf(s.getRemoteAddress());
           try {
@@ -257,8 +260,9 @@ public final class Main {
     }
   }
 
-  private static String buildConnectionKey(String server, String token) {
-    String payload = "{\"s\":\"" + jsonEsc(server) + "\",\"k\":\"" + jsonEsc(token) + "\"}";
+  private static String buildConnectionKey(String server, String token, String dexotePub) {
+    String payload = "{\"s\":\"" + jsonEsc(server) + "\",\"k\":\"" + jsonEsc(token)
+        + "\",\"p\":\"" + jsonEsc(dexotePub) + "\"}";
     String b64 = Base64.getUrlEncoder().withoutPadding().encodeToString(payload.getBytes(StandardCharsets.UTF_8));
     return "volter://" + b64;
   }

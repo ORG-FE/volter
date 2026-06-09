@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
@@ -49,9 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -147,12 +144,11 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .navigationBarsPadding(),
                 ) {
                     GlassPanel(shape = barShape) {
                         NavigationBar(
-                            modifier = Modifier.height(64.dp),
+                            modifier = Modifier.height(58.dp),
                             containerColor = Color.Transparent,
                             tonalElevation = 0.dp,
                             windowInsets = NavigationBarDefaults.windowInsets,
@@ -174,7 +170,7 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                                     colors = NavigationBarItemDefaults.colors(
                                         selectedIconColor = MaterialTheme.colorScheme.primary,
                                         selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                        indicatorColor = MaterialTheme.colorScheme.surface,
                                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                     ),
@@ -188,22 +184,10 @@ fun AppNavGraph(vm: ConnectionViewModel) {
     ) { padding ->
         Row(Modifier.fillMaxSize()) {
             if (useRail) {
-                val railShape = if (LocalLayoutDirection.current == LayoutDirection.Rtl) {
-                    RoundedCornerShape(
-                        topStart = VolterSpacing.bottomBarGlassRadius,
-                        bottomStart = VolterSpacing.bottomBarGlassRadius,
-                    )
-                } else {
-                    RoundedCornerShape(
-                        topEnd = VolterSpacing.bottomBarGlassRadius,
-                        bottomEnd = VolterSpacing.bottomBarGlassRadius,
-                    )
-                }
+                val railShape = RoundedCornerShape(VolterSpacing.bottomBarGlassRadius)
                 val scheme = MaterialTheme.colorScheme
                 Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .padding(start = 10.dp, top = 10.dp, bottom = 10.dp),
+                    modifier = Modifier.fillMaxHeight(),
                 ) {
                     GlassPanel(shape = railShape) {
                         NavigationRail(
@@ -226,7 +210,7 @@ fun AppNavGraph(vm: ConnectionViewModel) {
                                     colors = NavigationRailItemDefaults.colors(
                                         selectedIconColor = scheme.primary,
                                         selectedTextColor = scheme.primary,
-                                        indicatorColor = scheme.primary.copy(alpha = 0.18f),
+                                        indicatorColor = scheme.surface,
                                         unselectedIconColor = scheme.onSurfaceVariant,
                                         unselectedTextColor = scheme.onSurfaceVariant,
                                     ),
@@ -275,10 +259,10 @@ private fun GlassPanel(
     val scheme = MaterialTheme.colorScheme
     Surface(
         shape = shape,
-        color = scheme.surfaceContainerHigh.copy(alpha = 0.84f),
-        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
+        color = scheme.surfaceVariant,
+        border = BorderStroke(1.dp, scheme.outline),
         tonalElevation = 0.dp,
-        shadowElevation = 4.dp,
+        shadowElevation = 0.dp,
     ) {
         content()
     }

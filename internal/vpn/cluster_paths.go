@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	defaultClusterMapPath        = "/volter/cluster-map.json"
-	defaultClusterSessionsPath   = "/volter/cluster-sessions.json"
-	defaultClusterClientsPath    = "/volter/cluster-clients.json"
+	defaultClusterMapPath      = "/volter/cluster-map.json"
+	defaultClusterSessionsPath = "/volter/cluster-sessions.json"
+	defaultClusterClientsPath  = "/volter/cluster-clients.json"
 )
 
 func clusterPollPaths(prot *config.ProtectionOptions) (mapPath, sessionsPath, clientsPath string) {

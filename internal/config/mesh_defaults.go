@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	DefaultMeshSTUNServers = append([]string(nil), ice.DefaultSTUNServers...)
+	DefaultMeshSTUNServers      = append([]string(nil), ice.DefaultSTUNServers...)
 	DefaultMeshSTUNServersExtra = []string{
 		"stun.cloudflare.com:3478",
 		"stun1.l.google.com:19302",

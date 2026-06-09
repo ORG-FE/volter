@@ -15,7 +15,7 @@ func SetLiveRouteMode(mode string) {
 		return
 	}
 	liveRouteMode.Store(mode)
-	// clear clusterPreferredServer when mode doesn't support exit routing
+
 	if mode != "server_relay" {
 		liveClusterPreferredServer.Store("")
 	}

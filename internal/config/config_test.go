@@ -9,6 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"dev.c0redev.volter/internal/dexote"
 	"dev.c0redev.volter/internal/dpi"
 	"dev.c0redev.volter/internal/protocol"
 )
@@ -158,6 +159,48 @@ func TestBuildConnectionURI(t *testing.T) {
 	}
 }
 
+func TestConnectionURIDexotePubRoundTrip(t *testing.T) {
+	pubBytes := make([]byte, 32)
+	for i := range pubBytes {
+		pubBytes[i] = byte(i)
+	}
+	pub := base64.StdEncoding.EncodeToString(pubBytes)
+
+	uri := BuildConnectionURI("1.2.3.4:443", "abc:def", pub)
+	if uri == "" {
+		t.Fatal("empty uri")
+	}
+	cc, ok := ParseConnectionConfig(uri)
+	if !ok {
+		t.Fatal("ParseConnectionConfig failed")
+	}
+	if cc.Server != "1.2.3.4:443" || cc.Token != "abc:def" {
+		t.Fatalf("got server=%q token=%q", cc.Server, cc.Token)
+	}
+	if cc.DexoteServerPub != pub {
+		t.Fatalf("pub mismatch: got %q want %q", cc.DexoteServerPub, pub)
+	}
+	decoded, err := dexote.DecodePub(cc.DexoteServerPub)
+	if err != nil {
+		t.Fatalf("DecodePub rejected round-tripped pub: %v", err)
+	}
+	if len(decoded) != 32 {
+		t.Fatalf("decoded pub len=%d want 32", len(decoded))
+	}
+
+	rawJSON := `{"s":"5.6.7.8:443","k":"tok","p":"` + pub + `"}`
+	hand := "volter://" + base64.RawURLEncoding.EncodeToString([]byte(rawJSON))
+	cc2, ok := ParseConnectionConfig(hand)
+	if !ok || cc2.DexoteServerPub != pub {
+		t.Fatalf("hand-written key: ok=%v pub=%q", ok, cc2.DexoteServerPub)
+	}
+
+	cc3, ok := ParseConnectionConfig(BuildConnectionURI("9.9.9.9:443", "t"))
+	if !ok || cc3.DexoteServerPub != "" {
+		t.Fatalf("legacy key: ok=%v pub=%q (want empty)", ok, cc3.DexoteServerPub)
+	}
+}
+
 func TestProtection(t *testing.T) {
 	dir := t.TempDir()
 	os.Setenv("XDG_CONFIG_HOME", dir)
@@ -179,7 +222,7 @@ func TestProtection(t *testing.T) {
 func TestMergeAntiDpiTransportTopUpInPlace(t *testing.T) {
 	t.Setenv("VOLTER_NO_ANTIDPI_ENRICH", "")
 	t.Setenv("VOLTER_ANTIDPI_PRESET", "")
-	
+
 	out := MergeAntiDpiTransportTopUpInPlace(nil, "tcp")
 	if out == nil || out.JunkCount != 6 || !out.DpiVolterTransportObfuscate || !strings.EqualFold(out.DpiLocalEngine, "embedded") {
 		t.Fatalf("tcp baseline: %+v", out)
@@ -232,8 +275,7 @@ func TestAntiDpiPresetEnv(t *testing.T) {
 	if p == nil || p.JunkCount != 12 {
 		t.Fatalf("aggressive preset: %+v", p)
 	}
-	
-	// User override должен работать
+
 	custom := &ProtectionOptions{JunkCount: 99}
 	p2 := MergeAntiDpiTransportTopUpInPlace(custom, "tcp")
 	if p2.JunkCount != 99 {

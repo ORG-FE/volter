@@ -245,7 +245,7 @@ final class UdpSessions implements AutoCloseable {
         void send(byte[] payload) throws IOException {
             ByteBuffer bb = ByteBuffer.wrap(payload);
             synchronized (this) {
-                // Update activity on outbound traffic as well
+
                 touch();
                 long timeoutAt =
                     System.nanoTime() +
@@ -315,10 +315,9 @@ public static final class UdpChannelWriter implements AutoCloseable {
         this.out = out;
         this.opts = opts;
         this.budgetWindowStartNanos = System.nanoTime();
-        // run loop in shared pool instead of dedicated thread
+
         this.future = writerPool.submit(this::loop);
     }
-
 
         private static final Logger writerLog = Log.logger(UdpChannelWriter.class);
 

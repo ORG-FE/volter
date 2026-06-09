@@ -35,6 +35,7 @@ var version = "dev"
 type runOpts struct {
 	serverIP          net.IP
 	token             string
+	dexoteServerPub   string
 	transport         string
 	quicServer        string
 	quicServerName    string
@@ -120,12 +121,14 @@ func run() error {
 
 	autoInstallDesktopIntegration()
 
+	var keyDexotePub string
 	if *key != "" {
-		s, t, ok := config.ParseConnection(*key)
+		cc, ok := config.ParseConnectionConfig(*key)
 		if !ok {
 			return errors.New("bad --key, expected volter://...")
 		}
-		*server, *token = s, t
+		*server, *token = cc.Server, cc.Token
+		keyDexotePub = cc.DexoteServerPub
 	}
 
 	var profileCfg *config.Config
@@ -284,6 +287,10 @@ func run() error {
 	if profileCfg != nil {
 		opts.mesh = profileCfg.Mesh
 		opts.managed = profileCfg.Managed
+		opts.dexoteServerPub = profileCfg.DexoteServerPub
+	}
+	if opts.dexoteServerPub == "" && keyDexotePub != "" {
+		opts.dexoteServerPub = keyDexotePub
 	}
 	return runPlatform(context.Background(), addrs, opts, nil)
 }

@@ -32,7 +32,9 @@ final class PeerRelayForward {
       InputStream clientIn,
       OutputStream clientOut,
       Protocol.ClientOptions opt,
-      Socket clientSocket)
+      Socket clientSocket,
+      byte[] upstreamPub,
+      long slot)
       throws IOException {
     if (opt == null || !hasNextHop(opt)) {
       throw new IOException("peer relay forward: no next hop");
@@ -62,36 +64,38 @@ final class PeerRelayForward {
       }
       throw e;
     }
-    XorStream xor = new XorStream(XorStream.keyFromToken(cfg.token()));
-    OutputStream upXorOut = xor.wrapOutput(upstream.getOutputStream());
-    InputStream upXorIn = xor.wrapInput(upstream.getInputStream());
     byte[] fwdOpts = forwardOptsJson(opt, cfg.token());
+    DexoteUpstream.Streams up;
     try {
-      Protocol.writeVolterClientHandshake(upXorOut, Protocol.ROLE_RELAY_TCP, cfg.token(), fwdOpts);
-      Protocol.writeTcpConnectFrame(upXorOut, target);
+      up = DexoteUpstream.dial(upstream, upstreamPub, slot, Protocol.ROLE_RELAY_TCP, cfg.token(), fwdOpts, timeoutMs);
+      DexoteUpstream.writeTcpConnect(up.out, target);
     } catch (IOException e) {
+      Log.logger(PeerRelayForward.class).warning(
+          "peer relay dexote handshake to " + addr + " failed (wrong cluster dexote.key?): " + e.getMessage());
       try {
         upstream.close();
       } catch (IOException ignored) {
       }
       throw e;
     }
+    OutputStream upOut = up.out;
+    InputStream upIn = up.in;
     Log.logger(PeerRelayForward.class).info("peer relay chain -> " + addr + " dst=" + target.ip().getHostAddress() + ":" + target.port());
-    var up = RelayCopyPool.submit(
-        () -> RelayCopy.pump(clientIn, upXorOut, clientSocket, upstream, true, readTimeoutMs),
+    var upF = RelayCopyPool.submit(
+        () -> RelayCopy.pump(clientIn, upOut, clientSocket, upstream, true, readTimeoutMs),
         "peer-fwd-up");
-    var down = RelayCopyPool.submit(
-        () -> RelayCopy.pump(upXorIn, clientOut, upstream, clientSocket, true, readTimeoutMs),
+    var downF = RelayCopyPool.submit(
+        () -> RelayCopy.pump(upIn, clientOut, upstream, clientSocket, true, readTimeoutMs),
         "peer-fwd-down");
     try {
-      up.get();
-      down.get();
+      upF.get();
+      downF.get();
     } catch (Exception e) {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
-      up.cancel(true);
-      down.cancel(true);
+      upF.cancel(true);
+      downF.cancel(true);
       throw new IOException(e);
     } finally {
       try {

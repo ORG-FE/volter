@@ -139,7 +139,7 @@ final class ClusterRuntime {
     if (addr == null) return false;
     Config c = cfg;
     if (c == null) return false;
-    // compare against self node endpoint from cluster map
+
     ClusterNode self = nodes.get(c.clusterNodeId());
     if (self != null && self.endpoint != null && !self.endpoint.isBlank()) {
       try {
@@ -155,7 +155,7 @@ final class ClusterRuntime {
       } catch (Exception ignored) {
       }
     }
-    // fallback: compare against each listen port on loopback
+
     for (int port : c.listenPorts()) {
       if (port == addr.getPort()) {
         try {

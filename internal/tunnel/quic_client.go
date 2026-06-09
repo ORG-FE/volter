@@ -19,6 +19,8 @@ import (
 
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/dexote"
+	"dev.c0redev.volter/internal/obfuscate"
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/sockprotect"
 	quic "github.com/quic-go/quic-go"
@@ -311,15 +313,31 @@ func openUDPChannelOnQUICStream(conn *quic.Conn, stream *quic.Stream, channelID 
 		sconn = &quicStreamOnlyConn{conn: conn, stream: stream}
 	}
 	slot := SlotForProtection(prot)
-	bufSize := protocol.BufSizeForConn(slot)
-	r := bufio.NewReaderSize(sconn, bufSize)
-	w := bufio.NewWriterSize(sconn, bufSize)
-	maxPad, err := WriteUDPChannelPreambleSlot(w, channelID, token, prot, slot)
+	pub := getDexoteServerPub()
+	if len(pub) == 0 {
+		_ = sconn.Close()
+		return nil, nil, nil, 0, fmt.Errorf("dexote: server pubkey not configured (set dexoteServerPub)")
+	}
+	_ = sconn.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
+	keys, _, err := dexote.ClientHandshake(sconn, pub, slot, dexote.ClientHelloPayload{
+		Role:  protocol.RoleUDP(),
+		Token: token,
+		Opts:  dexoteUDPPayload(token, prot, channelID),
+	})
 	if err != nil {
 		_ = sconn.Close()
-		return nil, nil, nil, 0, err
+		return nil, nil, nil, 0, fmt.Errorf("dexote udp handshake: %w", err)
 	}
-	return sconn, r, w, maxPad, nil
+	_ = sconn.SetDeadline(time.Time{})
+	padMax := dexotePadMax(prot)
+	wrapped := obfuscate.WrapAEAD(sconn, keys,
+		dexote.NewPoly(keys.Secret, slot, "tx"),
+		dexote.NewPoly(keys.Secret, slot, "rx"), padMax)
+	bufSize := protocol.BufSizeForConn(slot)
+	r := bufio.NewReaderSize(wrapped, bufSize)
+	w := bufio.NewWriterSize(wrapped, bufSize)
+
+	return wrapped, r, w, 0, nil
 }
 
 func DialUDPMuxQUIC(serverAddrs []string, quicServer, serverName string, skipVerify bool, certPinSHA256 string, rootCAs *x509.CertPool, n int, token string, prot *config.ProtectionOptions) (closeAll func(), sharedConn *quic.Conn, streams []UDPMuxQUICStream, err error) {

@@ -87,8 +87,9 @@ data class ConnectionState(
     val ready: Boolean = false,
     val mode: String? = null,
     val error: String? = null,
-    /** SOCKS5 адрес локального anti-DPI (standalone без TUN). */
+
     val socksListen: String? = null,
+    val connectedAt: Instant? = null,
 )
 
 class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
@@ -849,6 +850,7 @@ class ConnectionViewModel(app: Application) : AndroidViewModel(app) {
                         mode = mode,
                         error = visibleError,
                         socksListen = state.socksListen,
+                        connectedAt = if (state.running) activeStartedAt else null,
                     )
                 }
                 val cfg = activeConfig

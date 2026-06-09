@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Save
@@ -55,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
@@ -131,7 +131,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         onClick = { mode = "tun" },
                         enabled = mode != "tun",
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                        shape = RectangleShape,
                     ) {
                         Text(stringResource(R.string.settings_mode_tun))
                     }
@@ -139,7 +139,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         onClick = { mode = "proxy" },
                         enabled = mode != "proxy",
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                        shape = RectangleShape,
                     ) {
                         Text(stringResource(R.string.settings_mode_proxy))
                     }
@@ -225,7 +225,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             onClick = { transportPref = ClientSettings.TRANSPORT_AUTO },
                             enabled = transportPref != ClientSettings.TRANSPORT_AUTO,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) {
                             Text(stringResource(R.string.home_route_auto))
                         }
@@ -233,7 +233,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             onClick = { transportPref = ClientSettings.TRANSPORT_TCP },
                             enabled = transportPref != ClientSettings.TRANSPORT_TCP,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) {
                             Text(stringResource(R.string.settings_transport_tcp))
                         }
@@ -241,7 +241,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             onClick = { transportPref = ClientSettings.TRANSPORT_QUIC },
                             enabled = transportPref != ClientSettings.TRANSPORT_QUIC,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) {
                             Text(stringResource(R.string.settings_transport_quic))
                         }
@@ -295,7 +295,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             )
                         },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                        shape = RectangleShape,
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Save,
@@ -359,7 +359,7 @@ fun SettingsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     onClick = { vm.checkForUpdateAndInstall() },
                     enabled = updateUi is UpdateUiState.Idle,
                     modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.SystemUpdateAlt,
@@ -504,7 +504,7 @@ private fun SplitTunnelAppsSection(
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Surface(
-                        shape = RoundedCornerShape(999.dp),
+                        shape = RectangleShape,
                         color = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     ) {
@@ -525,7 +525,7 @@ private fun SplitTunnelAppsSection(
             SplitModeSelector(splitMode = splitMode, onModeChange = onModeChange)
             if (!tunModeSelected) {
                 Surface(
-                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                    shape = RectangleShape,
                     color = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                 ) {
@@ -550,10 +550,10 @@ private fun SplitTunnelAppsSection(
                         }
                     }
                 },
-                shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                shape = RectangleShape,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                 ),
             )
             Text(
@@ -567,9 +567,9 @@ private fun SplitTunnelAppsSection(
             )
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
+                shape = RectangleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
-                tonalElevation = 1.dp,
+                tonalElevation = 0.dp,
             ) {
                 if (filtered.isEmpty()) {
                     Box(
@@ -654,10 +654,10 @@ private fun SplitModePill(
     val fg = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+        shape = RectangleShape,
         color = bg,
         contentColor = fg,
-        tonalElevation = if (selected) 2.dp else 0.dp,
+        tonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -680,10 +680,10 @@ private fun AppSplitRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onToggle),
-        shape = RoundedCornerShape(18.dp),
+        shape = RectangleShape,
         color = if (checked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
         contentColor = if (checked) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-        tonalElevation = if (checked) 2.dp else 0.dp,
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -691,7 +691,7 @@ private fun AppSplitRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RectangleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
             ) {
                 Image(

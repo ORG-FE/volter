@@ -3,7 +3,6 @@ package dev.c0redev.volter;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.BufferedInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.BufferedWriter;
@@ -20,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -40,9 +38,6 @@ final class ConnectionHandler implements Runnable {
         .build();
     private static final int HANDSHAKE_TIMEOUT_MS = 4_000;
     private static final int HANDSHAKE_MARK_READ_LIMIT = 2 * 1024 * 1024;
-    private static final SecureRandom HELLO_RND = new SecureRandom();
-    
-    private static final String PROBE_HANDSHAKE_TOKEN = "probe-bad-token";
 
     static {
         Log.logger(ConnectionHandler.class).info("Protocol MAX_OPTS=" + Protocol.MAX_OPTS + " (client opts max bytes)");
@@ -51,15 +46,18 @@ final class ConnectionHandler implements Runnable {
     private final Socket sock;
     private final Config cfg;
     private final UdpSessions udp;
-    private final TcpReactorPool tcpPool;
   private final ExecutorService streamPool;
+    private final DexoteServerKey dexoteKey;
+    private final Dexote.ReplayCache replayCache;
 
-    ConnectionHandler(Socket sock, Config cfg, UdpSessions udp, TcpReactorPool tcpPool, ExecutorService streamPool) {
+    ConnectionHandler(Socket sock, Config cfg, UdpSessions udp, ExecutorService streamPool,
+                      DexoteServerKey dexoteKey, Dexote.ReplayCache replayCache) {
         this.sock = sock;
         this.cfg = cfg;
         this.udp = udp;
-        this.tcpPool = tcpPool;
         this.streamPool = streamPool;
+        this.dexoteKey = dexoteKey;
+        this.replayCache = replayCache;
     }
 
     @Override
@@ -70,7 +68,6 @@ final class ConnectionHandler implements Runnable {
         OutputStream rawOut = null;
         try {
             s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
-            var xor = new XorStream(XorStream.keyFromToken(cfg.token()));
             rawIn = new BufferedInputStream(s.getInputStream(), 128 * 1024);
             rawIn.mark(HANDSHAKE_MARK_READ_LIMIT);
             rawOut = s.getOutputStream();
@@ -83,25 +80,47 @@ final class ConnectionHandler implements Runnable {
                 }
                 s.setSoTimeout(HANDSHAKE_TIMEOUT_MS);
             }
-            InputStream in = xor.wrapInput(rawIn);
 
-            Protocol.HandshakeResult hr = Protocol.readHandshake(in);
-            Protocol.Handshake hs = hr.handshake();
+            long now = System.currentTimeMillis() / 1000L;
+            long[] slots = Dexote.candidateSlots(now, 0);
+            byte[] capsBytes = buildCapsBytes();
+            Dexote.Accepted acc = Dexote.accept(
+                rawIn, rawOut, dexoteKey.scalar(), dexoteKey.pub(), slots, capsBytes, replayCache);
+            if (acc == null) {
+                log.fine("dexote handshake rejected from " + s.getRemoteSocketAddress());
+                if (tryCamouflage(s, rawIn, rawOut)) {
+                    return;
+                }
+                throw new IOException("dexote rejected");
+            }
             if (
                 !MessageDigest.isEqual(
                     cfg.token().getBytes(StandardCharsets.UTF_8),
-                    hs.token().getBytes(StandardCharsets.UTF_8)
+                    acc.hello.token.getBytes(StandardCharsets.UTF_8)
                 )
             ) {
-                if (PROBE_HANDSHAKE_TOKEN.equals(hs.token())) {
-                    log.info("probe handshake (caps read) from " + s.getRemoteSocketAddress());
-                } else {
-                    log.warning("bad token from " + s.getRemoteSocketAddress());
-                }
-                sendCapability(rawOut);
+
+                log.warning("bad token from " + s.getRemoteSocketAddress());
                 throw new IOException("bad token");
             }
-            OutputStream out = xor.wrapOutput(rawOut);
+
+            long slot = acc.slot;
+            byte[] optsJson = acc.hello.opts == null ? new byte[0] : acc.hello.opts;
+            String optsStr = new String(optsJson, StandardCharsets.UTF_8);
+            Optional<Protocol.ClientOptions> copts =
+                optsStr.isEmpty() ? Optional.empty() : Protocol.ClientOptions.parse(optsStr);
+            int channelId = -1;
+            if (acc.hello.role == Protocol.ROLE_UDP && optsJson.length >= 1) {
+                channelId = optsJson[0] & 0xff;
+            }
+            Protocol.Handshake hs = new Protocol.Handshake(acc.hello.role, channelId, acc.hello.token);
+            Protocol.HandshakeResult hr = new Protocol.HandshakeResult(hs, copts);
+
+            AeadStream aead =
+                new AeadStream(
+                    acc.keys, new Poly(acc.keys.secret, slot, "tx"), buildShaper(copts, slot));
+            InputStream in = aead.wrapInput(rawIn);
+            OutputStream out = aead.wrapOutput(rawOut);
             s.setSoTimeout(0);
             var session = new SessionHandler(cfg, udp, String.valueOf(s.getRemoteSocketAddress()), () -> {
                 try {
@@ -109,7 +128,7 @@ final class ConnectionHandler implements Runnable {
                 } catch (IOException ignored) {}
             }, s);
             SessionHandler.TcpHandler tcp =
-                (connect, rest, copts) -> handleTcp(connect, rest, s, xor, copts);
+                (connect, rest, cop) -> handleTcp(connect, rest, s, out, cop);
             handedOff = true;
             byte role = hs.role();
             try {
@@ -154,7 +173,7 @@ final class ConnectionHandler implements Runnable {
             Socket s) {
         try {
             if (role == Protocol.ROLE_UDP) {
-                s.setSoTimeout(180_000); // 3 minutes idle timeout
+                s.setSoTimeout(180_000);
             }
             session.handle(hs, hr, in, out, tcp, null);
         } catch (Exception e) {
@@ -282,6 +301,13 @@ final class ConnectionHandler implements Runnable {
         int port = cfg.camouflageTcpProxyPort();
         if (host != null && !host.isBlank() && port > 0) {
             return proxyRaw(client, rawIn, rawOut, host, port);
+        }
+        if (looksTLS && !TLS_REPLY_DISABLED) {
+            boolean ok = writeFakeTls(rawOut);
+            if (ok) {
+                try { client.close(); } catch (IOException ignored) {}
+            }
+            return ok;
         }
         if (looksHTTP) {
             boolean ok = writeFakeHttp(rawOut);
@@ -950,8 +976,38 @@ final class ConnectionHandler implements Runnable {
         }
     }
 
+    private static final boolean TLS_REPLY_DISABLED =
+        "1".equals(System.getenv("VOLTER_TLS_REPLY_DISABLE"));
+
+    private boolean writeFakeTls(OutputStream out) {
+        try {
+
+            byte[] alert = new byte[] {0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28};
+            out.write(alert);
+            out.flush();
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private static boolean looksLikeTLS(byte[] b, int n) {
         return n >= 3 && (b[0] & 0xff) == 0x16 && (b[1] & 0xff) == 0x03 && (b[2] & 0xff) <= 0x04;
+    }
+
+    private static final boolean SHAPER_DISABLED =
+        "1".equals(System.getenv("VOLTER_SHAPER_DISABLE"));
+
+    private static TrafficShaper buildShaper(Optional<Protocol.ClientOptions> copts, long slot) {
+        if (SHAPER_DISABLED || copts.isEmpty()) {
+            return null;
+        }
+        String profile = copts.get().shaperProfile();
+        if (profile == null || profile.isEmpty()) {
+            return null;
+        }
+        TrafficShaper sh = TrafficShaper.create(profile, 0, 0, slot);
+        return sh.enabled() ? sh : null;
     }
 
     private static boolean looksLikeHTTP(byte[] b, int n) {
@@ -961,42 +1017,15 @@ final class ConnectionHandler implements Runnable {
             s.startsWith("PUT ") || s.startsWith("OPTI") || s.startsWith("CONN");
     }
 
-    private void sendCapability(OutputStream rawOut) {
-        if (rawOut == null) return;
-        try {
-            int legacyIpv6 = Ipv6Detect.hasIPv6() ? 1 : 0;
-            int transportMask = 0;
-            if (cfg.tcpEnabled()) transportMask |= Protocol.TRANSPORT_TCP;
-            if (cfg.quicEnabled()) transportMask |= Protocol.TRANSPORT_QUIC;
-            int featureBits = legacyIpv6 == 1 ? Protocol.FEAT_IPV6 : 0;
-            featureBits |= Protocol.FEAT_POLY_HANDSHAKE;
-            featureBits |= Protocol.FEAT_ROUTE_HOP_ACK;
-            int obfsProfileId = Protocol.pickObfsProfileId();
-            int tcpPortHint = cfg.listenPorts().isEmpty() ? 0 : cfg.listenPorts().get(0);
-            byte[] nonce = new byte[8];
-            HELLO_RND.nextBytes(nonce);
-            Protocol.writeServerHelloCaps(rawOut, new Protocol.ServerHelloCaps(
-                Protocol.CAPS_VERSION,
-                legacyIpv6,
-                transportMask,
-                featureBits,
-                cfg.quicEnabled() ? cfg.quicListenPort() : 0,
-                tcpPortHint,
-                obfsProfileId,
-                nonce,
-                QuicServer.getAdvertisedQuicLeafPin(),
-                cfg.peerRelayEnabled() ? 2 : 1,
-                2,
-                cfg.peerRelayEnabled() ? 1 : 0
-            ));
-        } catch (Throwable ignored) {}
+    private byte[] buildCapsBytes() {
+        return Caps.build(cfg);
     }
 
     private void handleTcp(
             Protocol.TcpConnect c,
             InputStream in,
             Socket s,
-            XorStream xor,
+            OutputStream clientOut,
             Optional<Protocol.ClientOptions> copts)
             throws IOException {
         log.info("TCP connect to " + c.ip().getHostAddress() + ":" + c.port());
@@ -1006,29 +1035,14 @@ final class ConnectionHandler implements Runnable {
         } else {
             log.info("handleTcp opts: EMPTY");
         }
-        if (tcpPool == null) {
-            throw new IOException("tcp reactor unavailable");
-        }
-        OutputStream clientXorOut = xor.wrapOutput(s.getOutputStream());
-        if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientXorOut, copts, s)) {
-            // Bridge owns the client socket lifecycle — it will be closed
-            // by the async cleanup when both relay pumps complete.
+        byte[] upstreamPub = DexoteUpstream.upstreamPub();
+        long upstreamSlot = Dexote.effectiveSlot(System.currentTimeMillis() / 1000L, 0);
+        if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientOut, copts, s, upstreamPub, upstreamSlot)) {
+
             return;
         }
-        byte[] initialClientData = drainAvailableWithoutBlocking(in);
-        tcpPool.register(s, c, xor, initialClientData, true);
-    }
-
-    private static byte[] drainAvailableWithoutBlocking(InputStream in) throws IOException {
-        if (in.available() <= 0) return null;
-        var acc = new ByteArrayOutputStream();
-        byte[] scratch = new byte[8192];
-        while (in.available() > 0) {
-            int want = Math.min(scratch.length, in.available());
-            int r = in.read(scratch, 0, want);
-            if (r <= 0) break;
-            acc.write(scratch, 0, r);
+        if (!DexoteTcpExit.bridge(cfg, c, in, clientOut, s)) {
+            throw new IOException("dexote exit connect failed");
         }
-        return acc.size() == 0 ? null : acc.toByteArray();
     }
 }

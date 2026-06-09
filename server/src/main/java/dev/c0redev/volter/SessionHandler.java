@@ -146,7 +146,9 @@ final class SessionHandler {
       try {
         if (PeerRelayForward.hasNextHop(opt)) {
           try {
-            PeerRelayForward.forward(cfg, c, meteredIn, meteredOut, opt, clientSocket);
+            byte[] upstreamPub = DexoteUpstream.upstreamPub();
+            long upstreamSlot = Dexote.effectiveSlot(System.currentTimeMillis() / 1000L, 0);
+            PeerRelayForward.forward(cfg, c, meteredIn, meteredOut, opt, clientSocket, upstreamPub, upstreamSlot);
           } finally {
             onDone.run();
           }

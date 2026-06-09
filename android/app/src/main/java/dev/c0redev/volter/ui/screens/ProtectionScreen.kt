@@ -86,13 +86,8 @@ fun ProtectionScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         }
 
         item {
-            SectionCard {
+            SectionCard(title = stringResource(R.string.protection_sessions_title)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.protection_sessions_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
                     val tail = metrics.takeLast(8).asReversed()
                     if (tail.isEmpty()) {
                         EmptyState(

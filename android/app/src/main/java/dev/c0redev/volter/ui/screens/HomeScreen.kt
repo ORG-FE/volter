@@ -1,10 +1,5 @@
 package dev.c0redev.volter.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -73,8 +68,14 @@ import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.ui.ConnectionViewModel
+import dev.c0redev.volter.ui.components.MetricCell
+import dev.c0redev.volter.ui.components.MetricsTable
 import dev.c0redev.volter.ui.components.PageHeader
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.Sparkline
+import dev.c0redev.volter.ui.components.StatusBar
+import java.time.Duration
+import java.time.Instant
 
 private data class GuideEntry(
     val title: String,
@@ -114,6 +115,30 @@ fun HomeScreen(
     }
 
     val homeScroll = rememberScrollState()
+
+    // uptime тикает раз в секунду пока подключены
+    var nowTick by remember { mutableStateOf(Instant.now()) }
+    LaunchedEffect(conn.connected, conn.connectedAt) {
+        while (conn.connected && conn.connectedAt != null) {
+            nowTick = Instant.now()
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    val uptimeText = conn.connectedAt?.let { start ->
+        val secs = Duration.between(start, nowTick).seconds.coerceAtLeast(0)
+        val h = secs / 3600
+        val m = (secs % 3600) / 60
+        val s = secs % 60
+        stringResource(
+            R.string.home_uptime_fmt,
+            when {
+                h > 0 -> "%dh %02dm".format(h, m)
+                m > 0 -> "%dm %02ds".format(m, s)
+                else -> "%ds".format(s)
+            },
+        )
+    } ?: stringResource(R.string.home_uptime_idle)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -123,7 +148,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(homeScroll)
-                .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical),
+                .padding(horizontal = VolterSpacing.screenHorizontal, vertical = VolterSpacing.screenVertical)
+                .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap),
         ) {
             PageHeader(
@@ -347,6 +373,10 @@ fun HomeScreen(
                 }
             }
 
+        if (metrics.records.isNotEmpty()) {
+            SessionStatsCard(records = metrics.records)
+        }
+
         if (logs.isNotEmpty()) {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -366,6 +396,56 @@ fun HomeScreen(
                 }
             }
         }
+        }
+
+        StatusBar(
+            connected = conn.connected,
+            version = BuildConfig.VERSION_NAME,
+            uptime = uptimeText,
+            mode = conn.mode,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun SessionStatsCard(records: List<SessionRecord>) {
+    val totalRx = records.sumOf { it.rxBytes ?: 0L }
+    val totalTx = records.sumOf { it.txBytes ?: 0L }
+    val hsOk = records.count { it.handshakeOk }
+    val avgDurSec = records.mapNotNull { it.durationNs }.takeIf { it.isNotEmpty() }
+        ?.let { it.sum() / it.size / 1_000_000_000L } ?: 0L
+    val lastServer = records.lastOrNull()?.server?.takeIf { it.isNotBlank() } ?: "—"
+    val avgDurText = when {
+        avgDurSec >= 3600 -> "${avgDurSec / 3600}h ${(avgDurSec % 3600) / 60}m"
+        avgDurSec >= 60 -> "${avgDurSec / 60}m ${avgDurSec % 60}s"
+        else -> "${avgDurSec}s"
+    }
+    // ряд для sparkline: суммарный трафик (rx+tx) по последним сессиям
+    val series = records.takeLast(24).map { ((it.rxBytes ?: 0L) + (it.txBytes ?: 0L)).toFloat() }
+
+    SectionCard(title = stringResource(R.string.home_metrics_title)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            MetricsTable(
+                rows = listOf(
+                    MetricCell(stringResource(R.string.home_metrics_sessions), records.size.toString(), accent = true),
+                    MetricCell(stringResource(R.string.home_metrics_rx_total), formatTrafficBytes(totalRx)),
+                    MetricCell(stringResource(R.string.home_metrics_tx_total), formatTrafficBytes(totalTx)),
+                    MetricCell(stringResource(R.string.home_metrics_handshake_ok), "$hsOk/${records.size}"),
+                    MetricCell(stringResource(R.string.home_metrics_avg_dur), avgDurText),
+                    MetricCell(stringResource(R.string.home_metrics_last_server), lastServer),
+                ),
+            )
+            if (series.size >= 2 && series.any { it > 0f }) {
+                Text(
+                    text = stringResource(R.string.home_sparkline_title),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Sparkline(values = series)
+            }
         }
     }
 }
@@ -593,8 +673,8 @@ private fun RouteModePills(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(VolterSpacing.glassRadius),
-        color = scheme.surface.copy(alpha = 0.38f),
-        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.4f)),
+        color = scheme.surface,
+        border = BorderStroke(1.dp, scheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier
@@ -615,12 +695,12 @@ private fun RouteModePills(
                         ) { onSelect(key) },
                     shape = RoundedCornerShape(VolterSpacing.chipRadius),
                     color = if (selected) {
-                        scheme.primary.copy(alpha = 0.28f)
+                        scheme.primary
                     } else {
                         Color.Transparent
                     },
                     border = if (selected) {
-                        BorderStroke(1.dp, scheme.primary.copy(alpha = 0.55f))
+                        BorderStroke(1.dp, scheme.primary)
                     } else {
                         BorderStroke(1.dp, Color.Transparent)
                     },
@@ -629,7 +709,7 @@ private fun RouteModePills(
                         text = label,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        color = if (selected) scheme.primary else scheme.onSurfaceVariant,
+                        color = if (selected) scheme.onPrimary else scheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -658,8 +738,8 @@ private fun TrafficTargetChip(
                 onClick = onClick,
             ),
         shape = RoundedCornerShape(VolterSpacing.chipRadius),
-        color = scheme.surfaceContainerHigh.copy(alpha = 0.55f),
-        border = BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.45f)),
+        color = scheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, scheme.outlineVariant),
     ) {
         Text(
             text = label,
@@ -716,8 +796,8 @@ private fun ServerPillRow(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(VolterSpacing.barPillRadius),
-        color = scheme.surfaceContainerLow.copy(alpha = 0.78f),
-        border = BorderStroke(1.dp, scheme.primary.copy(alpha = 0.28f)),
+        color = scheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, scheme.outlineVariant),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
     ) {
@@ -735,8 +815,8 @@ private fun ServerPillRow(
                     .size(width = 122.dp, height = 36.dp)
                     .clip(RoundedCornerShape(VolterSpacing.fullPill))
                     .background(
-                        if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
-                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                        if (selected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surface,
                     )
                     .clickable { onSelect(item.name, item.config) }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -881,11 +961,7 @@ private fun HomeGuideCard(onNavigateToTab: (String) -> Unit) {
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    AnimatedVisibility(
-                        visible = expanded,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically(),
-                    ) {
+                    if (expanded) {
                         Column(
                             modifier = Modifier.padding(start = 34.dp, bottom = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),

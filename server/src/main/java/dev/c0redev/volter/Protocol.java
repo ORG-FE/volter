@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Optional;
 
 final class Protocol {
-  static final byte[] MAGIC = new byte[] {'V', 'O', 'L', 'T', 1};
   static final byte VERSION = 1;
   static final byte ROLE_UDP = 1;
   static final byte ROLE_TCP = 2;
@@ -50,65 +49,6 @@ final class Protocol {
   static int normalizeObfsProfile(int profileId) {
     if (profileId < OBFS_PROFILE_MIN || profileId > OBFS_PROFILE_MAX) return 0;
     return profileId;
-  }
-
-  static final int MAX_MAGIC_SCAN_BYTES = 512 * 1024;
-
-  static HandshakeResult readHandshake(InputStream in) throws IOException {
-    skipUntilMagic(in);
-    Handshake hs = readHandshakeBody(in);
-    Optional<ClientOptions> opts = readClientOptions(in);
-    return new HandshakeResult(hs, opts);
-  }
-
-static Optional<ClientOptions> readClientOptions(InputStream in) throws IOException {
-        int optsLen = readU16(in);
-        if (optsLen == 0) return Optional.empty();
-        if (optsLen > MAX_OPTS) throw new IOException("bad opts len");
-        byte[] buf = readN(in, optsLen);
-        String raw = new String(buf, StandardCharsets.UTF_8);
-        Optional<ClientOptions> parsed = ClientOptions.parse(raw);
-        if (parsed.isEmpty()) {
-            var log = Log.logger(Protocol.class);
-            log.warning("RAW opts parse FAILED: " + raw.substring(0, Math.min(raw.length(), 200)));
-            throw new IOException("bad client options json");
-        }
-        return parsed;
-    }
-
-  static void skipUntilMagic(InputStream in) throws IOException {
-    byte[] buf = new byte[5];
-    int n = 0;
-    while (true) {
-      if (n >= MAX_MAGIC_SCAN_BYTES) {
-        throw new IOException("volter magic not found within " + MAX_MAGIC_SCAN_BYTES + " bytes");
-      }
-      int b = in.read();
-      if (b == -1) throw new EOFException();
-      System.arraycopy(buf, 1, buf, 0, 4);
-      buf[4] = (byte) b;
-      n++;
-      if (n >= 5
-          && buf[0] == MAGIC[0]
-          && buf[1] == MAGIC[1]
-          && buf[2] == MAGIC[2]
-          && buf[3] == MAGIC[3]
-          && buf[4] == MAGIC[4]) {
-        return;
-      }
-    }
-  }
-
-  static Handshake readHandshakeBody(InputStream in) throws IOException {
-    int ver = readU8(in);
-    if (ver != VERSION) throw new IOException("bad version");
-    byte role = (byte) readU8(in);
-    int tokenLen = readU16(in);
-    if (tokenLen < 0 || tokenLen > MAX_TOKEN) throw new IOException("bad token len");
-    String token = new String(readN(in, tokenLen), StandardCharsets.UTF_8);
-    int channelId = -1;
-    if (role == ROLE_UDP) channelId = readU8(in);
-    return new Handshake(role, channelId, token);
   }
 
   static TcpConnect readTcpConnect(InputStream in) throws IOException {
@@ -356,34 +296,6 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
     if (ln > 0) out.write(val, 0, ln);
   }
 
-  static void writeVolterClientHandshake(OutputStream xorOut, byte role, String token, byte[] optsUtf8)
-      throws IOException {
-    byte[] junk = new byte[384 + RND.nextInt(1024)];
-    RND.nextBytes(junk);
-    xorOut.write(junk);
-    xorOut.write(MAGIC);
-    xorOut.write(VERSION);
-    xorOut.write(role & 0xff);
-    byte[] tok = token.getBytes(StandardCharsets.UTF_8);
-    if (tok.length > MAX_TOKEN) {
-      throw new IOException("token too long");
-    }
-    writeU16(xorOut, tok.length);
-    xorOut.write(tok);
-    if (role == ROLE_UDP) {
-      xorOut.write(0);
-    }
-    int ol = optsUtf8 == null ? 0 : optsUtf8.length;
-    if (ol > MAX_OPTS) {
-      throw new IOException("opts too long");
-    }
-    writeU16(xorOut, ol);
-    if (ol > 0) {
-      xorOut.write(optsUtf8);
-    }
-    xorOut.flush();
-  }
-
   static void writeTcpConnectFrame(OutputStream xorOut, TcpConnect c) throws IOException {
     xorOut.write(c.addrType() & 0xff);
     xorOut.write(c.ip().getAddress());
@@ -430,7 +342,8 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
       String managedDeviceId,
       String managedNonce,
       long managedTsSec,
-      String managedSig) {
+      String managedSig,
+      String shaperProfile) {
     ClientOptions(
         int padS4,
         int probeObfsProfileId,
@@ -469,6 +382,7 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
           "",
           "",
           0,
+          "",
           "");
     }
 
@@ -621,6 +535,11 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
         if (json.contains("\"managedNonce\"")) managedNonce = parseStringField(json, "managedNonce");
         if (json.contains("\"managedSig\"")) managedSig = parseStringField(json, "managedSig");
         if (json.contains("\"managedTsSec\"")) managedTsSec = parseLongField(json, "managedTsSec");
+        String shaperProfile = "";
+        if (json.contains("\"shaperProfile\"")) {
+          shaperProfile = parseStringField(json, "shaperProfile");
+          if (shaperProfile.length() > 32) shaperProfile = shaperProfile.substring(0, 32);
+        }
         List<String> relayRouteHops = parseStringArray(json, "relayRouteHops");
         return Optional.of(new ClientOptions(
             padS4,
@@ -643,7 +562,8 @@ static Optional<ClientOptions> readClientOptions(InputStream in) throws IOExcept
             managedDeviceId,
             managedNonce,
             managedTsSec,
-            managedSig));
+            managedSig,
+            shaperProfile));
       } catch (Exception e) {
         return Optional.empty();
       }

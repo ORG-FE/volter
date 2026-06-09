@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,7 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -86,7 +86,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
     var shareTarget by remember { mutableStateOf<Pair<String, Config>?>(null) }
 
     val scheme = MaterialTheme.colorScheme
-    val onHero = scheme.onPrimary
+    val onHero = scheme.onSurface
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -95,15 +95,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            scheme.primary.copy(alpha = 0.92f),
-                            scheme.primary.copy(alpha = 0.78f),
-                            scheme.surfaceContainerLow.copy(alpha = 0.35f),
-                        ),
-                    ),
-                ),
+                .background(scheme.surfaceVariant),
         ) {
             Column(
                 modifier = Modifier
@@ -123,7 +115,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     text = activeProfileName?.let { stringResource(R.string.configs_hero_active_fmt, it) }
                         ?: stringResource(R.string.configs_hero_no_profile),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = onHero.copy(alpha = 0.9f),
+                    color = scheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
                     fontWeight = FontWeight.Medium,
                 )
@@ -133,7 +125,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     onSelect = { tabIndex = it },
                     localLabel = stringResource(R.string.configs_tab_local),
                     cloudLabel = stringResource(R.string.configs_tab_cloud),
-                    onDarkBackground = true,
+                    onDarkBackground = false,
                 )
             }
         }
@@ -163,14 +155,14 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     editorCfg = null
                     editorOpen = true
                 },
-                shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                shape = RectangleShape,
             ) {
                 Text(stringResource(R.string.configs_add))
             }
             if (conn.connected) {
                 FilledTonalButton(
                     onClick = { vm.disconnect() },
-                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                    shape = RectangleShape,
                 ) {
                     Text(stringResource(R.string.home_disconnect))
                 }
@@ -187,7 +179,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                         Button(
                             onClick = { vm.refreshLocalConfigs() },
                             enabled = !localRefreshing,
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(stringResource(R.string.configs_local_refresh))
@@ -252,7 +244,7 @@ fun ConfigsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     Button(
                         onClick = { vm.refreshCloudConfigs(true) },
                         enabled = !cloudLoading,
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                        shape = RectangleShape,
                     ) {
                         Text(stringResource(R.string.configs_cloud_refresh))
                     }
@@ -462,11 +454,11 @@ private fun ConfigSourceSegment(
     onDarkBackground: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val onGlass = scheme.onPrimary
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(VolterSpacing.barPillRadius),
-        color = if (onDarkBackground) scheme.onPrimary.copy(alpha = 0.1f) else scheme.surfaceContainerLow,
+        shape = RectangleShape,
+        color = scheme.surface,
+        border = BorderStroke(1.dp, scheme.outline),
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
     ) {
@@ -482,14 +474,8 @@ private fun ConfigSourceSegment(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(VolterSpacing.glassRadius))
-                        .background(
-                            when {
-                                !onDarkBackground && sel -> scheme.primaryContainer.copy(alpha = 0.88f)
-                                onDarkBackground && sel -> scheme.primary.copy(alpha = 0.42f)
-                                else -> Color.Transparent
-                            },
-                        )
+                        .clip(RectangleShape)
+                        .background(if (sel) scheme.background else Color.Transparent)
                         .clickable(
                             interactionSource = interaction,
                             indication = null,
@@ -502,11 +488,7 @@ private fun ConfigSourceSegment(
                         text = label,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                        color = when {
-                            onDarkBackground -> if (sel) onGlass else onGlass.copy(alpha = 0.82f)
-                            sel -> scheme.onPrimaryContainer
-                            else -> scheme.onSurfaceVariant
-                        },
+                        color = if (sel) scheme.primary else scheme.onSurfaceVariant,
                     )
                 }
             }
@@ -725,10 +707,10 @@ private fun digitsOnly(v: String): String {
 
 @Composable
 private fun LocalProfileSkeleton() {
-    val bar = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f)
+    val bar = MaterialTheme.colorScheme.surfaceVariant
     Surface(
-        shape = RoundedCornerShape(VolterSpacing.controlRadius),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        shape = RectangleShape,
+        color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -739,14 +721,14 @@ private fun LocalProfileSkeleton() {
                 Modifier
                     .fillMaxWidth(0.42f)
                     .height(18.dp)
-                    .clip(RoundedCornerShape(VolterSpacing.skeletonLineRadius))
+                    .clip(RectangleShape)
                     .background(bar),
             )
             Box(
                 Modifier
                     .fillMaxWidth(0.62f)
                     .height(13.dp)
-                    .clip(RoundedCornerShape(VolterSpacing.skeletonLineRadius))
+                    .clip(RectangleShape)
                     .background(bar),
             )
             Row(
@@ -757,14 +739,14 @@ private fun LocalProfileSkeleton() {
                     Modifier
                         .weight(1f)
                         .height(32.dp)
-                        .clip(RoundedCornerShape(VolterSpacing.skeletonBlockRadius))
+                        .clip(RectangleShape)
                         .background(bar),
                 )
                 Box(
                     Modifier
                         .width(52.dp)
                         .height(32.dp)
-                        .clip(RoundedCornerShape(VolterSpacing.skeletonBlockRadius))
+                        .clip(RectangleShape)
                         .background(bar),
                 )
             }

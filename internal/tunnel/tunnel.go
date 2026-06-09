@@ -12,6 +12,7 @@ import (
 
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/dexote"
 	"dev.c0redev.volter/internal/obfuscate"
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/sockprotect"
@@ -37,23 +38,16 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 		for i := 0; i < len(serverAddrs); i++ {
 			addr := serverAddrs[(start+i)%len(serverAddrs)]
 			clientlog.Trace("Dial attempt round=%d i=%d addr=%s", round, i, addr)
-			c, err := dialServer(addr, token)
+			slot := SlotForProtection(prot)
+			role, optsJSON := dexotePayload(token, prot)
+			c, _, err := dialServerDexote(addr, token, prot, slot, role, optsJSON)
 			if err != nil {
-				clientlog.Trace("Dial dialServer %s: %v", addr, err)
+				clientlog.Trace("Dial dialServerDexote %s: %v", addr, err)
 				lastErr = err
 				continue
 			}
 			_ = c.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
-			slot := SlotForProtection(prot)
-			bufSize := protocol.BufSizeForConn(slot)
-			r := bufio.NewReaderSize(c, bufSize)
-			w := bufio.NewWriterSize(c, bufSize)
-			if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
-				_ = c.Close()
-				clientlog.Trace("Dial tcpRelayPreamble %s: %v", addr, err)
-				lastErr = err
-				continue
-			}
+			r, w := newDexoteRW(c, slot)
 			if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
 				_ = c.Close()
 				clientlog.Trace("Dial WriteTcpConnect %s: %v", addr, err)
@@ -96,19 +90,14 @@ func Dial(serverAddrs []string, targetIP net.IP, targetPort uint16, token string
 }
 
 func DialSingleTCP(addr string, targetIP net.IP, targetPort uint16, token string, prot *config.ProtectionOptions) (net.Conn, error) {
-	c, err := dialServer(addr, token)
+	slot := SlotForProtection(prot)
+	role, optsJSON := dexotePayload(token, prot)
+	c, _, err := dialServerDexote(addr, token, prot, slot, role, optsJSON)
 	if err != nil {
 		return nil, err
 	}
 	_ = c.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
-	slot := SlotForProtection(prot)
-	bufSize := protocol.BufSizeForConn(slot)
-	r := bufio.NewReaderSize(c, bufSize)
-	w := bufio.NewWriterSize(c, bufSize)
-	if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
-		_ = c.Close()
-		return nil, err
-	}
+	r, w := newDexoteRW(c, slot)
 	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
 		_ = c.Close()
 		return nil, err
@@ -161,7 +150,7 @@ func (c *tunnelConn) Read(p []byte) (n int, err error) {
 	return c.r.Read(p)
 }
 
-func dialServer(addr, token string) (net.Conn, error) {
+func dialServerRaw(addr string) (net.Conn, error) {
 	d := net.Dialer{Timeout: volterWireHandshakeTimeout, KeepAlive: 30 * time.Second}
 	if p := sockprotect.Protect; p != nil {
 		d.Control = func(network, address string, c syscall.RawConn) error {
@@ -182,7 +171,7 @@ func dialServer(addr, token string) (net.Conn, error) {
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
 	}
-	return obfuscate.WrapConn(c, token), nil
+	return c, nil
 }
 
 func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, targetIP net.IP, targetPort uint16, token string, prot *config.ProtectionOptions, quicShared *QUICConn) (net.Conn, error) {
@@ -226,32 +215,48 @@ func dialQUIC(serverAddrs []string, quicServer, quicServerName string, quicSkipV
 	} else {
 		sconn = &quicStreamOnlyConn{conn: conn, stream: stream}
 	}
+	_ = sconn.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
 	slot := SlotForProtection(prot)
-	w := bufio.NewWriterSize(sconn, protocol.BufSizeForConn(slot))
-	r := bufio.NewReaderSize(sconn, protocol.BufSizeForConn(slot))
-	if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
+	role, optsJSON := dexotePayload(token, prot)
+	pub := getDexoteServerPub()
+	if len(pub) == 0 {
 		_ = sconn.Close()
-		return nil, err
+		return nil, fmt.Errorf("dexote: server pubkey not configured (set dexoteServerPub)")
 	}
-	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
+	keys, _, err := dexote.ClientHandshake(sconn, pub, slot, dexote.ClientHelloPayload{
+		Role:  role,
+		Token: token,
+		Opts:  optsJSON,
+	})
+	if err != nil {
 		_ = sconn.Close()
+		return nil, fmt.Errorf("dexote quic handshake: %w", err)
+	}
+	wrapped := obfuscate.WrapAEADShaped(sconn, keys,
+		dexote.NewPoly(keys.Secret, slot, "tx"),
+		dexote.NewPoly(keys.Secret, slot, "rx"), dexotePadMax(prot),
+		buildAEADShapeHook(prot, slot))
+	r, w := newDexoteRW(wrapped, slot)
+	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
+		_ = wrapped.Close()
 		return nil, err
 	}
 	if needHopAck(prot) {
 		ack, err := protocol.ReadHopAck(r)
 		if err != nil {
-			_ = sconn.Close()
+			_ = wrapped.Close()
 			return nil, err
 		}
 		if ack.Status == 0 {
-			_ = sconn.Close()
+			_ = wrapped.Close()
 			return nil, fmt.Errorf("hop ack rejected: %s", ack.Reason)
 		}
 	}
+	_ = wrapped.SetDeadline(time.Time{})
 	if ownsConn {
 		setActiveVolterServerAddr(PickServerAddrForQUIC(serverAddrs, quicServer))
 	}
-	return &tunnelConn{Conn: sconn, r: r}, nil
+	return &tunnelConn{Conn: wrapped, r: r}, nil
 }
 
 func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, targetIP net.IP, targetPort uint16, token string, prot *config.ProtectionOptions) (net.Conn, error) {
@@ -282,29 +287,43 @@ func DialPeerRelayQUIC(addr, serverName string, quicSkipVerify bool, quicCertPin
 	sconn := newQUICStreamConn(conn, stream, closePC)
 	_ = sconn.SetDeadline(time.Now().Add(volterWireHandshakeTimeout))
 	slot := SlotForProtection(prot)
-	w := bufio.NewWriterSize(sconn, protocol.BufSizeForConn(slot))
-	r := bufio.NewReaderSize(sconn, protocol.BufSizeForConn(slot))
-	if err := tcpRelayPreamble(w, token, prot, slot); err != nil {
+	role, optsJSON := dexotePayload(token, prot)
+	pub := getDexoteServerPub()
+	if len(pub) == 0 {
 		_ = sconn.Close()
-		return nil, err
+		return nil, fmt.Errorf("dexote: server pubkey not configured (set dexoteServerPub)")
 	}
-	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
+	keys, _, err := dexote.ClientHandshake(sconn, pub, slot, dexote.ClientHelloPayload{
+		Role:  role,
+		Token: token,
+		Opts:  optsJSON,
+	})
+	if err != nil {
 		_ = sconn.Close()
+		return nil, fmt.Errorf("dexote peer quic handshake: %w", err)
+	}
+	wrapped := obfuscate.WrapAEADShaped(sconn, keys,
+		dexote.NewPoly(keys.Secret, slot, "tx"),
+		dexote.NewPoly(keys.Secret, slot, "rx"), dexotePadMax(prot),
+		buildAEADShapeHook(prot, slot))
+	r, w := newDexoteRW(wrapped, slot)
+	if err := protocol.WriteTcpConnect(w, targetIP, targetPort); err != nil {
+		_ = wrapped.Close()
 		return nil, err
 	}
 	if needHopAck(prot) {
 		ack, err := protocol.ReadHopAck(r)
 		if err != nil {
-			_ = sconn.Close()
+			_ = wrapped.Close()
 			return nil, err
 		}
 		if ack.Status == 0 {
-			_ = sconn.Close()
+			_ = wrapped.Close()
 			return nil, fmt.Errorf("hop ack rejected: %s", ack.Reason)
 		}
 	}
-	_ = sconn.SetDeadline(time.Time{})
-	return &tunnelConn{Conn: sconn, r: r}, nil
+	_ = wrapped.SetDeadline(time.Time{})
+	return &tunnelConn{Conn: wrapped, r: r}, nil
 }
 
 func needHopAck(prot *config.ProtectionOptions) bool {

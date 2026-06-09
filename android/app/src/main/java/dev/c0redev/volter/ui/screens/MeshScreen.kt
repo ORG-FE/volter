@@ -19,19 +19,18 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -65,6 +64,7 @@ import dev.c0redev.volter.ui.mesh.parseMeshStatusJson
 import dev.c0redev.volter.ui.components.VolterGlassDialogDefaults
 import dev.c0redev.volter.ui.components.StyledTextField
 import dev.c0redev.volter.ui.components.SectionCard
+import dev.c0redev.volter.ui.components.SectionTitle
 import dev.c0redev.volter.ui.components.PageHeader
 import dev.c0redev.volter.ui.qr.buildQrBitmap
 import java.io.File
@@ -189,7 +189,7 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                         selected = selected == it.name,
                         onClick = { selected = it.name },
                         label = { Text(it.name) },
-                        shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                        shape = RectangleShape,
                     )
                 }
             }
@@ -271,10 +271,8 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                 )
             }
 
-            Text(
+            SectionTitle(
                 text = stringResource(R.string.mesh_status_header),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 12.dp),
             )
 
@@ -305,13 +303,11 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                 }
             }
 
-            SectionCard(modifier = Modifier.padding(top = VolterSpacing.sectionGap)) {
+            SectionCard(
+                title = stringResource(R.string.mesh_nodes_section_title_fmt, parsed.meshNodes.size),
+                modifier = Modifier.padding(top = VolterSpacing.sectionGap),
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.mesh_nodes_section_title_fmt, parsed.meshNodes.size),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
                     if (parsed.meshNodes.isEmpty()) {
                         Text(
                             text = stringResource(R.string.mesh_nodes_empty),
@@ -364,12 +360,10 @@ fun MeshScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
 
 @Composable
 private fun MeshErrorBanner(text: String) {
-    OutlinedCard(
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
-        colors =
-            CardDefaults.outlinedCardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
-            ),
+    Surface(
+        shape = RectangleShape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -377,7 +371,7 @@ private fun MeshErrorBanner(text: String) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-            Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+            Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
     }
 }

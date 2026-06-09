@@ -104,6 +104,33 @@ func TestUdpFrameRoundtrip(t *testing.T) {
 	}
 }
 
+func TestUdpFrameExactPad(t *testing.T) {
+	for _, pad := range []int{0, 1, 32, 64, 100} {
+		f := UDPFrame{
+			AddrType: addrV4,
+			SrcPort:  4444,
+			DstIP:    net.ParseIP("1.2.3.4"),
+			DstPort:  443,
+			Payload:  []byte("shaped-frame-payload"),
+		}
+		var buf bytes.Buffer
+		w := bufio.NewWriter(&buf)
+		if err := WriteUDPFrameExactPad(w, f, pad); err != nil {
+			t.Fatalf("pad=%d write: %v", pad, err)
+		}
+		got, err := ReadUDPFrame(bufio.NewReader(&buf))
+		if err != nil {
+			t.Fatalf("pad=%d read: %v", pad, err)
+		}
+		if !bytes.Equal(got.Payload, f.Payload) {
+			t.Errorf("pad=%d payload mismatch", pad)
+		}
+		if got.DstPort != f.DstPort || !got.DstIP.Equal(f.DstIP) {
+			t.Errorf("pad=%d meta mismatch", pad)
+		}
+	}
+}
+
 func TestUdpFrameIPv6(t *testing.T) {
 	f := UDPFrame{
 		AddrType: addrV6,

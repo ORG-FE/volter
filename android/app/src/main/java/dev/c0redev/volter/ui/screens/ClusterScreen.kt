@@ -15,18 +15,17 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Lan
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -178,13 +177,8 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             }
 
             item {
-                SectionCard {
+                SectionCard(title = stringResource(R.string.cluster_route_mode)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            stringResource(R.string.cluster_route_mode),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -209,7 +203,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                             maxLines = 1,
                                         )
                                     },
-                                    shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                                    shape = RectangleShape,
                                 )
                             }
                         }
@@ -241,13 +235,8 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             }
 
             item {
-                SectionCard {
+                SectionCard(title = stringResource(R.string.mesh_nodes_section_title_fmt, parsed.meshNodes.size)) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = stringResource(R.string.mesh_nodes_section_title_fmt, parsed.meshNodes.size),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
                         if (parsed.meshNodes.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.mesh_nodes_empty),
@@ -265,13 +254,8 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             }
 
             item {
-                SectionCard {
+                SectionCard(title = stringResource(R.string.cluster_servers_title_fmt, parsed.clusterNodes.size)) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = stringResource(R.string.cluster_servers_title_fmt, parsed.clusterNodes.size),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
                         if (parsed.clusterNodes.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.cluster_servers_empty),
@@ -306,7 +290,7 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                         },
-                                        shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                                        shape = RectangleShape,
                                     )
                                 }
                             }
@@ -316,13 +300,8 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
             }
 
             item {
-                SectionCard {
+                SectionCard(title = stringResource(R.string.cluster_mesh_clients_title_fmt, parsed.clusterClientsLines.size)) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = stringResource(R.string.cluster_mesh_clients_title_fmt, parsed.clusterClientsLines.size),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                        )
                         Text(
                             text = stringResource(R.string.cluster_clients_source_fmt, parsed.clientsSource),
                             style = MaterialTheme.typography.labelSmall,
@@ -356,20 +335,21 @@ fun ClusterScreen(vm: ConnectionViewModel, contentPadding: PaddingValues) {
 
 @Composable
 private fun ErrorBanner(text: String) {
-    OutlinedCard(
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
-        colors =
-            CardDefaults.outlinedCardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
-            ),
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RectangleShape,
+        color = scheme.surface,
+        border = BorderStroke(1.dp, scheme.error),
+        tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-            Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+            Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = scheme.error)
+            Text(text, style = MaterialTheme.typography.bodySmall, color = scheme.error)
         }
     }
 }
@@ -458,7 +438,7 @@ private fun clusterRowHostPort(row: String): String {
 private fun canonicalClusterExit(raw: String): String {
     val s = raw.trim().substringBefore(" ").trim()
     if (s.isEmpty()) return ""
-    // strip http(s):// prefix if present
+
     val clean = when {
         s.startsWith("https://") -> s.removePrefix("https://")
         s.startsWith("http://") -> s.removePrefix("http://")

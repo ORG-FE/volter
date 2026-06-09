@@ -24,15 +24,15 @@ func InitState() error {
 		home = "/tmp"
 	}
 	stateFile = filepath.Join(home, ".volter-state.json")
-	
+
 	globalState = &State{}
-	
+
 	if data, err := os.ReadFile(stateFile); err == nil {
 		if err := json.Unmarshal(data, globalState); err != nil {
 			return err
 		}
 	}
-	
+
 	if globalState.Connected && globalState.PID > 0 {
 		pidPath := filepath.Join("/proc", strconv.Itoa(globalState.PID))
 		if _, err := os.Stat(pidPath); err != nil {
@@ -42,7 +42,7 @@ func InitState() error {
 			saveState()
 		}
 	}
-	
+
 	return nil
 }
 
@@ -52,7 +52,7 @@ func SetConnected(connected bool, profile string) {
 	}
 	globalState.mu.Lock()
 	defer globalState.mu.Unlock()
-	
+
 	globalState.Connected = connected
 	globalState.Profile = profile
 	if connected {
@@ -60,7 +60,7 @@ func SetConnected(connected bool, profile string) {
 	} else {
 		globalState.PID = 0
 	}
-	
+
 	saveState()
 }
 
@@ -82,12 +82,12 @@ func saveState() {
 	if globalState == nil || stateFile == "" {
 		return
 	}
-	
+
 	data, err := json.Marshal(globalState)
 	if err != nil {
 		return
 	}
-	
+
 	_ = os.WriteFile(stateFile, data, 0644)
 }
 

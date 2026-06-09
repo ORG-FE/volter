@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Lan
@@ -46,21 +46,14 @@ import dev.c0redev.volter.theme.VolterSpacing
 import dev.c0redev.volter.data.servergeo.serverHostFromField
 import dev.c0redev.volter.ui.ConfigItemState
 
-private fun pingTint(ms: Long?, failed: Boolean, scheme: androidx.compose.material3.ColorScheme): Color {
-    if (failed || ms == null) return scheme.errorContainer.copy(alpha = 0.45f)
-    return when {
-        ms < 85L -> scheme.tertiaryContainer.copy(alpha = 0.55f)
-        ms < 200L -> scheme.secondaryContainer.copy(alpha = 0.45f)
-        else -> scheme.errorContainer.copy(alpha = 0.38f)
-    }
-}
+private val pingGood = Color(0xFF6FAE6F)
 
 private fun pingLabelColor(ms: Long?, failed: Boolean, scheme: androidx.compose.material3.ColorScheme): Color {
-    if (failed || ms == null) return scheme.onErrorContainer
+    if (failed || ms == null) return scheme.error
     return when {
-        ms < 85L -> scheme.onTertiaryContainer
-        ms < 200L -> scheme.onSecondaryContainer
-        else -> scheme.onErrorContainer
+        ms < 85L -> pingGood
+        ms < 200L -> scheme.tertiary
+        else -> scheme.error
     }
 }
 
@@ -84,10 +77,10 @@ fun ConfigProfileCard(
     val hostLine = serverHostFromField(item.config.server)
     val geo = item.geo
 
-    val cardShape = RoundedCornerShape(VolterSpacing.glassRadius)
+    val cardShape = RectangleShape
     val borderColor = when {
-        isActive -> scheme.primary.copy(alpha = 0.5f)
-        else -> scheme.outlineVariant.copy(alpha = 0.38f)
+        isActive -> scheme.primary
+        else -> scheme.outlineVariant
     }
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -95,11 +88,7 @@ fun ConfigProfileCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = BorderStroke(1.dp, borderColor),
         colors = CardDefaults.cardColors(
-            containerColor = if (isActive) {
-                scheme.primary.copy(alpha = 0.12f)
-            } else {
-                scheme.surface.copy(alpha = 0.48f)
-            },
+            containerColor = scheme.surface,
         ),
     ) {
         Column(
@@ -116,8 +105,8 @@ fun ConfigProfileCard(
                 Box(
                     modifier = Modifier
                         .size(56.dp)
-                        .clip(RoundedCornerShape(VolterSpacing.chipRadius))
-                        .background(scheme.primaryContainer.copy(alpha = 0.8f)),
+                        .clip(RectangleShape)
+                        .background(scheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -171,9 +160,11 @@ fun ConfigProfileCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                val pingColor = pingLabelColor(item.pingMs, item.pingFailed, scheme)
                 Surface(
-                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
-                    color = pingTint(item.pingMs, item.pingFailed, scheme),
+                    shape = RectangleShape,
+                    color = Color.Transparent,
+                    border = BorderStroke(1.dp, pingColor),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -184,7 +175,7 @@ fun ConfigProfileCard(
                             Icons.Outlined.Speed,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = pingLabelColor(item.pingMs, item.pingFailed, scheme),
+                            tint = pingColor,
                         )
                         Text(
                             text = if (item.pingFailed || item.pingMs == null) {
@@ -194,57 +185,37 @@ fun ConfigProfileCard(
                             },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
-                            color = pingLabelColor(item.pingMs, item.pingFailed, scheme),
+                            color = pingColor,
                         )
                     }
                 }
-                AssistChipCompat(
+                Tag(
                     text = when {
                         item.probeUncertain -> stringResource(R.string.config_chip_probe_unknown)
                         item.probeOk -> stringResource(R.string.config_chip_probe_ok)
                         else -> stringResource(R.string.config_chip_probe_fail)
                     },
-                    ok = when {
-                        item.probeUncertain -> null
-                        item.probeOk -> true
-                        else -> false
+                    kind = when {
+                        item.probeUncertain -> TagKind.NEUTRAL
+                        item.probeOk -> TagKind.GOOD
+                        else -> TagKind.BAD
                     },
                 )
-                AssistChipCompat(
+                Tag(
                     text = when {
                         item.ipv6Uncertain -> stringResource(R.string.config_chip_ipv6_unknown)
                         item.ipv6Support -> stringResource(R.string.config_chip_ipv6_y)
                         else -> stringResource(R.string.config_chip_ipv6_n)
                     },
-                    ok = when {
-                        item.ipv6Uncertain -> null
-                        item.ipv6Support -> true
-                        else -> false
+                    kind = when {
+                        item.ipv6Uncertain -> TagKind.NEUTRAL
+                        item.ipv6Support -> TagKind.GOOD
+                        else -> TagKind.BAD
                     },
                 )
-                Surface(
-                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
-                    color = scheme.surfaceContainerHighest,
-                ) {
-                    Text(
-                        text = item.config.transportSummary(),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = scheme.onSurfaceVariant,
-                    )
-                }
+                Tag(text = item.config.transportSummary(), kind = TagKind.NEUTRAL)
                 if (item.serverMode.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
-                        color = scheme.surfaceContainerHighest,
-                    ) {
-                        Text(
-                            text = item.serverMode,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = scheme.onSurfaceVariant,
-                        )
-                    }
+                    Tag(text = item.serverMode, kind = TagKind.NEUTRAL)
                 }
             }
 
@@ -252,8 +223,9 @@ fun ConfigProfileCard(
                 if (isActive) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
-                        color = scheme.primary.copy(alpha = 0.22f),
+                        shape = RectangleShape,
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, scheme.primary),
                     ) {
                         Box(
                             modifier = Modifier
@@ -278,7 +250,7 @@ fun ConfigProfileCard(
                             onClick = onPrimary,
                             enabled = !primaryBusy,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) {
                             if (primaryBusy) {
                                 CircularProgressIndicator(
@@ -305,7 +277,7 @@ fun ConfigProfileCard(
                             FilledTonalButton(
                                 onClick = onImport,
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                                shape = RectangleShape,
                             ) {
                                 Text(importLabel)
                             }
@@ -321,8 +293,9 @@ fun ConfigProfileCard(
                     if (isActive) {
                         Surface(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
-                            color = scheme.primary.copy(alpha = 0.22f),
+                            shape = RectangleShape,
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, scheme.primary),
                         ) {
                             Box(
                                 modifier = Modifier
@@ -343,7 +316,7 @@ fun ConfigProfileCard(
                             onClick = onPrimary,
                             enabled = !primaryBusy,
                             modifier = Modifier.weight(1f, fill = true),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) {
                             if (primaryBusy) {
                                 CircularProgressIndicator(
@@ -376,7 +349,7 @@ fun ConfigProfileCard(
                     if (onEdit != null) {
                         FilledTonalButton(
                             onClick = onEdit,
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) {
                             Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.config_cd_edit))
                         }
@@ -392,7 +365,7 @@ fun ConfigProfileCard(
                     if (onShare != null) {
                         FilledTonalButton(
                             onClick = onShare,
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) {
                             Icon(Icons.Outlined.QrCode2, contentDescription = null)
                         }
@@ -400,32 +373,5 @@ fun ConfigProfileCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AssistChipCompat(text: String, ok: Boolean?) {
-    val scheme = MaterialTheme.colorScheme
-    val bg = when (ok) {
-        true -> scheme.tertiaryContainer.copy(alpha = 0.55f)
-        false -> scheme.errorContainer.copy(alpha = 0.35f)
-        null -> scheme.surfaceContainerHighest
-    }
-    val fg = when (ok) {
-        true -> scheme.onTertiaryContainer
-        false -> scheme.onErrorContainer
-        null -> scheme.onSurfaceVariant
-    }
-    Surface(
-        shape = RoundedCornerShape(VolterSpacing.controlRadius),
-        color = bg,
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            color = fg,
-        )
     }
 }

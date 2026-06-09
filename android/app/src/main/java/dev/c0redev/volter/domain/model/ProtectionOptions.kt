@@ -41,6 +41,10 @@ data class ProtectionOptions(
     val routeMode: String? = null,
     val routePlannerV2: Boolean = false,
     val relayRouteHops: List<String> = emptyList(),
+    val shaperEnabled: Boolean = false,
+    val shaperProfile: String? = null,
+    val shaperMaxOverheadPct: Int = 0,
+    val shaperMaxDelayMs: Int = 0,
 ) {
     fun applyClusterDefaults(): ProtectionOptions = copy(
         clusterMapPath = clusterMapPath?.takeIf { it.isNotBlank() } ?: "/volter/cluster-map.json",
@@ -104,6 +108,10 @@ data class ProtectionOptions(
             }
             j.put("relayRouteHops", a)
         }
+        if (shaperEnabled) j.put("shaperEnabled", true)
+        shaperProfile?.let { j.put("shaperProfile", it) }
+        if (shaperMaxOverheadPct != 0) j.put("shaperMaxOverheadPct", shaperMaxOverheadPct)
+        if (shaperMaxDelayMs != 0) j.put("shaperMaxDelayMs", shaperMaxDelayMs)
         return j
     }
 
@@ -159,6 +167,10 @@ data class ProtectionOptions(
                     }
                 }
             },
+            shaperEnabled = j.optBoolean("shaperEnabled", false),
+            shaperProfile = j.optNullableString("shaperProfile"),
+            shaperMaxOverheadPct = j.optInt("shaperMaxOverheadPct", 0),
+            shaperMaxDelayMs = j.optInt("shaperMaxDelayMs", 0),
         )
     }
 }

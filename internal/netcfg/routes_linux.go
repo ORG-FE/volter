@@ -36,14 +36,14 @@ func GetDefaultRoute() (DefaultRoute, error) {
 func AddBypass(serverIP net.IP, dr DefaultRoute) error {
 	ip := serverIP.String()
 	if serverIP.To4() != nil {
-		// IPv4 — обычный ip route, gateway совпадает по семейству.
+
 		ip += "/32"
 		if dr.Gateway != "" {
 			return run("ip", "route", "replace", ip, "via", dr.Gateway, "dev", dr.Dev)
 		}
 		return run("ip", "route", "replace", ip, "dev", dr.Dev)
 	}
-	// IPv6 — нужен ip -6 route, gateway обязан быть IPv6.
+
 	ip += "/128"
 	if dr.Gateway != "" && net.ParseIP(dr.Gateway).To4() == nil {
 		return run("ip", "-6", "route", "replace", ip, "via", dr.Gateway, "dev", dr.Dev)

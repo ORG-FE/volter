@@ -135,30 +135,6 @@ func streamObf(prot *config.ProtectionOptions, slot int64, udpMaxPad bool) (maxP
 	return
 }
 
-func WriteUDPChannelPreambleSlot(w *bufio.Writer, channelID byte, token string, prot *config.ProtectionOptions, slot int64) (maxPad int, err error) {
-	maxPad, prefixLen, jc, jmin, jmax, jstyle, flush := streamObf(prot, slot, true)
-	kind := resolvePreambleKind(prot, slot, token, jstyle)
-	if err = protocol.WritePreamble(w, kind, jc, jmin, jmax, flush, wrapFlushJitter(prot, func() { _ = w.Flush() })); err != nil {
-		return 0, err
-	}
-	if !strings.EqualFold(flush, "perChunk") {
-		_ = w.Flush()
-	}
-	var optsJSON []byte
-	if prot != nil {
-		enrichSessionOptions(prot, token)
-		optsJSON, _ = json.Marshal(prot)
-	}
-	if err = protocol.WriteHandshakeWithPrefixAndOptsSlot(w, protocol.RoleUDP(), channelID, token, prefixLen, optsJSON, slot); err != nil {
-		return 0, err
-	}
-	return maxPad, nil
-}
-
-func WriteUDPChannelPreamble(w *bufio.Writer, channelID byte, token string, prot *config.ProtectionOptions) (maxPad int, err error) {
-	return WriteUDPChannelPreambleSlot(w, channelID, token, prot, SlotForProtection(prot))
-}
-
 func tcpRelayPreamble(w *bufio.Writer, token string, prot *config.ProtectionOptions, slot int64) error {
 	_, prefixLen, jc, jmin, jmax, jstyle, flush := streamObf(prot, slot, false)
 	prefixLen += randInt(8, 24)
@@ -331,8 +307,7 @@ func protForServerRelayRoute(base *config.ProtectionOptions, relay *config.Relay
 func DialTunFlow(addrs []string, dst net.IP, dstPort uint16, token string, prot *config.ProtectionOptions, transport, quicServer, quicServerName string, quicSkipVerify bool, quicCertPinSHA256 string, quicTLSRoots *x509.CertPool, quicShared *QUICConn, dual bool, sel *DualPathSelector, pm *PathManager, allowPeerPath bool, relay *config.RelayOptions) (net.Conn, bool, bool, error) {
 	if prot != nil && strings.TrimSpace(prot.ClusterPreferredServer) != "" {
 		canonical := clusteraddr.CanonicalHostPort(strings.TrimSpace(prot.ClusterPreferredServer))
-		// if preferred server matches one of the entry server addresses,
-		// clear it and treat as direct — no bridge-to-self needed
+
 		if canonical != "" && clusteraddr.MatchPreferred(addrs, canonical) >= 0 {
 			clientlog.Trace("DialTunFlow clusterPreferredServer %q matches entry server %v, using direct mode", canonical, addrs)
 			p := *prot

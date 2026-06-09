@@ -509,6 +509,7 @@ func connectVPN(cfg config.Config, configName string, reconnectCount int, settin
 	opts := runOpts{
 		serverIP:          sip,
 		token:             cfg.Token,
+		dexoteServerPub:   cfg.DexoteServerPub,
 		transport:         cfg.Transport,
 		quicServer:        cfg.QuicServer,
 		quicServerName:    cfg.QuicServerName,

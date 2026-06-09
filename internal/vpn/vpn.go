@@ -14,16 +14,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"dev.c0redev.volter/internal/clientlog"
 	"dev.c0redev.volter/internal/config"
+	"dev.c0redev.volter/internal/dexote"
 	"dev.c0redev.volter/internal/ice"
-	"dev.c0redev.volter/internal/obfuscate"
 	"dev.c0redev.volter/internal/protocol"
 	"dev.c0redev.volter/internal/routeorch"
-	"dev.c0redev.volter/internal/sockprotect"
+	"dev.c0redev.volter/internal/shaper"
 	"dev.c0redev.volter/internal/telemetry"
 	"dev.c0redev.volter/internal/tunnel"
 
@@ -31,7 +30,9 @@ import (
 	"github.com/xjasonlyu/tun2socks/v2/core/adapter"
 	"github.com/xjasonlyu/tun2socks/v2/core/device"
 	"github.com/xjasonlyu/tun2socks/v2/core/device/fdbased"
+	coreopt "github.com/xjasonlyu/tun2socks/v2/core/option"
 	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
 func clusterPollHeaderKey(opt Options) string {
@@ -52,6 +53,7 @@ type Options struct {
 	TunFD             int
 	MTU               int
 	Token             string
+	DexoteServerPub   string
 	ServerAddrs       []string
 	Ready             func()
 	Device            device.Device
@@ -88,6 +90,17 @@ func Run(ctx context.Context, opt Options) error {
 	}()
 	opt.Protection = protectionWithMeshPolicy(opt.Protection, opt.Mesh)
 	opt.Protection = protectionWithManagedAuth(opt.Protection, opt.Managed)
+	if pub := strings.TrimSpace(opt.DexoteServerPub); pub != "" {
+		decoded, err := dexote.DecodePub(pub)
+		if err != nil {
+			return fmt.Errorf("dexote server pubkey: %w", err)
+		}
+		tunnel.SetDexoteServerPub(decoded)
+		clientlog.Info("vpn: dexote handshake enabled (server pubkey configured)")
+	} else {
+		tunnel.SetDexoteServerPub(nil)
+		clientlog.Warn("vpn: dexoteServerPub not set — Dexote handshake will fail")
+	}
 	if opt.Protection != nil {
 		tunnel.SetLiveRouteMode(opt.Protection.RouteMode)
 	} else {
@@ -217,6 +230,11 @@ func Run(ctx context.Context, opt Options) error {
 	st, err := core.CreateStack(&core.Config{
 		LinkEndpoint:     dev,
 		TransportHandler: h,
+		Options: []coreopt.Option{
+			coreopt.WithTCPModerateReceiveBuffer(true),
+			coreopt.WithTCPSendBufferSizeRange(tcp.MinBufferSize, 1<<20, tcp.MaxBufferSize),
+			coreopt.WithTCPReceiveBufferSizeRange(tcp.MinBufferSize, 1<<20, tcp.MaxBufferSize),
+		},
 	})
 	if err != nil {
 		udpMux.Close()
@@ -323,6 +341,7 @@ func newUDPMux(addrs []string, token string, n int, prot *config.ProtectionOptio
 			if prot != nil && prot.ShapeExpMeanMs > 0 {
 				uc.shapeExpMeanMs = prot.ShapeExpMeanMs
 			}
+			uc.shaper = buildShaper(prot, i)
 			clientlog.Traffic("vpn: udp ch %d  [%s]  %s", i, tunnel.VolterTunnelTag(transport, quicServer), volterTunnelCfg(transport, quicServer))
 			go uc.readLoop()
 			clientlog.OK("vpn: udp channel %d connected", i)
@@ -354,7 +373,7 @@ func (m *udpMux) Close() {
 		m.quicClose = nil
 	}
 	m.quicConn = nil
-	// clear assoc map to free retained references
+
 	m.assoc.Range(func(k, v interface{}) bool {
 		m.assoc.Delete(k)
 		return true
@@ -404,6 +423,7 @@ type udpChan struct {
 	shapeJitterMaxMs int
 	shapeExpMeanMs   int
 	shape            *tunnel.ByteBucket
+	shaper           *shaper.Shaper
 	mux              *udpMux
 	slot             int
 	token            string
@@ -414,6 +434,19 @@ type udpChan struct {
 	cb               func(protocol.UDPFrame)
 }
 
+func buildShaper(prot *config.ProtectionOptions, slot int) *shaper.Shaper {
+	if prot == nil || !prot.ShaperEnabled {
+		return nil
+	}
+	return shaper.New(shaper.Config{
+		Enabled:        true,
+		Profile:        prot.ShaperProfile,
+		MaxOverheadPct: prot.ShaperMaxOverheadPct,
+		MaxDelayMs:     prot.ShaperMaxDelayMs,
+		Seed:           uint64(slot + 1),
+	})
+}
+
 func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame), prot *config.ProtectionOptions, transport, quicServer string) (*udpChan, error) {
 	var last error
 	start := int(id) % len(addrs)
@@ -421,30 +454,22 @@ func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame
 	for round := 0; round < 3; round++ {
 		for i := 0; i < len(addrs); i++ {
 			a := addrs[(start+i)%len(addrs)]
-			c, err := dialTCP(a, token)
+			c, r, w, maxPad, err := tunnel.DialUDPChannelDexote(a, id, token, prot)
 			if err != nil {
 				last = err
 				continue
 			}
-			slot := tunnel.SlotForProtection(prot)
-			bufSize := protocol.BufSizeForConn(slot)
 			uc := &udpChan{
-				conn:  c,
-				r:     bufio.NewReaderSize(c, bufSize),
-				w:     bufio.NewWriterSize(c, bufSize),
-				stop:  make(chan struct{}),
-				cb:    cb,
-				slot:  int(id),
-				token: token,
-				prot:  prot,
+				conn:   c,
+				r:      r,
+				w:      w,
+				maxPad: maxPad,
+				stop:   make(chan struct{}),
+				cb:     cb,
+				slot:   int(id),
+				token:  token,
+				prot:   prot,
 			}
-			maxPad, err := tunnel.WriteUDPChannelPreambleSlot(uc.w, id, token, prot, slot)
-			if err != nil {
-				_ = c.Close()
-				last = err
-				continue
-			}
-			uc.maxPad = maxPad
 			if prot != nil && prot.BurstSmoothingMaxMs > 0 {
 				uc.burstSmoothMaxMs = prot.BurstSmoothingMaxMs
 			}
@@ -457,6 +482,7 @@ func newUDPChan(id byte, addrs []string, token string, cb func(protocol.UDPFrame
 			if prot != nil && prot.ShapeExpMeanMs > 0 {
 				uc.shapeExpMeanMs = prot.ShapeExpMeanMs
 			}
+			uc.shaper = buildShaper(prot, int(id))
 			clientlog.Traffic("vpn: udp ch %d  [%s]  server=%s  %s", id, tunnel.VolterTunnelTag(transport, quicServer), a, volterTunnelCfg(transport, quicServer))
 			go uc.readLoop()
 			return uc, nil
@@ -484,6 +510,18 @@ func (c *udpChan) Send(f protocol.UDPFrame) error {
 	defer c.mu.Unlock()
 	if c.shape != nil {
 		c.shape.WaitTake(len(f.Payload) + 96)
+	}
+	if c.shaper.Enabled() {
+
+		d := c.shaper.Next(len(f.Payload))
+		if d.Delay > 0 {
+			time.Sleep(d.Delay)
+		}
+		pad := 0
+		if d.TargetLen > len(f.Payload) {
+			pad = d.TargetLen - len(f.Payload)
+		}
+		return protocol.WriteUDPFrameExactPad(c.w, f, pad)
 	}
 	if c.shapeJitterMaxMs > 0 {
 		time.Sleep(time.Duration(frand.IntN(c.shapeJitterMaxMs+1)) * time.Millisecond)
@@ -636,7 +674,7 @@ func (h *handler) handleTCP(tc adapter.TCPConn) {
 	var sconn net.Conn
 	var r *bufio.Reader
 	dialProt := h.routeDirectiveProtection(dstIP, dstPort, time.Now())
-	// apply live clusterPreferredServer override from the runtime state
+
 	if live := tunnel.LiveClusterPreferredServerValue(); live != "" {
 		if dialProt == nil {
 			dialProt = &config.ProtectionOptions{ClusterPreferredServer: live}
@@ -713,30 +751,6 @@ func volterTunnelCfg(transport, quicServer string) string {
 		return fmt.Sprintf("transport=%s quicServer=%q", t, qs)
 	}
 	return fmt.Sprintf("transport=%s", t)
-}
-
-func dialTCP(addr string, token string) (net.Conn, error) {
-	d := net.Dialer{Timeout: 22 * time.Second, KeepAlive: 30 * time.Second}
-	if p := sockprotect.Protect; p != nil {
-		d.Control = func(network, address string, c syscall.RawConn) error {
-			var err error
-			e := c.Control(func(fd uintptr) {
-				err = p(fd)
-			})
-			if e != nil {
-				return e
-			}
-			return err
-		}
-	}
-	c, err := d.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	if tc, ok := c.(*net.TCPConn); ok {
-		_ = tc.SetNoDelay(true)
-	}
-	return obfuscate.WrapConn(c, token), nil
 }
 
 func (h *handler) isServerAddr(dstIP net.IP, dstPort uint16) bool {

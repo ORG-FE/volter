@@ -15,6 +15,8 @@ object ProtectionPresets {
         magicSplit = null,
         junkStyle = "random",
         flushPolicy = "once",
+        shaperEnabled = true,
+        shaperProfile = "web",
     )
 
     fun strict(): ProtectionOptions = ProtectionOptions(
@@ -32,6 +34,10 @@ object ProtectionPresets {
         flushPolicy = "once",
         preambleProfile = "rotate",
         preambleRotate = true,
+        shaperEnabled = true,
+        shaperProfile = "web",
+        shaperMaxOverheadPct = 80,
+        shaperMaxDelayMs = 40,
     )
 
     fun suggestFromMetrics(records: List<SessionRecord>): ProtectionOptions {

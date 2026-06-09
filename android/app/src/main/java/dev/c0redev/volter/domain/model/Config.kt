@@ -64,6 +64,7 @@ data class Config(
     val protection: ProtectionOptions? = null,
     val mesh: MeshConfig = MeshConfig(),
     val relay: RelayOptions? = null,
+    val dexoteServerPub: String? = null,
 ) {
     fun migratedLegacyRelayToMesh(): Config {
         if (mesh.enabled || relay == null || !relay.hasMeshProfileData()) return this
@@ -142,6 +143,7 @@ data class Config(
         protection?.let { j.put("protection", it.toJson()) }
         if (mesh != MeshConfig()) j.put("mesh", mesh.toJson())
         relay?.let { j.put("relay", it.toJson()) }
+        dexoteServerPub?.takeIf { it.isNotBlank() }?.let { j.put("dexoteServerPub", it) }
         return j
     }
 
@@ -195,6 +197,7 @@ data class Config(
                 protection = j.optJSONObject("protection")?.let { ProtectionOptions.fromJson(it) },
                 mesh = j.optJSONObject("mesh")?.let { MeshConfig.fromJson(it) } ?: MeshConfig(),
                 relay = j.optJSONObject("relay")?.let { RelayOptions.fromJson(it) },
+                dexoteServerPub = j.optString("dexoteServerPub", "").takeIf { it.isNotBlank() },
             )
             return cfg.migratedLegacyRelayToMesh()
         }
@@ -247,10 +250,14 @@ data class Config(
             val server = cfg.server.trim()
             val token = cfg.token.trim()
             if (server.isEmpty() || token.isEmpty()) return ""
-            val json =
-                "{\"s\":${JSONObject.quote(server)},\"k\":${JSONObject.quote(token)}}"
+            val pub = cfg.dexoteServerPub?.trim().orEmpty()
+            val sb = StringBuilder()
+            sb.append("{\"s\":").append(JSONObject.quote(server))
+            sb.append(",\"k\":").append(JSONObject.quote(token))
+            if (pub.isNotEmpty()) sb.append(",\"p\":").append(JSONObject.quote(pub))
+            sb.append("}")
             val b =
-                Base64.encodeToString(json.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+                Base64.encodeToString(sb.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
             return "volter://$b"
         }
 
@@ -324,7 +331,8 @@ data class Config(
             val qh = j.optString("qh", "").trim().takeIf { it.isNotEmpty() }
             val qp = j.optString("qp", "").trim().toIntOrNull()
             val quic = if (qh != null && qp != null && qp in 1..65535) quicHostPort(qh, qp) else null
-            return Config(server = server, token = token, quicServer = quic)
+            val dexotePub = j.optString("p", "").trim().takeIf { it.isNotEmpty() }
+            return Config(server = server, token = token, quicServer = quic, dexoteServerPub = dexotePub)
         }
 
         fun hostFromServer(server: String): String {

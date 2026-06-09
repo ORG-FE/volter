@@ -1,5 +1,7 @@
 package dev.c0redev.volter.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -85,7 +87,7 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
 
     LaunchedEffect(filtered.size, pinBottom) {
         if (pinBottom && filtered.isNotEmpty()) {
-            listState.animateScrollToItem(filtered.size - 1)
+            listState.scrollToItem(filtered.size - 1)
         }
     }
 
@@ -109,7 +111,7 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.logs_search_hint)) },
                     singleLine = true,
-                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                    shape = RectangleShape,
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -134,7 +136,7 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
                             selected = tagFilter == chip.key,
                             onClick = { tagFilter = chip.key },
                             label = { Text(stringResource(chip.labelRes)) },
-                            shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                            shape = RectangleShape,
                         )
                     }
                 }
@@ -172,7 +174,11 @@ fun LogsScreen(vm: ConnectionViewModel, padding: PaddingValues) {
             SectionCard(modifier = Modifier.weight(1f), expandHeight = true) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     itemsIndexed(

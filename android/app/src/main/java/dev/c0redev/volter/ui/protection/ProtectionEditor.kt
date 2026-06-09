@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
@@ -76,18 +76,18 @@ fun ProtectionEditor(
                     FilledTonalButton(
                         onClick = { applyPreset(ProtectionPresets.balanced()) },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                        shape = RectangleShape,
                     ) { Text(stringResource(R.string.protection_preset_balance)) }
                     FilledTonalButton(
                         onClick = { applyPreset(ProtectionPresets.strict()) },
                         modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                        shape = RectangleShape,
                     ) { Text(stringResource(R.string.protection_preset_strong)) }
                 }
                 FilledTonalButton(
                     onClick = { applyPreset(ProtectionPresets.suggestFromMetrics(metrics)) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                    shape = RectangleShape,
                 ) { Text(stringResource(R.string.protection_preset_auto)) }
             }
         }
@@ -140,6 +140,45 @@ fun ProtectionEditor(
                     selected = draft.flushPolicy,
                     onSelect = { set(draft.copy(flushPolicy = it)) },
                 )
+            }
+        }
+
+        SectionCard {
+            Column(verticalArrangement = Arrangement.spacedBy(VolterSpacing.sectionGap)) {
+                Text(stringResource(R.string.protection_shaper_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    stringResource(R.string.protection_shaper_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ToggleRow(
+                    title = stringResource(R.string.protection_shaper_enabled),
+                    checked = draft.shaperEnabled,
+                    onCheckedChange = { set(draft.copy(shaperEnabled = it)) },
+                )
+                if (draft.shaperEnabled) {
+                    Segmented(
+                        title = stringResource(R.string.protection_shaper_profile),
+                        options = listOf(
+                            "web" to stringResource(R.string.protection_shaper_profile_web),
+                            "video" to stringResource(R.string.protection_shaper_profile_video),
+                            "game" to stringResource(R.string.protection_shaper_profile_game),
+                            "bulk" to stringResource(R.string.protection_shaper_profile_bulk),
+                        ),
+                        selected = draft.shaperProfile,
+                        onSelect = { set(draft.copy(shaperProfile = it)) },
+                    )
+                    NumberRow(
+                        items = listOf(
+                            NumberItem(R.string.protection_shaper_overhead, draft.shaperOverhead, 0, 300) {
+                                set(draft.copy(shaperOverhead = it))
+                            },
+                            NumberItem(R.string.protection_shaper_delay, draft.shaperDelay, 0, 1000) {
+                                set(draft.copy(shaperDelay = it))
+                            },
+                        ),
+                    )
+                }
             }
         }
 
@@ -283,13 +322,13 @@ fun ProtectionEditor(
                         Button(
                             onClick = { onSave(draft.toOptions(value)) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                            shape = RectangleShape,
                         ) { Text(stringResource(R.string.protection_save)) }
                         if (onClear != null) {
                             OutlinedButton(
                                 onClick = onClear,
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                                shape = RectangleShape,
                             ) { Text(stringResource(R.string.protection_clear)) }
                         }
                     }
@@ -309,7 +348,7 @@ private fun Segmented(title: String, options: List<Pair<Boolean, String>>, selec
                 selected = selected == value,
                 onClick = { onSelect(value) },
                 label = { Text(label) },
-                shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                shape = RectangleShape,
             )
         }
     }
@@ -325,7 +364,7 @@ private fun Segmented(title: String, options: List<Pair<String, String>>, select
                 selected = selected == value,
                 onClick = { onSelect(value) },
                 label = { Text(label) },
-                shape = RoundedCornerShape(VolterSpacing.chipRadius),
+                shape = RectangleShape,
             )
         }
     }
@@ -397,6 +436,10 @@ private data class ProtectionDraft(
     val dpiOobData: Boolean = false,
     val dpiMultiSplit: Int = 0,
     val dpiLocalPreset: String = "",
+    val shaperEnabled: Boolean = false,
+    val shaperProfile: String = "web",
+    val shaperOverhead: Int = 0,
+    val shaperDelay: Int = 0,
 ) {
     fun clean(): ProtectionDraft {
         val jc = junkCount.coerceIn(0, 12)
@@ -425,6 +468,12 @@ private data class ProtectionDraft(
             dpiLeadInMs = dpiLeadInMs.coerceIn(0, 60_000),
             dpiTcpSegment = dpiTcpSegment.coerceIn(0, 65536),
             dpiMultiSplit = dpiMultiSplit.coerceIn(0, 10),
+            shaperProfile = when (shaperProfile) {
+                "web", "video", "game", "bulk" -> shaperProfile
+                else -> "web"
+            },
+            shaperOverhead = shaperOverhead.coerceIn(0, 300),
+            shaperDelay = shaperDelay.coerceIn(0, 1000),
         )
     }
 
@@ -484,6 +533,10 @@ private data class ProtectionDraft(
             dpiLocalEngine = engine,
             dpiLocalEmbedded = embOut,
             dpiLocalPreset = d.dpiLocalPreset.trim().takeIf { it.isNotEmpty() },
+            shaperEnabled = d.shaperEnabled,
+            shaperProfile = if (d.shaperEnabled) d.shaperProfile else null,
+            shaperMaxOverheadPct = d.shaperOverhead,
+            shaperMaxDelayMs = d.shaperDelay,
         )
     }
 
@@ -507,7 +560,7 @@ private data class ProtectionDraft(
             engineExternal = when {
                 p?.dpiLocalEngine.equals("external", ignoreCase = true) == true -> true
                 p?.dpiLocalEngine.equals("embedded", ignoreCase = true) == true -> false
-                !p?.dpiLocalPreset.isNullOrBlank() -> true // совместимость: пресет без явного embedded → внешний бинарник
+                !p?.dpiLocalPreset.isNullOrBlank() -> true
                 else -> false
             },
             dpiSplitAfter = p?.dpiLocalEmbedded?.splitAfter ?: 1,
@@ -525,6 +578,10 @@ private data class ProtectionDraft(
             dpiOobData = p?.dpiLocalEmbedded?.oobData ?: false,
             dpiMultiSplit = p?.dpiLocalEmbedded?.multiSplit ?: 0,
             dpiLocalPreset = p?.dpiLocalPreset ?: "",
+            shaperEnabled = p?.shaperEnabled ?: false,
+            shaperProfile = p?.shaperProfile?.ifBlank { null } ?: "web",
+            shaperOverhead = p?.shaperMaxOverheadPct ?: 0,
+            shaperDelay = p?.shaperMaxDelayMs ?: 0,
         ).clean()
     }
 }
@@ -546,6 +603,10 @@ private fun mergeQuickPreset(base: ProtectionOptions, p: ProtectionOptions): Pro
         flushPolicy = p.flushPolicy ?: base.flushPolicy,
         preambleProfile = if (strictLike) p.preambleProfile else (p.preambleProfile ?: base.preambleProfile),
         preambleRotate = if (strictLike) p.preambleRotate else base.preambleRotate,
+        shaperEnabled = p.shaperEnabled,
+        shaperProfile = p.shaperProfile ?: base.shaperProfile,
+        shaperMaxOverheadPct = p.shaperMaxOverheadPct,
+        shaperMaxDelayMs = p.shaperMaxDelayMs,
     )
 }
 

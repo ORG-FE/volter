@@ -54,9 +54,9 @@ type PeerUDPRelay struct {
 }
 
 type peerUDPState struct {
-    asm    peertransport.Assembler
-    sess   *peerUDPSession
-    lastSeen time.Time
+	asm      peertransport.Assembler
+	sess     *peerUDPSession
+	lastSeen time.Time
 }
 
 type peerUDPSession struct {

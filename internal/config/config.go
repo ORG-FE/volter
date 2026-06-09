@@ -34,6 +34,8 @@ type Config struct {
 	Protection    *ProtectionOptions `json:"protection,omitempty"`
 	Mesh          *MeshConfig        `json:"mesh,omitempty"`
 	Relay         *RelayOptions      `json:"relay,omitempty"`
+
+	DexoteServerPub string `json:"dexoteServerPub,omitempty"`
 }
 
 type ManagedClient struct {
@@ -143,6 +145,10 @@ type ProtectionOptions struct {
 	ShapeMaxKbps                int               `json:"shapeMaxKbps,omitempty"`
 	ShapeJitterMaxMs            int               `json:"shapeJitterMaxMs,omitempty"`
 	ShapeExpMeanMs              int               `json:"shapeExpMeanMs,omitempty"`
+	ShaperEnabled               bool              `json:"shaperEnabled,omitempty"`
+	ShaperProfile               string            `json:"shaperProfile,omitempty"`
+	ShaperMaxOverheadPct        int               `json:"shaperMaxOverheadPct,omitempty"`
+	ShaperMaxDelayMs            int               `json:"shaperMaxDelayMs,omitempty"`
 	ClusterHTTPKey              string            `json:"clusterHttpKey,omitempty"`
 	ClusterMapPath              string            `json:"clusterMapPath,omitempty"`
 	ClusterSessionsPath         string            `json:"clusterSessionsPath,omitempty"`
@@ -176,7 +182,7 @@ type DpiLocalEmbedded struct {
 	LeadInMs      int    `json:"leadInMs,omitempty"`
 	FakeSNI       bool   `json:"fakeSni"`
 	FakeSNIHost   string `json:"fakeSniHost"`
-	SplitPosition string `json:"splitPosition"` // "sni", "method", "host", "random"
+	SplitPosition string `json:"splitPosition"`
 	AutoTTL       bool   `json:"autoTtl"`
 	TCPSegment    int    `json:"tcpSegment"`
 	OOBData       bool   `json:"oobData"`
@@ -335,6 +341,8 @@ func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptio
 			PadS4:            48,
 			FlushJitterMaxMs: 18,
 			PreambleRotate:   true,
+			ShaperEnabled:    true,
+			ShaperProfile:    "web",
 			DpiLocalEngine:   "embedded",
 			DpiLocalEmbedded: &DpiLocalEmbedded{
 				SplitAfter:    4,
@@ -350,20 +358,24 @@ func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptio
 
 	case AntiDpiPresetAggressive:
 		p := &ProtectionOptions{
-			Obfuscation:         "enhanced",
-			JunkCount:           12,
-			JunkMin:             384,
-			JunkMax:             1536,
-			JunkStyle:           "tls",
-			FlushPolicy:         "perChunk",
-			PadS1:               64,
-			PadS2:               96,
-			PadS3:               128,
-			PadS4:               96,
-			FlushJitterMaxMs:    35,
-			BurstSmoothingMaxMs: 50,
-			PreambleRotate:      true,
-			DpiLocalEngine:      "embedded",
+			Obfuscation:          "enhanced",
+			JunkCount:            12,
+			JunkMin:              384,
+			JunkMax:              1536,
+			JunkStyle:            "tls",
+			FlushPolicy:          "perChunk",
+			PadS1:                64,
+			PadS2:                96,
+			PadS3:                128,
+			PadS4:                96,
+			FlushJitterMaxMs:     35,
+			BurstSmoothingMaxMs:  50,
+			PreambleRotate:       true,
+			ShaperEnabled:        true,
+			ShaperProfile:        "web",
+			ShaperMaxOverheadPct: 80,
+			ShaperMaxDelayMs:     40,
+			DpiLocalEngine:       "embedded",
 			DpiLocalEmbedded: &DpiLocalEmbedded{
 				SplitAfter:    3,
 				SplitAfter2:   7,
@@ -387,21 +399,25 @@ func ApplyAntiDpiPreset(preset AntiDpiPreset, transport string) *ProtectionOptio
 
 	case AntiDpiPresetParanoid:
 		p := &ProtectionOptions{
-			Obfuscation:         "enhanced",
-			JunkCount:           20,
-			JunkMin:             512,
-			JunkMax:             2048,
-			JunkStyle:           "tls",
-			FlushPolicy:         "perChunk",
-			PadS1:               128,
-			PadS2:               192,
-			PadS3:               256,
-			PadS4:               192,
-			FlushJitterMaxMs:    50,
-			BurstSmoothingMaxMs: 100,
-			ShapeJitterMaxMs:    80,
-			PreambleRotate:      true,
-			DpiLocalEngine:      "embedded",
+			Obfuscation:          "enhanced",
+			JunkCount:            20,
+			JunkMin:              512,
+			JunkMax:              2048,
+			JunkStyle:            "tls",
+			FlushPolicy:          "perChunk",
+			PadS1:                128,
+			PadS2:                192,
+			PadS3:                256,
+			PadS4:                192,
+			FlushJitterMaxMs:     50,
+			BurstSmoothingMaxMs:  100,
+			ShapeJitterMaxMs:     80,
+			PreambleRotate:       true,
+			ShaperEnabled:        true,
+			ShaperProfile:        "video",
+			ShaperMaxOverheadPct: 120,
+			ShaperMaxDelayMs:     60,
+			DpiLocalEngine:       "embedded",
 			DpiLocalEmbedded: &DpiLocalEmbedded{
 				SplitAfter:    2,
 				SplitAfter2:   5,
@@ -948,10 +964,13 @@ func ParseVoultKeyURI(raw string) (VoultKey, bool) {
 	return VoultKey{}, false
 }
 
-func BuildConnectionURI(server, token string) string {
+func BuildConnectionURI(server, token string, dexotePub ...string) string {
 	u := volterURI{
 		Server: strings.TrimSpace(server),
 		Token:  strings.TrimSpace(token),
+	}
+	if len(dexotePub) > 0 {
+		u.Pub = strings.TrimSpace(dexotePub[0])
 	}
 	if u.Server == "" || u.Token == "" {
 		return ""
@@ -966,31 +985,54 @@ func BuildConnectionURI(server, token string) string {
 type volterURI struct {
 	Server string `json:"s"`
 	Token  string `json:"k"`
+	Pub    string `json:"p,omitempty"`
 }
 
 func parseVolterURI(raw string) (server, token string, ok bool) {
+	s, t, _, ok := parseVolterURIPub(raw)
+	return s, t, ok
+}
+
+func parseVolterURIPub(raw string) (server, token, pub string, ok bool) {
 	if vk, ok := ParseVoultKeyURI(raw); ok {
 		for _, s := range vk.Servers {
 			s = strings.TrimSpace(s)
 			if isValidServerAddress(s) {
-				return s, vk.TransportToken, true
+				return s, vk.TransportToken, "", true
 			}
 		}
 	}
 	data, ok := decodeVolterPayload(raw)
 	if !ok {
-		return "", "", false
+		return "", "", "", false
 	}
 	var u volterURI
 	if err := json.Unmarshal(data, &u); err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	server = strings.TrimSpace(u.Server)
 	token = strings.TrimSpace(u.Token)
 	if server == "" || token == "" || !isValidServerAddress(server) {
-		return "", "", false
+		return "", "", "", false
 	}
-	return server, token, true
+	return server, token, strings.TrimSpace(u.Pub), true
+}
+
+func ParseConnectionConfig(s string) (Config, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return Config{}, false
+	}
+	if strings.HasPrefix(strings.ToLower(s), "volter://") {
+		if server, token, pub, ok := parseVolterURIPub(s); ok {
+			return Config{Server: server, Token: token, DexoteServerPub: pub}, true
+		}
+	}
+	server, token, ok := ParseConnection(s)
+	if !ok {
+		return Config{}, false
+	}
+	return Config{Server: server, Token: token}, true
 }
 
 func ConfigFromVoultKey(v VoultKey) Config {
