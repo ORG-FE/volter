@@ -1035,9 +1035,8 @@ final class ConnectionHandler implements Runnable {
         } else {
             log.info("handleTcp opts: EMPTY");
         }
-        byte[] upstreamPub = DexoteUpstream.upstreamPub();
         long upstreamSlot = Dexote.effectiveSlot(System.currentTimeMillis() / 1000L, 0);
-        if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientOut, copts, s, upstreamPub, upstreamSlot)) {
+        if (ClusterTcpExitBridge.maybeBridge(cfg, c, in, clientOut, copts, s, upstreamSlot)) {
 
             return;
         }

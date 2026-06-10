@@ -338,9 +338,8 @@ final class QuicServer implements AutoCloseable {
                 in,
                 out,
                 (connect, rest, copts2) -> {
-                  byte[] upPub = DexoteUpstream.upstreamPub();
                   long upSlot = Dexote.effectiveSlot(System.currentTimeMillis() / 1000L, 0);
-                  if (ClusterTcpExitBridge.maybeBridge(cfg, connect, rest, out, copts2, null, upPub, upSlot)) {
+                  if (ClusterTcpExitBridge.maybeBridge(cfg, connect, rest, out, copts2, null, upSlot)) {
                     return;
                   }
                   QuicTcpRelay.run(connect, rest, out, cfg.quicTcpConnectTimeoutMs());

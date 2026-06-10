@@ -59,7 +59,6 @@ final class ClusterTcpExitBridge {
       OutputStream clientOut,
       Optional<Protocol.ClientOptions> copts,
       Socket clientSocket,
-      byte[] upstreamPub,
       long slot)
       throws IOException {
     if (cfg == null || c == null || clientIn == null || clientOut == null) {
@@ -79,7 +78,7 @@ final class ClusterTcpExitBridge {
     pref = pref.trim();
     boolean strictExit = !cfg.clusterExitFallbackToDirect();
     ClusterRuntime rt = ClusterRuntime.get();
-    Optional<InetSocketAddress> resolved = rt.resolveClusterExitDialAddress(pref);
+    Optional<ClusterRuntime.ClusterExitTarget> resolved = rt.resolveClusterExit(pref);
     if (resolved.isEmpty()) {
       log.warning("cluster exit unresolved or not authorized: " + pref + " (strict=" + strictExit + ")");
       if (strictExit) {
@@ -87,7 +86,8 @@ final class ClusterTcpExitBridge {
       }
       return false;
     }
-    InetSocketAddress exitAddr = resolved.get();
+    InetSocketAddress exitAddr = resolved.get().addr;
+    byte[] upstreamPub = resolved.get().dexotePub;
     log.info("cluster exit resolved: " + exitAddr);
     int timeoutMs = Math.max(1_000, cfg.quicTcpConnectTimeoutMs());
     int readTimeoutMs = RelayCopy.relayReadTimeoutMs(timeoutMs);

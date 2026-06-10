@@ -41,6 +41,7 @@ public final class Main {
     Dexote.ReplayCache replayCache = new MemReplayCache();
 
     DexoteUpstream.setNodeDexotePub(dexoteKey.pub());
+    ClusterRuntime.get().setSelfDexotePub(dexoteKey.pubBase64());
     Log.setDebug(cfg.debug());
     Log.setQuicTrace(cfg.quicTraceLog());
     log = Log.logger(Main.class);

@@ -46,8 +46,13 @@ final class ClusterRuntime {
   private volatile boolean running;
   private volatile Thread worker;
   private volatile String lastStateDigest = "";
+  private volatile String selfDexotePub = "";
 
   private ClusterRuntime() {}
+
+  void setSelfDexotePub(String pubBase64) {
+    selfDexotePub = pubBase64 == null ? "" : pubBase64.trim();
+  }
 
   void start(Config cfg) {
     this.cfg = cfg;
@@ -75,7 +80,7 @@ final class ClusterRuntime {
       endpoint = "http://" + host.trim() + ":" + c.listenPorts().get(0);
       dhtRpc = selfDhtRpc(host, c.dhtRpcListenUdp());
     }
-    nodes.put(c.clusterNodeId(), new ClusterNode(c.clusterNodeId(), endpoint, dhtRpc, System.currentTimeMillis(), true));
+    nodes.put(c.clusterNodeId(), new ClusterNode(c.clusterNodeId(), endpoint, dhtRpc, selfDexotePub, System.currentTimeMillis(), true));
   }
 
   private String resolveSelfHost(Config c) {
@@ -169,6 +174,57 @@ final class ClusterRuntime {
   }
 
   Optional<InetSocketAddress> resolveClusterExitDialAddress(String hint) {
+    return resolveClusterExit(hint).map(t -> t.addr);
+  }
+
+ф  static final class ClusterExitTarget {
+    final InetSocketAddress addr;
+    final byte[] dexotePub;
+
+    ClusterExitTarget(InetSocketAddress addr, byte[] dexotePub) {
+      this.addr = addr;
+      this.dexotePub = dexotePub;
+    }
+  }
+
+  private Optional<byte[]> dexotePubForNode(String nodeId) {
+    ClusterNode n = nodes.get(nodeId);
+    if (n == null || n.dexotePub == null || n.dexotePub.isBlank()) {
+      return Optional.empty();
+    }
+    try {
+      byte[] dec = java.util.Base64.getDecoder().decode(n.dexotePub.trim());
+      if (dec.length != 32) {
+        return Optional.empty();
+      }
+      return Optional.of(dec);
+    } catch (IllegalArgumentException e) {
+      return Optional.empty();
+    }
+  }
+
+  private Optional<byte[]> dexotePubForAddress(InetSocketAddress want) {
+    for (String id : nodes.keySet()) {
+      ClusterNode node = nodes.get(id);
+      if (node == null || !node.alive) {
+        continue;
+      }
+      Optional<String> ohp = resolveVolterHttpHostPort(id);
+      if (ohp.isEmpty()) {
+        continue;
+      }
+      try {
+        InetSocketAddress known = ClusterTcpExitBridge.parseHostPort(ohp.get());
+        if (known.getPort() == want.getPort() && known.getAddress().equals(want.getAddress())) {
+          return dexotePubForNode(id);
+        }
+      } catch (Exception ignored) {
+      }
+    }
+    return Optional.empty();
+  }
+
+  Optional<ClusterExitTarget> resolveClusterExit(String hint) {
     if (hint == null || hint.isBlank()) {
       return Optional.empty();
     }
@@ -186,7 +242,12 @@ final class ClusterRuntime {
             log.info("cluster exit " + h + " resolved to self: " + addr + ", skip bridge");
             return Optional.empty();
           }
-          return Optional.of(addr);
+          Optional<byte[]> pub = dexotePubForNode(h);
+          if (pub.isEmpty()) {
+            log.warning("cluster exit " + h + " has no dexotePub in cluster map, skip bridge");
+            return Optional.empty();
+          }
+          return Optional.of(new ClusterExitTarget(addr, pub.get()));
         } catch (Exception e) {
           return Optional.empty();
         }
@@ -199,7 +260,12 @@ final class ClusterRuntime {
         return Optional.empty();
       }
       if (isAuthorizedClusterExit(h)) {
-        return Optional.of(addr);
+        Optional<byte[]> pub = dexotePubForAddress(addr);
+        if (pub.isEmpty()) {
+          log.warning("cluster exit " + h + " has no dexotePub in cluster map, skip bridge");
+          return Optional.empty();
+        }
+        return Optional.of(new ClusterExitTarget(addr, pub.get()));
       }
     } catch (Exception ignored) {
     }
@@ -251,6 +317,9 @@ final class ClusterRuntime {
       sb.append("\"endpoint\":\"").append(json(n.endpoint)).append("\",");
       if (n.dhtRpc != null && !n.dhtRpc.isBlank()) {
         sb.append("\"dhtRpc\":\"").append(json(n.dhtRpc)).append("\",");
+      }
+      if (n.dexotePub != null && !n.dexotePub.isBlank()) {
+        sb.append("\"dexotePub\":\"").append(json(n.dexotePub)).append("\",");
       }
       sb.append("\"ts\":").append(n.lastSeenMs).append(",");
       sb.append("\"alive\":").append(n.alive).append("}");
@@ -390,7 +459,7 @@ final class ClusterRuntime {
     for (Map.Entry<String, ClusterNode> e : nodes.entrySet()) {
       if (!normalizeEndpoint(e.getValue().endpoint).equals(want)) continue;
       ClusterNode n = e.getValue();
-      nodes.put(e.getKey(), new ClusterNode(n.nodeId, n.endpoint, n.dhtRpc, System.currentTimeMillis(), false));
+      nodes.put(e.getKey(), new ClusterNode(n.nodeId, n.endpoint, n.dhtRpc, n.dexotePub, System.currentTimeMillis(), false));
     }
   }
 
@@ -470,6 +539,7 @@ final class ClusterRuntime {
       String id = row.getOrDefault("id", "").trim();
       String endpoint = row.getOrDefault("endpoint", "").trim();
       String dhtRpc = row.getOrDefault("dhtRpc", "").trim();
+      String dexotePub = row.getOrDefault("dexotePub", "").trim();
       if (id.isEmpty()) continue;
       if (endpoint.isEmpty()) endpoint = "";
       long seen = now;
@@ -480,7 +550,7 @@ final class ClusterRuntime {
         } catch (NumberFormatException ignored) {
         }
       }
-      nodes.put(id, new ClusterNode(id, endpoint, dhtRpc, seen, true));
+      nodes.put(id, new ClusterNode(id, endpoint, dhtRpc, dexotePub, seen, true));
       merged++;
     }
     return merged;
@@ -516,10 +586,12 @@ final class ClusterRuntime {
       String id = jsonField(c, "id");
       String endpoint = jsonField(c, "endpoint");
       String dhtRpc = jsonField(c, "dhtRpc");
+      String dexotePub = jsonField(c, "dexotePub");
       String ts = jsonFieldLong(c, "ts");
       if (id != null) m.put("id", id);
       if (endpoint != null) m.put("endpoint", endpoint);
       if (dhtRpc != null) m.put("dhtRpc", dhtRpc);
+      if (dexotePub != null) m.put("dexotePub", dexotePub);
       if (ts != null) m.put("ts", ts);
       if (!m.isEmpty()) out.add(m);
     }
@@ -607,13 +679,15 @@ final class ClusterRuntime {
     final String nodeId;
     final String endpoint;
     final String dhtRpc;
+    final String dexotePub;
     final long lastSeenMs;
     final boolean alive;
 
-    ClusterNode(String nodeId, String endpoint, String dhtRpc, long lastSeenMs, boolean alive) {
+    ClusterNode(String nodeId, String endpoint, String dhtRpc, String dexotePub, long lastSeenMs, boolean alive) {
       this.nodeId = nodeId;
       this.endpoint = endpoint;
       this.dhtRpc = dhtRpc;
+      this.dexotePub = dexotePub == null ? "" : dexotePub;
       this.lastSeenMs = lastSeenMs;
       this.alive = alive;
     }
