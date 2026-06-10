@@ -1,10 +1,12 @@
 package dev.c0redev.volter.traffic
 
+import android.app.AppOpsManager
 import android.app.usage.NetworkStats
 import android.app.usage.NetworkStatsManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.os.Build
+import android.os.Process
 import androidx.annotation.RequiresApi
 import dev.c0redev.volter.VolterLog
 import org.json.JSONArray
@@ -29,6 +31,26 @@ object VpnTrafficRecorder {
     private const val FILE_NAME = "volter_traffic_pending.json"
 
     private fun pendingFile(ctx: Context): File = File(ctx.cacheDir, FILE_NAME)
+
+    @JvmStatic
+    fun hasUsageAccess(ctx: Context): Boolean {
+        val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ops.unsafeCheckOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                ctx.packageName,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            ops.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                ctx.packageName,
+            )
+        }
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
 
     @JvmStatic
     fun writePending(ctx: Context, startMs: Long, endMs: Long, mode: String) {
@@ -106,6 +128,16 @@ object VpnTrafficRecorder {
             val nsm = ctx.getSystemService(Context.NETWORK_STATS_SERVICE) as? NetworkStatsManager
             if (nsm == null) {
                 val msg = "NetworkStatsManager unavailable"
+                return@runCatching TrafficPending(
+                    rxBytes = null,
+                    txBytes = null,
+                    byApp = emptyList(),
+                    collectError = msg,
+                ) to msg
+            }
+
+            if (!hasUsageAccess(ctx)) {
+                val msg = "Usage Access not granted"
                 return@runCatching TrafficPending(
                     rxBytes = null,
                     txBytes = null,

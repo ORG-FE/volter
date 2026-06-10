@@ -146,6 +146,8 @@
     <string name="home_traffic_routes">Routes</string>
     <string name="home_traffic_excludes">Excludes</string>
     <string name="home_traffic_collect_err">Collection error</string>
+    <string name="home_traffic_usage_needed">Per-app traffic needs Usage Access</string>
+    <string name="home_traffic_grant_usage">Grant access</string>
     <string name="home_traffic_sessions">Sessions</string>
     <string name="home_traffic_last_profile">Profile</string>
     <string name="home_traffic_last_server">Server</string>

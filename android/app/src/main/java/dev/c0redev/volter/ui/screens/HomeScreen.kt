@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,7 +55,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
@@ -67,6 +75,7 @@ import dev.c0redev.volter.R
 import dev.c0redev.volter.domain.model.ProtectionOptions
 import dev.c0redev.volter.domain.model.SessionRecord
 import dev.c0redev.volter.theme.VolterSpacing
+import dev.c0redev.volter.traffic.VpnTrafficRecorder
 import dev.c0redev.volter.ui.ConnectionViewModel
 import dev.c0redev.volter.ui.components.MetricCell
 import dev.c0redev.volter.ui.components.MetricsTable
@@ -74,6 +83,7 @@ import dev.c0redev.volter.ui.components.PageHeader
 import dev.c0redev.volter.ui.components.SectionCard
 import dev.c0redev.volter.ui.components.Sparkline
 import dev.c0redev.volter.ui.components.StatusBar
+import dev.c0redev.volter.ui.components.runningBorder
 import java.time.Duration
 import java.time.Instant
 
@@ -105,6 +115,18 @@ fun HomeScreen(
     }
     val haptic = LocalHapticFeedback.current
     val clipboard = LocalClipboardManager.current
+    val ctx = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var usageAccess by remember { mutableStateOf(VpnTrafficRecorder.hasUsageAccess(ctx)) }
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                usageAccess = VpnTrafficRecorder.hasUsageAccess(ctx)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
     var prevReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(conn.ready) {
@@ -164,9 +186,10 @@ fun HomeScreen(
                 },
                 icon = Icons.Outlined.Home,
                 meta = if (conn.connected) stringResource(R.string.home_connected) else stringResource(R.string.home_no),
+                modifier = Modifier.runningBorder(conn.connected),
             )
 
-            SectionCard {
+            SectionCard(modifier = Modifier.runningBorder(conn.connected)) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -265,7 +288,9 @@ fun HomeScreen(
                                 vm.disconnect()
                             },
                             enabled = conn.connected,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .runningBorder(conn.connected),
                             shape = RoundedCornerShape(VolterSpacing.controlRadius),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -313,6 +338,7 @@ fun HomeScreen(
                             servers = local,
                             activeName = activeProfile,
                             connectingName = connectingName,
+                            connected = conn.connected,
                             onSelect = { name, cfg -> vm.connect(name, cfg) },
                         )
                     }
@@ -324,6 +350,25 @@ fun HomeScreen(
             routeMode = activeCfg?.protection?.routeMode?.ifBlank { "auto" } ?: "auto",
             profileName = activeProfile,
             canEditRoute = activeCfg != null && !activeProfile.isNullOrBlank(),
+            usageAccess = usageAccess,
+            onGrantUsage = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                runCatching {
+                    ctx.startActivity(
+                        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                            data = Uri.fromParts("package", ctx.packageName, null)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        },
+                    )
+                }.onFailure {
+                    runCatching {
+                        ctx.startActivity(
+                            Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                }
+            },
             onRouteMode = { mode ->
                 val name = activeProfile ?: return@TrafficRoutingCard
                 val cfg = local.firstOrNull { it.name == name }?.config ?: return@TrafficRoutingCard
@@ -454,6 +499,8 @@ private fun TrafficRoutingCard(
     routeMode: String,
     profileName: String?,
     canEditRoute: Boolean,
+    usageAccess: Boolean,
+    onGrantUsage: () -> Unit,
     onRouteMode: (String) -> Unit,
     onOpenProtection: () -> Unit,
     onOpenCluster: () -> Unit,
@@ -534,6 +581,26 @@ private fun TrafficRoutingCard(
                         label = stringResource(R.string.home_traffic_collect_err),
                         value = last.trafficCollectError ?: "",
                     )
+                }
+                if (!usageAccess) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.home_traffic_usage_needed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.tertiary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = onGrantUsage,
+                            shape = RoundedCornerShape(VolterSpacing.controlRadius),
+                        ) {
+                            Text(stringResource(R.string.home_traffic_grant_usage))
+                        }
+                    }
                 }
                 if (last.byApp.isNotEmpty()) {
                     Text(
@@ -787,6 +854,7 @@ private fun ServerPillRow(
     servers: List<dev.c0redev.volter.ui.ConfigItemState>,
     activeName: String?,
     connectingName: String?,
+    connected: Boolean,
     onSelect: (String, dev.c0redev.volter.domain.model.Config) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -808,6 +876,7 @@ private fun ServerPillRow(
         ) {
         servers.forEach { item ->
             val selected = item.name == activeName || item.name == connectingName
+            val active = connected && item.name == activeName
             Box(
                 modifier = Modifier
                     .size(width = 122.dp, height = 36.dp)
@@ -816,6 +885,7 @@ private fun ServerPillRow(
                         if (selected) MaterialTheme.colorScheme.primaryContainer
                         else MaterialTheme.colorScheme.surface,
                     )
+                    .runningBorder(active)
                     .clickable { onSelect(item.name, item.config) }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,

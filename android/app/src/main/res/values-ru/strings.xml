@@ -22,6 +22,8 @@
     <string name="home_traffic_routes">Маршруты</string>
     <string name="home_traffic_excludes">Исключения</string>
     <string name="home_traffic_collect_err">Ошибка сбора</string>
+    <string name="home_traffic_usage_needed">Трафик по приложениям требует доступа к статистике использования</string>
+    <string name="home_traffic_grant_usage">Дать доступ</string>
     <string name="home_traffic_sessions">Сессий</string>
     <string name="home_traffic_last_profile">Профиль</string>
     <string name="home_traffic_last_server">Сервер</string>

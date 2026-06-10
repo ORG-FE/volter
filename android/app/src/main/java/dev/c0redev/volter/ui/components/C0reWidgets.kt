@@ -112,34 +112,62 @@ fun Sparkline(
     lineColor: Color = MaterialTheme.colorScheme.primary,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val grid = scheme.outlineVariant
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
+            .height(48.dp)
             .background(scheme.background)
-            .border(width = 1.dp, color = scheme.outlineVariant, shape = RectangleShape)
-            .padding(4.dp),
+            .border(width = 1.dp, color = scheme.outline, shape = RectangleShape)
+            .padding(1.dp),
     ) {
+        val w = size.width
+        val h = size.height
+        // сетка 4x3 ы
+        val cols = 4
+        val rows = 3
+        for (i in 1 until cols) {
+            val x = w / cols * i
+            drawLine(grid, Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+        }
+        for (i in 1 until rows) {
+            val y = h / rows * i
+            drawLine(grid, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+        }
         if (values.size < 2) return@Canvas
         val maxV = values.max()
         val minV = values.min()
         val span = (maxV - minV).takeIf { it > 0f } ?: 1f
-        val w = size.width
-        val h = size.height
         val stepX = w / (values.size - 1)
-        val path = Path()
+        fun py(v: Float) = h - ((v - minV) / span) * (h - 2f) - 1f
+        val line = Path()
+        val fill = Path()
         values.forEachIndexed { i, v ->
             val x = stepX * i
-            val y = h - ((v - minV) / span) * h
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            val y = py(v)
+            if (i == 0) {
+                line.moveTo(x, y)
+                fill.moveTo(x, h)
+                fill.lineTo(x, y)
+            } else {
+                line.lineTo(x, y)
+                fill.lineTo(x, y)
+            }
         }
+        fill.lineTo(stepX * (values.size - 1), h)
+        fill.close()
+        drawPath(path = fill, color = lineColor.copy(alpha = 0.12f))
         drawPath(
-            path = path,
+            path = line,
             color = lineColor,
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f),
         )
         val lastX = stepX * (values.size - 1)
-        val lastY = h - ((values.last() - minV) / span) * h
-        drawCircle(color = lineColor, radius = 3f, center = Offset(lastX, lastY))
+        val lastY = py(values.last())
+        drawRect(
+            color = lineColor,
+            topLeft = Offset(lastX - 2f, lastY - 2f),
+            size = androidx.compose.ui.geometry.Size(4f, 4f),
+        )
     }
 }
