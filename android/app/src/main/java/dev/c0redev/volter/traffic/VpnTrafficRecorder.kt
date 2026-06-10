@@ -122,6 +122,54 @@ object VpnTrafficRecorder {
         return TrafficPending(rx, tx, apps, err)
     }
 
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    @Suppress("DEPRECATION")
+    private fun accumulateDetails(
+        nsm: NetworkStatsManager,
+        networkType: Int,
+        startMs: Long,
+        endMs: Long,
+        byUid: MutableMap<Int, LongArray>,
+    ): String? {
+        val stats = runCatching { nsm.queryDetails(networkType, null, startMs, endMs) }
+            .getOrElse { return it.message ?: "queryDetails threw" }
+            ?: return "null"
+        return runCatching {
+            stats.use { s ->
+                val b = NetworkStats.Bucket()
+                while (s.hasNextBucket()) {
+                    if (!s.getNextBucket(b)) break
+                    val uid = b.uid
+                    if (uid == NetworkStats.Bucket.UID_REMOVED || uid == NetworkStats.Bucket.UID_TETHERING) continue
+                    val arr = byUid.getOrPut(uid) { longArrayOf(0L, 0L) }
+                    arr[0] += b.rxBytes
+                    arr[1] += b.txBytes
+                }
+            }
+            null
+        }.getOrElse { it.message ?: "bucket read failed" }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    @Suppress("DEPRECATION")
+    private fun querySummaryTotals(
+        nsm: NetworkStatsManager,
+        startMs: Long,
+        endMs: Long,
+    ): Pair<Long, Long> {
+        var rx = 0L
+        var tx = 0L
+        for (type in intArrayOf(ConnectivityManager.TYPE_WIFI, ConnectivityManager.TYPE_MOBILE)) {
+            runCatching {
+                val b = nsm.querySummaryForDevice(type, null, startMs, endMs) ?: return@runCatching
+                rx += b.rxBytes
+                tx += b.txBytes
+            }
+        }
+        return rx to tx
+    }
+
     @RequiresApi(Build.VERSION_CODES.M)
     private fun collect(ctx: Context, startMs: Long, endMs: Long): Pair<TrafficPending, String?> {
         return runCatching {
@@ -144,36 +192,42 @@ object VpnTrafficRecorder {
                     byApp = emptyList(),
                     collectError = msg,
                 ) to msg
+
             }
 
-            var rxTotal = 0L
-            var txTotal = 0L
             val byUid = mutableMapOf<Int, LongArray>()
-
             @Suppress("DEPRECATION")
-            val stats = nsm.queryDetails(ConnectivityManager.TYPE_VPN, null, startMs, endMs)
-            if (stats == null) {
-                val msg = "NetworkStats queryDetails returned null"
-                return@runCatching TrafficPending(
-                    rxBytes = null,
-                    txBytes = null,
-                    byApp = emptyList(),
-                    collectError = msg,
-                ) to msg
+            val types = intArrayOf(
+                ConnectivityManager.TYPE_VPN,
+                ConnectivityManager.TYPE_WIFI,
+                ConnectivityManager.TYPE_MOBILE,
+            )
+            var queriedOk = false
+            val errs = mutableListOf<String>()
+            for (type in types) {
+                val r = accumulateDetails(nsm, type, startMs, endMs, byUid)
+                if (r == null) {
+                    queriedOk = true
+                } else {
+                    errs += "type$type:$r"
+                }
             }
 
-            stats.use { s ->
-                val b = NetworkStats.Bucket()
-                while (s.hasNextBucket()) {
-                    if (!s.getNextBucket(b)) break
-                    val uid = b.uid
-                    if (uid == NetworkStats.Bucket.UID_REMOVED || uid == NetworkStats.Bucket.UID_TETHERING) continue
-                    val arr = byUid.getOrPut(uid) { longArrayOf(0L, 0L) }
-                    arr[0] += b.rxBytes
-                    arr[1] += b.txBytes
-                    rxTotal += b.rxBytes
-                    txTotal += b.txBytes
-                }
+            var rxTotal = byUid.values.sumOf { it[0] }
+            var txTotal = byUid.values.sumOf { it[1] }
+
+            // если детализация недоступна, хотя бы суммарные по устройству за окно
+            if (rxTotal <= 0L && txTotal <= 0L) {
+                val (sumRx, sumTx) = querySummaryTotals(nsm, startMs, endMs)
+                rxTotal = sumRx
+                txTotal = sumTx
+            }
+
+            val collectErr = when {
+                byUid.isNotEmpty() -> null
+                rxTotal > 0L || txTotal > 0L -> null
+                !queriedOk && errs.isNotEmpty() -> "NetworkStats unavailable (${errs.joinToString(",")})"
+                else -> null
             }
 
             val pm = ctx.packageManager
@@ -196,8 +250,8 @@ object VpnTrafficRecorder {
                 rxBytes = rxTotal.takeIf { it > 0L },
                 txBytes = txTotal.takeIf { it > 0L },
                 byApp = rows,
-                collectError = null,
-            ) to null
+                collectError = collectErr,
+            ) to collectErr
         }.getOrElse { e ->
             TrafficPending(
                 rxBytes = null,

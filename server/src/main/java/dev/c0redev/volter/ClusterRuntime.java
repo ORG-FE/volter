@@ -177,7 +177,7 @@ final class ClusterRuntime {
     return resolveClusterExit(hint).map(t -> t.addr);
   }
 
-ф  static final class ClusterExitTarget {
+  static final class ClusterExitTarget {
     final InetSocketAddress addr;
     final byte[] dexotePub;
 
@@ -529,7 +529,8 @@ final class ClusterRuntime {
     }
   }
 
-  private int mergeFromJson(String raw) {
+
+  int mergeFromJson(String raw) {
     if (raw == null || raw.isBlank()) return 0;
     List<Map<String, String>> parsed = parseNodes(raw);
     long now = System.currentTimeMillis();
