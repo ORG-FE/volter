@@ -37,13 +37,14 @@ public final class Main {
     Path base = jarDir();
     Path cfgPath = base.resolve("config.properties");
     Config cfg = Config.load(cfgPath);
+    Log.setDebug(cfg.debug());
+    Log.setQuicTrace(cfg.quicTraceLog());
+
     DexoteServerKey dexoteKey = DexoteServerKey.loadOrCreate(base.resolve("dexote.key"));
     Dexote.ReplayCache replayCache = new MemReplayCache();
 
     DexoteUpstream.setNodeDexotePub(dexoteKey.pub());
     ClusterRuntime.get().setSelfDexotePub(dexoteKey.pubBase64());
-    Log.setDebug(cfg.debug());
-    Log.setQuicTrace(cfg.quicTraceLog());
     log = Log.logger(Main.class);
     if (cfg.quicTraceLog()) {
       log.info("quicTraceLog=true — UDP до codec, parent QUIC, Netty QUIC FINEST, токены");
