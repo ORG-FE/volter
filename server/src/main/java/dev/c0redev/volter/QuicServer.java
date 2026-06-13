@@ -9,12 +9,19 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollChannelOption;
+import io.netty.channel.epoll.EpollDatagramChannel;
+import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.buffer.Unpooled;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
+import io.netty.incubator.codec.quic.QuicCongestionControlAlgorithm;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
@@ -55,8 +62,8 @@ final class QuicServer implements AutoCloseable {
   private final ScheduledExecutorService handshakeTimers =
       Executors.newSingleThreadScheduledExecutor();
 
-  private final NioEventLoopGroup group = new NioEventLoopGroup(0);
-  private Channel channel;
+  private EventLoopGroup group;
+  private final java.util.List<Channel> channels = new java.util.ArrayList<>();
 
   private final QuicParentHandler quicParentHandler = new QuicParentHandler();
   private final QuicStreamChannelInit quicStreamChannelInit = new QuicStreamChannelInit();
@@ -98,14 +105,18 @@ final class QuicServer implements AutoCloseable {
 
       maxBi = 4096;
     }
-    long streamWin = Math.min(16_000_000L, 1_200_000L + (long) maxBi * 80_000L);
+    long streamWin = cfg.quicStreamWindowBytes() > 0
+        ? cfg.quicStreamWindowBytes()
+        : Math.min(16_000_000L, 1_200_000L + (long) maxBi * 80_000L);
     long connWin = Math.min(120_000_000L, streamWin * maxBi);
     long idleMs = cfg.quicIdleTimeoutMs();
     if (idleMs <= 0) idleMs = TimeUnit.MINUTES.toMillis(15);
-    ChannelHandler codec = new QuicServerCodecBuilder()
+    QuicCongestionControlAlgorithm cc = parseCongestionControl(cfg.quicCongestionControl());
+    QuicServerCodecBuilder codecBuilder = new QuicServerCodecBuilder()
         .sslContext(sslContext)
         .maxIdleTimeout(idleMs, TimeUnit.MILLISECONDS)
         .activeMigration(false)
+        .congestionControlAlgorithm(cc)
         .initialMaxStreamsBidirectional(maxBi)
         .initialMaxStreamsUnidirectional(0)
         .initialMaxData(connWin)
@@ -115,37 +126,79 @@ final class QuicServer implements AutoCloseable {
             ? new VolterHmacRetryTokenHandler(cfg.token())
             : VolterNoRetryTokenHandler.INSTANCE)
         .handler(quicParentHandler)
-        .streamHandler(quicStreamChannelInit).build();
-
-    Bootstrap bs = new Bootstrap().group(group)
-        .channel(NioDatagramChannel.class)
-        .option(ChannelOption.SO_REUSEADDR, true);
-    if (cfg.quicTraceLog()) {
-      bs.handler(new ChannelInitializer<NioDatagramChannel>() {
-        @Override
-        protected void initChannel(NioDatagramChannel ch) {
-          ch.pipeline().addLast("quic-udp-trace", new QuicDatagramTraceHandler(log));
-          ch.pipeline().addLast("quic-pipeline-log", new LoggingHandler("quic-udp", LogLevel.DEBUG));
-          ch.pipeline().addLast(codec);
-        }
-      });
-    } else {
-      bs.handler(codec);
+        .streamHandler(quicStreamChannelInit);
+    if (cfg.quicInitialCwndPackets() > 0) {
+      codecBuilder.initialCongestionWindowPackets(cfg.quicInitialCwndPackets());
     }
-    channel = bs.bind(new InetSocketAddress(cfg.quicListenPort())).sync().channel();
-    log.info("QUIC listening on : " + cfg.quicListenPort() + " maxIdleTimeoutMs=" + idleMs);
+
+    boolean useEpoll = Epoll.isAvailable();
+    int cores = Math.max(1, Runtime.getRuntime().availableProcessors());
+    int channelCount = useEpoll ? cores : 1;
+    Class<? extends io.netty.channel.socket.DatagramChannel> channelClass;
+    if (useEpoll) {
+      group = new EpollEventLoopGroup(channelCount);
+      channelClass = EpollDatagramChannel.class;
+    } else {
+      group = new NioEventLoopGroup(0);
+      channelClass = NioDatagramChannel.class;
+      log.warning("QUIC: epoll unavailable (" + Epoll.unavailabilityCause() + "), fallback to single NIO datagram channel");
+    }
+
+    InetSocketAddress bindAddr = new InetSocketAddress(cfg.quicListenPort());
+    for (int i = 0; i < channelCount; i++) {
+      ChannelHandler codec = codecBuilder.clone().build();
+      Bootstrap bs = new Bootstrap().group(group)
+          .channel(channelClass)
+          .option(ChannelOption.SO_REUSEADDR, true)
+          .option(ChannelOption.SO_RCVBUF, 8 * 1024 * 1024)
+          .option(ChannelOption.SO_SNDBUF, 8 * 1024 * 1024)
+          .option(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(64 * 1024))
+          .option(ChannelOption.MAX_MESSAGES_PER_READ, 256);
+      if (useEpoll) {
+        bs.option(EpollChannelOption.SO_REUSEPORT, true);
+      }
+      if (cfg.quicTraceLog()) {
+        bs.handler(new ChannelInitializer<io.netty.channel.Channel>() {
+          @Override
+          protected void initChannel(io.netty.channel.Channel ch) {
+            ch.pipeline().addLast("quic-udp-trace", new QuicDatagramTraceHandler(log));
+            ch.pipeline().addLast("quic-pipeline-log", new LoggingHandler("quic-udp", LogLevel.DEBUG));
+            ch.pipeline().addLast(codec);
+          }
+        });
+      } else {
+        bs.handler(codec);
+      }
+      channels.add(bs.bind(bindAddr).sync().channel());
+    }
+    log.info("QUIC listening on : " + cfg.quicListenPort() + " maxIdleTimeoutMs=" + idleMs
+        + " transport=" + (useEpoll ? "epoll x" + channelCount + " (SO_REUSEPORT)" : "nio")
+        + " cc=" + cc);
+  }
+
+  private static QuicCongestionControlAlgorithm parseCongestionControl(String name) {
+    if (name == null) return QuicCongestionControlAlgorithm.BBR;
+    switch (name.trim().toLowerCase()) {
+      case "cubic": return QuicCongestionControlAlgorithm.CUBIC;
+      case "reno": return QuicCongestionControlAlgorithm.RENO;
+      case "bbr":
+      default: return QuicCongestionControlAlgorithm.BBR;
+    }
   }
 
   @Override
   public void close() {
     advertisedQuicLeafPin = null;
+    for (Channel ch : channels) {
+      try {
+        ch.close().syncUninterruptibly();
+      } catch (Exception ignored) {}
+    }
+    channels.clear();
     try {
-      if (channel != null) channel.close().syncUninterruptibly();
-    } catch (Exception ignored) {}
-    try {
-      group.shutdownGracefully(0, 8, TimeUnit.SECONDS).syncUninterruptibly();
+      if (group != null) group.shutdownGracefully(0, 8, TimeUnit.SECONDS).syncUninterruptibly();
     } catch (Exception e) {
-      group.shutdownGracefully();
+      if (group != null) group.shutdownGracefully();
     }
     try {
       handshakeTimers.shutdownNow();

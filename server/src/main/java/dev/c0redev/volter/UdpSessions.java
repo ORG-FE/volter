@@ -134,7 +134,7 @@ final class UdpSessions implements AutoCloseable {
                                 buf.get(payload);
                                 s.touch();
                                 if (s.writer != null) {
-                                    boolean queued = s.writer.send(
+                                    boolean queued = s.writer.trySend(
                                         new Protocol.UdpFrame(
                                             s.key.addrType,
                                             s.key.srcPort,
@@ -143,7 +143,7 @@ final class UdpSessions implements AutoCloseable {
                                             payload
                                         )
                                     );
-                                    if (!queued) {
+                                    if (!queued && s.writer.isClosed()) {
                                         closeSession(s.key, s);
                                         break;
                                     }
@@ -290,7 +290,6 @@ public static final class UdpChannelWriter implements AutoCloseable {
     private final Protocol.ClientOptions opts;
     private static final int MAX_QUEUE_FRAMES = 2048;
     private static final long MAX_QUEUE_BYTES = 8L * 1024 * 1024;
-    private static final long ENQUEUE_TIMEOUT_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
     private final LinkedBlockingQueue<QueuedFrame> q =
         new LinkedBlockingQueue<>(MAX_QUEUE_FRAMES);
     private final AtomicLong queuedBytes = new AtomicLong();
@@ -319,51 +318,28 @@ public static final class UdpChannelWriter implements AutoCloseable {
         this.future = writerPool.submit(this::loop);
     }
 
-        private static final Logger writerLog = Log.logger(UdpChannelWriter.class);
+        boolean isClosed() {
+            return closed.get();
+        }
 
-        boolean send(Protocol.UdpFrame f) {
+        boolean trySend(Protocol.UdpFrame f) {
             if (closed.get()) return false;
             long frameBytes = queuedBytes(f);
             if (!reserveBytes(frameBytes)) {
-                writerLog.warning("udp writer id=" + id + " queue bytes full (" + queuedBytes.get() + "/" + MAX_QUEUE_BYTES + "), closing writer");
-                close();
                 return false;
             }
-            QueuedFrame item = new QueuedFrame(f, frameBytes);
-            boolean queued = false;
-            try {
-                queued = q.offer(item, ENQUEUE_TIMEOUT_NANOS, TimeUnit.NANOSECONDS);
-                if (!queued) {
-                    writerLog.warning("udp writer id=" + id + " queue frames full (" + q.size() + "/" + MAX_QUEUE_FRAMES + "), closing writer");
-                    close();
-                }
-                return queued;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                close();
-                return false;
-            } finally {
-                if (!queued) {
-                    releaseBytes(frameBytes);
-                }
+            boolean queued = q.offer(new QueuedFrame(f, frameBytes));
+            if (!queued) {
+                releaseBytes(frameBytes);
             }
+            return queued;
         }
 
         private boolean reserveBytes(long frameBytes) {
-            long deadline = System.nanoTime() + ENQUEUE_TIMEOUT_NANOS;
             while (!closed.get()) {
                 long current = queuedBytes.get();
-                if (current + frameBytes <= MAX_QUEUE_BYTES) {
-                    if (queuedBytes.compareAndSet(current, current + frameBytes)) return true;
-                    continue;
-                }
-                if (System.nanoTime() >= deadline) return false;
-                try {
-                    TimeUnit.MILLISECONDS.sleep(1);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
+                if (current + frameBytes > MAX_QUEUE_BYTES) return false;
+                if (queuedBytes.compareAndSet(current, current + frameBytes)) return true;
             }
             return false;
         }

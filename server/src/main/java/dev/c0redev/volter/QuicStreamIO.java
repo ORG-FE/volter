@@ -69,7 +69,11 @@ final class QuicStreamIO {
             return -1;
           }
           cur = next;
-          onSpace.run();
+          // гистерезис: будим чтение только когда буфер опустел ниже low watermark,
+          // а не на каждый чанк
+          if (ring.belowLowWatermark()) {
+            onSpace.run();
+          }
         }
         int n = Math.min(l, cur.length - off);
         System.arraycopy(cur, off, b, o, n);

@@ -50,6 +50,7 @@ final class SessionHandler {
       ExecutorService udpOffloadExecutor
   ) throws IOException {
     String managedClientId = "";
+    String managedDeviceId = "";
     String routeId = hr.opts().map(Protocol.ClientOptions::routeId).orElse("");
     int hopIndex = hr.opts().map(Protocol.ClientOptions::hopIndex).orElse(0);
     int requestedObfs = hr.opts().map(Protocol.ClientOptions::probeObfsProfileId).orElse(0);
@@ -57,7 +58,12 @@ final class SessionHandler {
     if (hr.opts().isPresent()) {
       Protocol.ClientOptions o = hr.opts().get();
       if (!o.managedClientId().isBlank()) {
+        boolean mok = ControlRuntime.verifyManaged(o.managedClientId(), o.managedDeviceId(), o.managedNonce(), o.managedTsSec(), o.managedSig());
+        if (!mok) {
+          throw new IOException("managed client rejected");
+        }
         managedClientId = o.managedClientId();
+        managedDeviceId = o.managedDeviceId();
       }
       if (!o.sessionId().isBlank() && !o.resumeToken().isBlank()) {
         boolean ok = SessionResumeRegistry.get().accept(o.sessionId(), o.resumeToken(), remote, cfg.clusterNodeId());
@@ -72,7 +78,8 @@ final class SessionHandler {
     InputStream meteredIn = managedClientId.isBlank() ? in : new CountingInputStream(in, txBytes);
     OutputStream meteredOut = managedClientId.isBlank() ? out : new CountingOutputStream(out, rxBytes);
     String trafficClientId = managedClientId;
-    String sessionId = "";
+    String trafficDeviceId = managedDeviceId;
+    String sessionId = trafficClientId.isBlank() ? "" : ControlRuntime.startSession(trafficClientId, trafficDeviceId, cfg.clusterNodeId(), roleName(hs.role()), remote);
     String pid = hr.opts().map(Protocol.ClientOptions::peerId).orElse("");
     ClusterClientRegistry.get().touch(cfg.clusterNodeId(), remote, pid, hs.role());
     if (hs.role() == Protocol.ROLE_UDP) {
@@ -197,9 +204,18 @@ final class SessionHandler {
   }
 
   private static void finishTrafficSession(String clientId, String sessionId, AtomicLong rxBytes, AtomicLong txBytes) {
+    if (clientId == null || clientId.isBlank()) return;
+    long rx = rxBytes != null ? rxBytes.getAndSet(0) : 0;
+    long tx = txBytes != null ? txBytes.getAndSet(0) : 0;
+    if (rx > 0 || tx > 0) ControlRuntime.addTraffic(clientId, rx, tx);
+    ControlRuntime.endSession(sessionId, rx, tx);
+  }
 
-    if (rxBytes != null) rxBytes.set(0);
-    if (txBytes != null) txBytes.set(0);
+  private static String roleName(byte role) {
+    if (role == Protocol.ROLE_TCP) return "tcp";
+    if (role == Protocol.ROLE_UDP) return "udp";
+    if (role == Protocol.ROLE_RELAY_TCP) return "relay-tcp";
+    return "unknown";
   }
 
   private static final class CountingInputStream extends FilterInputStream {

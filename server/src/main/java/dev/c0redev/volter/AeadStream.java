@@ -86,9 +86,11 @@ final class AeadStream {
     byte[] lp = new byte[] {(byte) (encData.length >> 8), (byte) encData.length};
     byte[] encLen = Dexote.seal(keys.txLenKey, nonce12(txNL++), null, lp);
 
-    out.write(encLen);
-    out.write(encData);
-    out.flush();
+    // один write на фрейм: для QUIC-sink это одна датаграмма вместо двух
+    byte[] frame = new byte[encLen.length + encData.length];
+    System.arraycopy(encLen, 0, frame, 0, encLen.length);
+    System.arraycopy(encData, 0, frame, encLen.length, encData.length);
+    out.write(frame);
   }
 
   InputStream wrapInput(InputStream in) {

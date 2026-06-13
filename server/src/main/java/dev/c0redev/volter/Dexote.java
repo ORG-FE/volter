@@ -33,6 +33,16 @@ final class Dexote {
 
   private static final SecureRandom RND = new SecureRandom();
 
+  // Cipher.getInstance делает дорогой JCA-lookup провайдера; на горячем пути
+  // (seal/open на каждый пакет) кэшируем инстанс per-thread, init() сбрасывает состояние
+  private static final ThreadLocal<Cipher> CHACHA = ThreadLocal.withInitial(() -> {
+    try {
+      return Cipher.getInstance("ChaCha20-Poly1305");
+    } catch (Exception e) {
+      throw new IllegalStateException("ChaCha20-Poly1305 unavailable", e);
+    }
+  });
+
   static byte[] slotBytes(long slot) {
     byte[] b = new byte[8];
     for (int i = 7; i >= 0; i--) {
@@ -115,7 +125,7 @@ final class Dexote {
 
   static byte[] seal(byte[] key, byte[] nonce, byte[] ad, byte[] pt) throws IOException {
     try {
-      Cipher c = Cipher.getInstance("ChaCha20-Poly1305");
+      Cipher c = CHACHA.get();
       c.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "ChaCha20"), new IvParameterSpec(nonce));
       if (ad != null) c.updateAAD(ad);
       return c.doFinal(pt);
@@ -126,7 +136,7 @@ final class Dexote {
 
   static byte[] open(byte[] key, byte[] nonce, byte[] ad, byte[] ct) throws IOException {
     try {
-      Cipher c = Cipher.getInstance("ChaCha20-Poly1305");
+      Cipher c = CHACHA.get();
       c.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "ChaCha20"), new IvParameterSpec(nonce));
       if (ad != null) c.updateAAD(ad);
       return c.doFinal(ct);

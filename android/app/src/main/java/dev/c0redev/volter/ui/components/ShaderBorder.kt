@@ -13,7 +13,6 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.ShaderBrush
 
-// бегущий зелёный курсор по периметру рамки, stable-индикатор активного соединения
 private const val RUNNING_BORDER_SRC = """
 uniform float2 u_res;
 uniform float  u_time;
@@ -67,14 +66,12 @@ half4 main(float2 frag) {
 }
 """
 
-// рисует анимированную рамку поверх контента, пока active == true
 fun Modifier.runningBorder(active: Boolean): Modifier = composed {
     if (!active) return@composed this
 
     val shader = remember { RuntimeShader(RUNNING_BORDER_SRC) }
     val brush = remember { ShaderBrush(shader) }
     val transition = rememberInfiniteTransition(label = "runningBorder")
-    // время в секундах, период кратен 2с (циклу курсора), шов незаметен
     val time by transition.animateFloat(
         initialValue = 0f,
         targetValue = 120f,

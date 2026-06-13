@@ -529,8 +529,7 @@ final class ClusterRuntime {
     }
   }
 
-
-  int mergeFromJson(String raw) {
+  private int mergeFromJson(String raw) {
     if (raw == null || raw.isBlank()) return 0;
     List<Map<String, String>> parsed = parseNodes(raw);
     long now = System.currentTimeMillis();
